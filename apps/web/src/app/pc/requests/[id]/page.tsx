@@ -14,6 +14,10 @@ import { QualityReportCard } from '@/components/quality-report-card';
 import { AssignmentPanel } from './assignment-panel';
 import { ReviewPanel } from './review-panel';
 
+// Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
+// for the rationale (Next.js production-build RSC caching vs revalidatePath).
+export const dynamic = 'force-dynamic';
+
 export default async function PCRequestDetail({ params }: { params: { id: string } }) {
   const request = await prisma.handoutRequest.findUnique({
     where: { id: params.id },

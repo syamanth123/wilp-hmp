@@ -75,6 +75,7 @@ async function main() {
     { email: 'faculty.off2@hmp.local', name: 'Off-Campus Faculty Two', role: RoleName.FACULTY, facultyType: FacultyType.OFF_CAMPUS },
     { email: 'faculty.adj@hmp.local', name: 'Adjunct Faculty', role: RoleName.FACULTY, facultyType: FacultyType.ADJUNCT },
     { email: 'faculty.guest@hmp.local', name: 'Guest Faculty', role: RoleName.FACULTY, facultyType: FacultyType.GUEST },
+    { email: 'sme@hmp.local', name: 'Subject Matter Expert', role: RoleName.SME },
   ];
 
   for (const u of seededUsers) {
@@ -213,6 +214,68 @@ async function main() {
       },
     },
   });
+
+  // --- SME nomination (smoke seed; non-fatal) ---
+  // Appended after the existing seed flow. Wrapped in try/catch so a missing
+  // dependency (no SME user, no PC user, or no HandoutRequest in DB yet)
+  // surfaces as a console.warn instead of aborting the rest of the seed.
+  // The first HandoutRequest is created via the IC server action, not seeded,
+  // so on a freshly-migrated DB this block will warn and skip — the next run
+  // of `pnpm db:seed` after any IC create will succeed without further work.
+  try {
+    const [sme, pc, request] = await Promise.all([
+      prisma.user.findFirst({
+        where: { roles: { some: { role: { name: RoleName.SME } } } },
+        select: { id: true },
+      }),
+      prisma.user.findFirst({
+        where: { email: 'pc@hmp.local' },
+        select: { id: true },
+      }),
+      prisma.handoutRequest.findFirst({
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      }),
+    ]);
+    if (!sme || !pc || !request) {
+      console.warn(
+        '[seed] SME nomination skipped:',
+        !sme ? 'no SME user found' :
+        !pc ? 'no PC user found' :
+        'no HandoutRequest exists yet (create one via IC flow then re-seed)',
+      );
+    } else {
+      // No @@unique on (requestId, smeUserId, topic), so we do a find-or-create
+      // by composite criteria to keep the seed idempotent across re-runs.
+      const existing = await prisma.smeNomination.findFirst({
+        where: {
+          requestId: request.id,
+          smeUserId: sme.id,
+          nominatedById: pc.id,
+          topic: 'Industry perspective on architectures',
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        await prisma.smeNomination.update({
+          where: { id: existing.id },
+          data: { status: 'PENDING', notes: null },
+        });
+      } else {
+        await prisma.smeNomination.create({
+          data: {
+            requestId: request.id,
+            smeUserId: sme.id,
+            nominatedById: pc.id,
+            topic: 'Industry perspective on architectures',
+            status: 'PENDING',
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[seed] SME nomination upsert failed (non-fatal):', err);
+  }
 
   console.log('Seed complete.');
 }

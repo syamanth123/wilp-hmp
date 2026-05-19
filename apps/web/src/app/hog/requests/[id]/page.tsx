@@ -16,6 +16,10 @@ import { QualityReportCard } from '@/components/quality-report-card';
 import { AllocationPanel, type FacultyChoice } from './allocation-panel';
 import { FinalApprovalPanel } from './approval-panel';
 
+// Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
+// for the rationale (Next.js production-build RSC caching vs revalidatePath).
+export const dynamic = 'force-dynamic';
+
 const CAPPED_TYPES = new Set<FacultyType | null>([
   FacultyType.OFF_CAMPUS,
   FacultyType.ADJUNCT,
