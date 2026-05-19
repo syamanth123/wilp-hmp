@@ -22,8 +22,9 @@ export interface CreateRequestWithRefNoInput {
   year?: number;
 }
 
-type PrismaLike = Prisma.TransactionClient | typeof prisma;
-
+// `Prisma.TransactionClient = Omit<PrismaClient, ITX_CLIENT_DENYLIST>` —
+// PrismaClient is structurally assignable to it, so callers can pass either
+// the prisma global or a tx client received from `prisma.$transaction`.
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
@@ -40,7 +41,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 export async function createRequestWithRefNo(
   input: CreateRequestWithRefNoInput,
-  client: PrismaLike = prisma,
+  client: Prisma.TransactionClient = prisma,
 ): Promise<{ id: string; refNo: string }> {
   const year = input.year ?? new Date().getFullYear();
   const prefix = `HMP-${year}-`;
