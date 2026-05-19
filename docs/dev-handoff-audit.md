@@ -1,0 +1,304 @@
+# HMP — Dev Handoff Audit
+
+Joining-engineer audit of the HMP codebase. Read this before touching code.
+Source files cited inline; everything here is grounded in actual code, not the README.
+
+---
+
+## 1. Conventions cheat-sheet
+
+### How a server action is structured
+
+Every mutating server action follows the same recipe. Cross-reference:
+[ic/requests/new/actions.ts](../apps/web/src/app/ic/requests/new/actions.ts),
+[hog/requests/[id]/actions.ts](../apps/web/src/app/hog/requests/[id]/actions.ts),
+[pc/requests/[id]/actions.ts](../apps/web/src/app/pc/requests/[id]/actions.ts),
+[faculty/assignments/[id]/actions.ts](../apps/web/src/app/faculty/assignments/[id]/actions.ts).
+
+1. `'use server';` directive at top of file.
+2. `const actor = requireRole(await getSessionUser(), RoleName.X)` — auth + role gate.
+3. Zod `.safeParse(...)` on `formData.get('...')` fields. On failure return `{ error: parsed.error.issues[0]?.message ?? 'Invalid input' }`.
+4. Pre-flight DB load + business-rule check (status equality, ownership of assignment).
+5. `try { await transition({ requestId, event, actor, meta?, effects? }); } catch (err) { if (err instanceof WorkflowError) return { error: err.message }; throw err; }`.
+6. After transition, fire `notifyTransition({ requestId, event, actor: { id, name } })` — wrapped in try/catch internally; never blocks.
+7. `revalidatePath` for *every* role view of that request (IC, HOG, PC, Faculty, list pages, dashboard).
+8. Return `{ ok: true }` on success. Use `redirect(...)` only for creation flows (e.g. `createRequestAction`).
+
+### How transitions are called
+
+`transition()` from `@hmp/workflow` ([packages/workflow/src/transition.ts](../packages/workflow/src/transition.ts)) is the **only** sanctioned way to change `HandoutRequest.status`. It:
+
+- Calls `assertRoleAllowed(event, actor.roles)` against `EVENT_ROLE_MATRIX` ([guards.ts:8](../packages/workflow/src/guards.ts)). `ADMIN` bypasses.
+- Looks up `nextStatus()` from the transition table in [machine.ts:53](../packages/workflow/src/machine.ts). Throws `WorkflowError('invalid_transition', ...)` on miss.
+- Opens a `prisma.$transaction` that:
+  1. updates `HandoutRequest.status`,
+  2. lazily creates the `Handout` shell on first transition out of DRAFT (otherwise mirrors status onto `Handout`),
+  3. runs the caller-supplied `effects(tx, ctx)` (e.g. write `FacultyAssignment`, `Approval`, `LmsPublishLog`, append `HandoutVersion`),
+  4. writes one `AuditLog` row with `action = 'handout.transition.${event}'`, `before = { status: from }`, `after = { status: to, meta }`.
+- If `effects` throws inside the txn, the status change is rolled back. This is the correct place to put concurrency guards (e.g. off-campus cap re-check inside `allocateFacultyAction`).
+
+### How notifications are fired
+
+[apps/web/src/lib/notifications.ts](../apps/web/src/lib/notifications.ts) exposes three entry points:
+
+- `notifyTransition({ requestId, event, actor })` — workflow side-channel. Loads template via `EVENT_TEMPLATE_KEY[event]`, falls back to `INLINE_FALLBACK` if the `NotificationTemplate` row is missing. Recipients computed per event in `computeRecipients()`; the actor is always filtered out. Deep-link path picked per recipient's primary role via `LINK_PREFIX_BY_ROLE`.
+- `notifyComment({ requestId, commentId, actor })` — fan-out to IC + HOG + PC + assigned faculty, in-portal channel only.
+- `notifySlaReminder({ request, classification, ageHours, slaHours })` — used by the cron route. Recipients picked by `HOLDER_ROLE_MAP[status]`. Per-recipient dedup query against `Notification.meta` (`kind=sla.reminder` + `requestId` + `classification`) within a `slaHours/2` window.
+
+The whole module is best-effort: all delivery happens inside `Promise.allSettled`, the top-level `notifyTransition` wraps its body in try/catch, and `deliver()` writes a `Notification` row first then attempts SMTP — a failed email leaves the row at status `FAILED`, never throws.
+
+Channels: `IN_PORTAL` writes a row with status `SENT` immediately (no transport). `EMAIL` calls `sendMail()` from `@hmp/integrations` and updates status based on result.
+
+### How audit rows are written
+
+Two paths:
+
+- Workflow audit — automatic, inside `transition()`. Action string is `handout.transition.${event}`.
+- Non-workflow audit — explicit `audit({...})` call from [apps/web/src/lib/audit.ts](../apps/web/src/lib/audit.ts). Used for `request.create` (before the first transition), `assignment.accepted`, `handout.version.saved`, `ai.recommend.regenerate`, `ai.quality.generated`, and admin CRUD. Caller supplies `actorId`, `action`, `entity`, `entityId`, optional `before/after/requestId/ip/userAgent`.
+
+`before`/`after` are stored as JSON; both default to `null` if omitted. `requestId` links the row back to a `HandoutRequest` for the audit page query.
+
+### How RBAC is enforced
+
+Three layers, in order:
+
+1. **Middleware** ([apps/web/src/middleware.ts](../apps/web/src/middleware.ts)) — `auth((req) => ...)` from NextAuth. Redirects unauthenticated users to `/login`. Does not check role; only presence of a session.
+2. **Server-action / RSC** — `requireRole(await getSessionUser(), RoleName.X)` from `@hmp/auth` ([rbac.ts:41](../packages/auth/src/rbac.ts)). Throws `AuthorizationError` (status 403) if role missing. `ADMIN` is a super-role and bypasses every `hasRole` check ([rbac.ts:31](../packages/auth/src/rbac.ts)).
+3. **Workflow** — `assertRoleAllowed(event, roles)` inside `transition()`. Even if a server action somehow lets the wrong role through, the workflow layer refuses the state change.
+
+Permission keys (`requirePermission`) exist but are not exercised by the action files audited; current role gates are role-based, not permission-based. Permission strings live on the JWT (loaded in `loadUserAccess`) so the plumbing is ready when finer-grained gates are added.
+
+---
+
+## 2. Naming patterns
+
+### File layout
+
+- App routes nested by role: `apps/web/src/app/{admin,ic,hog,pc,faculty}/...`. Public/auth routes at root level (`login/`, `notifications/`).
+- One server-action file per route folder: `actions.ts`. Sometimes split — faculty has both `actions.ts` (workflow) and `ai-actions.ts` (AI-only mutations).
+- Co-located components stay in the route folder (`request-form.tsx`, `accept-panel.tsx`, `editor-panel.tsx`). Cross-route components live in `apps/web/src/components/`.
+- Domain helpers in `apps/web/src/lib/` (audit, sla, notifications, faculty-load, faculty-signals, handout-versioning, routing, tiptap-extensions). Each has a `.test.ts` peer where covered.
+- Shared route-group helpers in `apps/web/src/app/(shared)/` — currently `comment-actions.ts`.
+
+### Route group `(shared)`
+
+Next.js parentheses route group used to host **cross-role server actions** (commenting works for IC/HOG/PC/FACULTY). Does not appear in URLs.
+
+### Action naming
+
+- IC: `createRequestAction`, `publishAction`, `archiveAction`.
+- HOG: `allocateFacultyAction`, `finalApproveAction`, `finalRejectAction`, `hogRequestReworkAction`, `regenerateRecommendationAction`.
+- PC: `confirmAssignmentAction`, `pcReviewApproveAction`, `pcReviewReworkAction`.
+- Faculty: `acceptAssignmentAction`, `startEditingAction`, `saveDraftAction`, `submitForReviewAction`, `runQualityCheckAction`.
+
+Pattern: `{actor}{verb}Action` or `{verb}{noun}Action`. Always suffixed `Action`.
+
+### Workflow event naming
+
+`SCREAMING_SNAKE_CASE`, past-tense verb form: `REQUEST_INITIATED`, `FACULTY_ALLOCATED`, `ASSIGNED`, `EDIT_STARTED`, `SUBMITTED`, `REVIEW_REWORK`, `REVIEW_APPROVED`, `FINAL_APPROVED`, `FINAL_REJECTED`, `PUBLISHED`, `ARCHIVED`. Statuses follow the same convention.
+
+### Approval rows
+
+`ApprovalStage` enum: `HOG_REVIEW`, `PC_REVIEW`, `HOG_FINAL`, `IC_PUBLISH`. Decisions: `PENDING | APPROVED | REWORK | REJECTED`. The same stage can be written multiple times across rework cycles — the API does not assume uniqueness.
+
+### Ref numbers
+
+Human-readable `refNo` is `HMP-YYYY-####`, generated by [nextRefNo()](../apps/web/src/app/ic/requests/new/actions.ts) at request-create time. The current implementation is racy under concurrent IC creates (see §6).
+
+---
+
+## 3. Known stubs and where they live
+
+| Component | File | Behaviour | Replacement plan |
+|---|---|---|---|
+| Taxila LMS publish | [packages/integrations/src/taxila.ts](../packages/integrations/src/taxila.ts) | Pure function. Always returns `{ status: 'success', responseJson: { provider: 'taxila-stub', ... simulatedAt } }`. No HTTP call. | Phase 3 — drop in real client behind same `publishToLms(input): PublishResult` signature. UI ([publish-panel.tsx:29](../apps/web/src/app/ic/requests/[id]/publish-panel.tsx)) already labels this "stubbed". |
+| SSO provider | [packages/auth/src/sso.ts](../packages/auth/src/sso.ts) | `StubSsoProvider` throws "SSO not configured" on both `getAuthorizationUrl()` and `exchange()`. `getSsoProvider()` returns it by default. | Implement real `SsoProvider` (BITS IdP, SAML or OIDC) and call `registerSsoProvider(...)` at boot. The credentials provider in [auth/config.ts](../packages/auth/src/config.ts) has a comment marking where to wire a NextAuth provider that delegates to it. |
+| AI client | [packages/ai/src/client.ts](../packages/ai/src/client.ts) | If `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is empty, `getAiClient()` returns `createNoopClient(reason)` whose `embedText` / `chatJson` throw `AiUnconfiguredError`. | Set the env var. CI runs with `AI_PROVIDER=noop` deliberately. |
+| AI handout draft | [packages/ai/src/handout-generator.ts:239](../packages/ai/src/handout-generator.ts) | When client is `noop`, returns `buildStubDraft(course)` — hardcoded 4-module template marked `source: 'stub'`. Persisted as a real `AIDraftLog` row. UI shows an orange "Template stub" banner. | Same — set provider key. |
+| Workflow `matrixJson` | [packages/db/prisma/schema.prisma:383](../packages/db/prisma/schema.prisma) | `WorkflowConfig.matrixJson` is `Json` (no schema). Seeded but no code reads it — admin workflow page edits SLAs only. | Decide whether this is dead schema or future approval-matrix overrides. |
+| `[admin]/ai-metrics` aggregation | [apps/web/src/app/admin/ai-metrics/page.tsx](../apps/web/src/app/admin/ai-metrics/page.tsx) | Page exists with a "re-embed all" action; cost/usage aggregation queries not audited in depth — **unclear, needs human review**. | TBD. |
+| BullMQ workers | [README.md](../README.md) says "BullMQ + Redis queues" | The cron route runs sweeps synchronously via HTTP; no Redis queue producer/consumer was located in this audit. **Unclear** — README references queues but no workers found. | Either drop the README claim or wire actual BullMQ jobs. |
+
+Nothing in the audited source files contains `TODO`, `FIXME`, `XXX`, or `HACK` markers — the stubs above are all behind real interfaces and are the only mocked paths.
+
+---
+
+## 4. Test coverage gaps
+
+What's covered (from filenames):
+
+- **Unit (Vitest)** — `packages/workflow/{machine,guards}.test.ts`, `packages/ai/{client,embeddings,schemas}.test.ts`, `packages/integrations/erp.test.ts`, `apps/web/src/lib/{faculty-signals,notifications,sla,routing}.test.ts`.
+- **E2E (Playwright)** — login, ic-create-request, m4-allocate-assign, m5-faculty-edit-submit, m6-publish-archive, m7-notifications, m8-ai-layer.
+
+Gaps observed:
+
+- **No transaction-level test for `transition()` rollback.** The off-campus cap re-check inside `allocateFacultyAction`'s `effects` is the most concurrency-sensitive code path in the app and there is no test asserting that concurrent allocations cannot both squeak past the cap.
+- **No test for the rework loop.** `SUBMITTED → REWORK_REQUESTED → SUBMITTED` can happen many times; no test asserts version numbering or approval-row accumulation across the loop.
+- ~~**No test for `nextRefNo()` race.** Two simultaneous IC creates can produce duplicate `refNo` strings (see §6).~~ **Resolved** — optimistic-retry helper at [ref-no.ts](../apps/web/src/app/ic/requests/new/ref-no.ts); see [ref-no.test.ts](../apps/web/src/app/ic/requests/new/__tests__/ref-no.test.ts) (mocked P2002 retries) and [concurrent.test.ts](../apps/web/src/app/ic/requests/new/__tests__/concurrent.test.ts) (10 concurrent real-DB creates).
+- **No test for SSE stream.** `/api/notifications/stream` has no test of reconnection, auth, or the 5-min cutoff.
+- **No test for SLA dedup.** `notifySlaReminder` does a complex `prisma.notification.findFirst` over `meta` JSON path queries; no test verifying the dedup window actually suppresses duplicates.
+- **No test for `effects` failure rollback.** If a transition's `effects` throws, the status update must roll back. Not asserted in tests audited.
+- **Email transport failure.** `sendMail` returns `{ ok: false, error }` and `deliver` marks the notification `FAILED`. No test of that branch.
+- **AI cache reuse.** `recommendFaculty` reuses today's row and `runQualityReport` rate-limits within 60s. The reuse-and-bypass paths are not asserted.
+- **Permission keys.** `hasPermission` / `requirePermission` exist but I didn't find a test or production caller. Either remove or add a test.
+
+---
+
+## 5. Production-readiness gaps (vs. a deployable university portal)
+
+| Area | Gap | Impact |
+|---|---|---|
+| **Auth** | No real SSO; credentials only. `passwordHash` is bcrypt but there's no password-reset, no lockout, no MFA. | Cannot ship to university IT without SAML/OIDC. |
+| **SSL/TLS, headers** | No security-header config (CSP, HSTS, X-Frame-Options) was found in `next.config.mjs`. | Default Next.js exposure. |
+| **Rate limiting** | The AI quality endpoint has a 60s in-DB rate limit; no IP/user rate limiting at the edge or on `/api/notifications/stream`. | DDoS / abuse exposure. |
+| **CSRF** | NextAuth handles its own. Server actions are CSRF-safe by Next's design but uploads/cron are bearer-only. The cron route uses `timingSafeEqual` ([reminders/route.ts:15](../apps/web/src/app/api/cron/reminders/route.ts)) — solid. |
+| **File uploads** | `Attachment` model exists with `s3Key`, but no upload route was found in the audited surface. MinIO is wired in compose only. **Unclear — needs human review.** |
+| **Backups** | No DB backup story in `infra/`. Compose has volumes; nothing snapshots them. |
+| **Observability** | No structured logging (uses `console.error`), no APM, no Sentry. `LOG_LEVEL` env exists, not threaded through. |
+| **Migrations** | The repo ships `prisma db push` (`packages/db/package.json:13`) and CI uses it ([ci.yml:70](../.github/workflows/ci.yml)). **No `prisma/migrations/` folder.** Production must use `prisma migrate deploy`. |
+| **Email** | Mailhog only. No bounce handling, no template version tracking, no transactional ESP. `sendMail` swallows transport errors into `{ ok: false }`. |
+| **LMS publish** | Pure stub. Required for M6 to be real. |
+| **Notification queue** | All notifications are inline in the action's request cycle. A slow SMTP server stalls the user's submit. Should be moved to BullMQ (or any queue) per the README's stated architecture. |
+| **AI cost controls** | `pricing.ts` exists but `AIDraftLog` doesn't persist token counts in a queryable column — they're nested in `payload` Json. Cost reports require Json-path queries. |
+| **Audit completeness** | Login attempts (success/fail) and session events are not audited. RBAC denials (`AuthorizationError`) are not audited. |
+| **Tenancy / soft-delete** | `User` has `deletedAt` but no query layer enforces it. Inactive users are filtered by `active: true` in some queries and not others. **Inconsistent — needs review.** |
+| **Permission system** | Permissions table seeded but never enforced; only roles are used in gates. Either remove or wire `requirePermission()`. |
+| **Concurrency safety** | `nextRefNo()` race; no `@@unique` constraint relies on retry. Off-campus cap is correctly inside the txn — good. |
+| **i18n / accessibility** | No i18n library; no a11y review in tests. |
+| **Deployment runbook** | [docs/deployment-runbook.md](./deployment-runbook.md) exists but **content not audited**. |
+
+---
+
+## 6. Three risky areas where future changes need extra care
+
+### Risk 1 — `transition()` and its `effects` callback
+
+[packages/workflow/src/transition.ts](../packages/workflow/src/transition.ts) is load-bearing for the whole app: every workflow change goes through it, side-effects (assignments, approvals, version writes, LMS log) ride inside the `effects(tx, ctx)` callback, and the audit row is part of the same transaction.
+
+Why it's risky:
+- Any code change here can silently break atomicity. Example: if a future refactor moves the `auditLog.create` outside the `$transaction`, a failed `effects` would leave an orphan audit row for a transition that never happened.
+- The off-campus cap re-check ([hog/requests/[id]/actions.ts:81](../apps/web/src/app/hog/requests/[id]/actions.ts)) lives inside `effects`; that re-check is the only thing preventing two concurrent allocations from both passing the cap. It must run inside the txn and the txn must use a snapshot/serializable isolation level under high load. Prisma default is read-committed, which is **sufficient only because the re-check happens after the status update locks the request row**. A reordering of statements is a subtle data-corruption bug.
+- The lazy-creation branch (`if (!handoutId) tx.handout.create({...})`) means the *first* transition out of DRAFT also creates the `Handout` row. Code in `effects` that assumes `ctx.handoutId` exists is fine, but any future caller bypassing `transition()` and reading `handout` directly will get null.
+
+### Risk 2 — Notification fan-out + SLA dedup
+
+[notifications.ts](../apps/web/src/lib/notifications.ts) is fired on every workflow transition (best-effort) and runs inside the user's request cycle. It's a coupling point between workflow correctness and external systems (SMTP).
+
+Why it's risky:
+- It performs N+1 user lookups per event (`usersWithRole` then `usersById`) and N `prisma.notification.findFirst` queries inside `notifySlaReminder` to dedup. Under load this latency becomes user-visible.
+- The dedup window is `slaHours/2` and matches on `meta` JSON path. Postgres can index JSON path expressions but the schema has no such index — every reminder sweep does N full-table scans on `Notification`. At ~hundreds of active requests this gets slow.
+- The "best-effort" wrapping (`try/catch` everywhere) means notification bugs are silent. A regression that drops 100% of `SUBMITTED` notifications would show up only when PCs notice they're not getting emails — there's no health check.
+- `INLINE_FALLBACK` and the DB `NotificationTemplate` table can drift. Editing a template in the admin UI does not invalidate any cache (none exists), but a missing event key in `EVENT_TEMPLATE_KEY` (currently `null` for `EDIT_STARTED` and `ARCHIVED`) means the fallback subject/body wins — easy to miss.
+
+### ~~Risk 3~~ Resolved — `nextRefNo()` race fixed via optimistic retry
+
+**Originally:** [apps/web/src/app/ic/requests/new/actions.ts:18](../apps/web/src/app/ic/requests/new/actions.ts) generated `HMP-YYYY-####` by reading the max existing refNo and incrementing. There was no DB-level uniqueness retry, no advisory lock, no serial counter.
+
+Why it's risky:
+- Two simultaneous IC requests in the same year will read the same "last" row, both compute the same next number, and the **second insert will fail with a unique-constraint error** (because `refNo` is `@unique`). The action does not catch that error, so the IC user sees a generic 500.
+- If the second insert succeeded for some reason (e.g. someone removes the unique constraint to "fix" duplicates), duplicate refNos break every downstream lookup.
+- Fixes: use a Postgres sequence, an advisory lock around the find+create, or a retry loop on unique-constraint violations. Any of those changes must be paired with a test under concurrent load — the current test suite has nothing covering this.
+
+**Resolution:** moved the helper to [ref-no.ts](../apps/web/src/app/ic/requests/new/ref-no.ts) with an optimistic retry-on-P2002 loop (bounded at 5 attempts, jittered backoff). The refNo allocation + audit insert now share a single `prisma.$transaction` in [actions.ts](../apps/web/src/app/ic/requests/new/actions.ts). Detection narrowly matches `err.code === 'P2002' && meta.target` includes `'refNo'` so unrelated constraints propagate. Covered by [ref-no.test.ts](../apps/web/src/app/ic/requests/new/__tests__/ref-no.test.ts) (5 cases including exhaustion and FK-error pass-through) and [concurrent.test.ts](../apps/web/src/app/ic/requests/new/__tests__/concurrent.test.ts) (10 simultaneous real-DB creates → 10 unique sequential refNos, no gaps).
+
+---
+
+## Appendix — packages map
+
+| Package | Purpose |
+|---|---|
+| `@hmp/db` | Prisma client + schema (single source of truth). |
+| `@hmp/auth` | NextAuth config, RBAC helpers (`hasRole`, `requireRole`, `requirePermission`, `loadUserAccess`), SSO provider interface. |
+| `@hmp/workflow` | State machine, transition table, `transition()` orchestrator, role + cap guards. |
+| `@hmp/ai` | Provider abstraction, embeddings, recommender, quality report, handout draft (with stub fallback). |
+| `@hmp/integrations` | CSV parsing + ERP schemas, Taxila LMS stub, Nodemailer SMTP. |
+| `@hmp/ui` | Tailwind shadcn-style primitives. |
+
+CI ([.github/workflows/ci.yml](../.github/workflows/ci.yml)): pnpm install → prisma generate → prisma db push → lint → typecheck → test → build. Postgres service container. `AI_PROVIDER=noop` so tests hit stubs. No e2e run in CI — Playwright specs exist but are not invoked.
+
+---
+
+## 7. Resolved unclear findings
+
+### A) AI metrics aggregation — **mostly complete; one real gap**
+
+Original §3 entry called this "TBD". Reality: the page does real aggregation queries.
+
+[apps/web/src/app/admin/ai-metrics/page.tsx:39-62](../apps/web/src/app/admin/ai-metrics/page.tsx) runs six queries in `Promise.all`:
+
+- `prisma.aIRecommendation.findMany` over last 14 days (createdAt, model).
+- `prisma.aIQualityReport.findMany` over last 14 days (createdAt, model, score).
+- `prisma.aIDraftLog.findMany` over last 14 days (createdAt, model, source) plus `aIDraftLog.count()` for lifetime.
+- `prisma.embedding.groupBy` by `(ownerType, model)`.
+- `prisma.auditLog.findFirst` where `action: { startsWith: 'ai.' }` for "last AI audit entry".
+
+It renders three cards: **Provider status** (active provider, OPENAI/ANTHROPIC key presence, last AI audit entry); **Usage (last 14 days)** with a per-day table of recs/reports/drafts/models plus avg quality score; **Embedding corpus** grouped by `ownerType` with the re-embed action. The "re-embed all" button wires to `runReEmbedAction` ([actions.ts:8](../apps/web/src/app/admin/ai-metrics/actions.ts)) which calls `ensureCorpusEmbeddings()` — real, not a placeholder.
+
+What's actually missing — and stated in-line at [page.tsx:208-211](../apps/web/src/app/admin/ai-metrics/page.tsx):
+
+> *"Per-call token counts are not persisted yet — cost rollup will be added once the AI provider returns and we capture token usage per request."*
+
+This matches §5's separate "AI cost controls" gap: token counts live inside `AIDraftLog.payload` JSON (and aren't persisted at all for `AIRecommendation` / `AIQualityReport`). Without schema changes to promote `promptTokens` / `completionTokens` to columns, no cost dashboard is possible. The page is feature-complete for everything it can query today; the gap is in the data model, not the UI.
+
+**Verdict:** §3 entry overstated this gap. Correction: page is implemented; cost rollup is blocked on schema work covered by §5.
+
+### B) File upload presence — **no upload path exists anywhere**
+
+Definitive answer: nothing in the codebase uploads files.
+
+Searches and results:
+
+- `presigned|S3Client|@aws-sdk|getSignedUrl|PutObjectCommand` across `{apps,packages,infra,docs}/**/*` — **no matches in source.** Only hits are the `S3_*` env-var comments in [.env files](../apps/web/.env), the `MINIO_*` config in [infra/docker-compose.yml:35-48](../infra/docker-compose.yml), and the `s3Key` column at [schema.prisma:323](../packages/db/prisma/schema.prisma). No SDK code.
+- `aws-sdk|minio|@aws` across all project `package.json` files — **no matches.** The only hit is inside `node_modules/.pnpm/nodemailer@6.10.1/.../package.json` (a nodemailer keyword). Zero S3 SDK in any project package.
+- `Attachment.create|attachment.create|prisma.attachment` across `{apps,packages}/**/*.{ts,tsx}` — **no matches.** The `Attachment` model is never written.
+- `attachment|Attachment` across the same scope — three hits only: the model definition ([schema.prisma:201,317](../packages/db/prisma/schema.prisma)) and one read at [ic/requests/[id]/page.tsx:25](../apps/web/src/app/ic/requests/[id]/page.tsx) (`attachments: true` in the include). That read is **dead** — the JSX in lines 80-180 of the same file never references `request.attachments`.
+- `<input type="file">`-style HTML / `multipart` / `formidable` / `busboy` — **no matches** in `apps/`.
+- The "CSV importer" at [admin/import/csv-importer.tsx:97](../apps/web/src/app/admin/import/csv-importer.tsx) is a `<textarea>` — users paste CSV text. There is no file picker even there.
+- `previousHandoutUrl` in [HandoutRequest](../packages/db/prisma/schema.prisma) is a plain string URL — users paste a link, no upload.
+
+**Verdict:** §5 entry was correct that no upload path exists. Strengthening it: there is no S3 SDK installed, no upload route, no client-side file input, no producer of `Attachment` rows. The `Attachment` model and `s3Key` column are pure schema-only; MinIO in compose is unused by the app. Building uploads is a from-scratch task, not a "wire up existing".
+
+### C) Soft-delete consistency — **misdiagnosed; nothing reads `deletedAt`**
+
+Original §5 entry assumed there were inconsistent filters on `User.deletedAt`. Wrong premise.
+
+Search: `deletedAt` across `{apps,packages}/**/*.{ts,tsx,prisma}` — **exactly one match:** [schema.prisma:44](../packages/db/prisma/schema.prisma), the column definition itself. **No code reads it, no code writes it.** It is dead schema.
+
+The actual deactivation mechanism is the `User.active: Boolean` column. That field IS used consistently in every query where it matters:
+
+| Site | Filters on `active`? | Correct? |
+|---|---|---|
+| [packages/auth/src/config.ts:27-28](../packages/auth/src/config.ts) — login | No `where`, but programmatic guard `if (!user || !user.active || !user.passwordHash) return null` | Yes — inactive users cannot log in. |
+| [packages/ai/src/recommender.ts:85,99](../packages/ai/src/recommender.ts) — faculty pool | `active: true` | Yes |
+| [packages/ai/src/embeddings.ts:67,70,122](../packages/ai/src/embeddings.ts) — embedding corpus | `active: true` | Yes |
+| [apps/web/src/lib/notifications.ts:97,106,354](../apps/web/src/lib/notifications.ts) — recipient lookups | `active: true` | Yes |
+| [apps/web/src/lib/faculty-load.ts:33](../apps/web/src/lib/faculty-load.ts) — load calc | `active: true` | Yes |
+| [apps/web/src/app/hog/requests/[id]/actions.ts:65](../apps/web/src/app/hog/requests/[id]/actions.ts) — allocate picker | `active: true` | Yes |
+| [apps/web/src/app/admin/users/page.tsx:9](../apps/web/src/app/admin/users/page.tsx) — admin user list | No filter | Correct — admins must see inactive users to toggle them. |
+| [apps/web/src/app/admin/users/actions.ts:31,58](../apps/web/src/app/admin/users/actions.ts) — admin CRUD | No filter | Correct — admin operates on all users. |
+
+**Verdict:** there is no inconsistency. `active` is enforced everywhere it should be; admin paths intentionally bypass it. The §5 finding was wrong. The real issue is that **`User.deletedAt` is dead schema** — either start using it (e.g. for GDPR-style hard-erase tracking) or drop the column.
+
+### D) TODO / FIXME quick scan — **clean**
+
+Search: `TODO|FIXME|XXX|HACK` across `{apps,packages,infra,docs,scripts}/**/*.{ts,tsx,mjs,prisma,yml,yaml,md,json}`.
+
+**One match, and it is the sentence in §3 of this audit document claiming there are none.** Zero markers in actual source. The stubs documented in §3 are the only mocked paths.
+
+---
+
+## 8. Confirmed action items
+
+From A–D above. "PROMPT N" labels are placeholders for the next round of work; "NEW" means a follow-up that wasn't in the audit's first pass.
+
+| # | Action | Source finding | Label |
+|---|---|---|---|
+| 1 | Promote `promptTokens` / `completionTokens` from `AIDraftLog.payload` JSON to indexed columns; persist token counts on `AIRecommendation` and `AIQualityReport` too. Then add a cost-rollup card to the AI-metrics page. | §7-A | **NEW** (schema migration + new column reads in `page.tsx`). |
+| 2 | Capture token usage from provider responses in [packages/ai/src/openai.ts](../packages/ai/src/openai.ts) and [packages/ai/src/anthropic.ts](../packages/ai/src/anthropic.ts); thread into the AIDraftLog/AIQualityReport/AIRecommendation writes. | §7-A | **NEW** (paired with #1). |
+| 3 | Update §3 of this audit to remove `ai-metrics aggregation` from the "unclear stubs" list; queries are real. | §7-A | **PROMPT 0 follow-up** (doc-only). |
+| 4 | Decide: build file upload (MinIO/S3 client + presigned PUT route + `<input type="file">` UI + `prisma.attachment.create`) OR drop `Attachment` model + `s3Key` column + the dead `attachments: true` include at [ic/requests/[id]/page.tsx:25](../apps/web/src/app/ic/requests/[id]/page.tsx). | §7-B | **NEW** — feature-sized decision. |
+| 5 | If building uploads (#4), add an `@aws-sdk/client-s3` or `minio` dep to `packages/integrations`, wire `S3_*` env vars, add an upload route handler under `apps/web/src/app/api/uploads/`, and replace the textarea-paste CSV importer with a file picker. | §7-B | **NEW** (conditional on #4). |
+| 6 | Drop the **"Tenancy / soft-delete inconsistency"** row from §5 — it's a false alarm. Replace with "**Dead column `User.deletedAt`** — never read or written. Decide: implement hard-erase tracking, or drop the column in a migration." | §7-C | **PROMPT 0 follow-up** (this doc) + **NEW** schema decision. |
+| 7 | Update §3's `Nothing in the audited source files contains TODO/FIXME/XXX/HACK markers` to clarify "across the full repo, not just audited files" — verified. | §7-D | **PROMPT 0 follow-up** (doc-only). |
+
+Items 3, 6, and 7 are corrections to this very document and should be folded into the next pass on the audit. Items 1, 2, 4, 5 are real code work; 4 is the largest (a from-scratch upload feature).

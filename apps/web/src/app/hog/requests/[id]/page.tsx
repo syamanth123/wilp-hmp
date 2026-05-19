@@ -1,0 +1,170 @@
+import { notFound } from 'next/navigation';
+import { prisma, HandoutStatus, FacultyType } from '@hmp/db';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
+import { StatusBadge } from '@/components/status-badge';
+import { StatusTimeline } from '@/components/status-timeline';
+import { ApprovalsList } from '@/components/approvals-list';
+import { FacultyAssignmentsList } from '@/components/faculty-assignments-list';
+import { HandoutViewer } from '@/components/handout-viewer';
+import { VersionList } from '@/components/version-list';
+import { VersionDiff } from '@/components/version-diff';
+import { CommentThread } from '@/components/comment-thread';
+import { listFacultyForAllocation } from '@/lib/faculty-load';
+import { listVersions } from '@/lib/handout-versioning';
+import { recommendFaculty, type RecommendationResult } from '@hmp/ai';
+import { QualityReportCard } from '@/components/quality-report-card';
+import { AllocationPanel, type FacultyChoice } from './allocation-panel';
+import { FinalApprovalPanel } from './approval-panel';
+
+const CAPPED_TYPES = new Set<FacultyType | null>([
+  FacultyType.OFF_CAMPUS,
+  FacultyType.ADJUNCT,
+  FacultyType.GUEST,
+]);
+
+export default async function HOGRequestDetail({ params }: { params: { id: string } }) {
+  const request = await prisma.handoutRequest.findUnique({
+    where: { id: params.id },
+    include: {
+      offering: { include: { course: true, semester: { include: { programme: true } } } },
+      initiator: { select: { name: true, email: true } },
+      handout: { include: { currentVersion: true } },
+    },
+  });
+  if (!request) notFound();
+  const handout = request.handout;
+  const versions = handout ? await listVersions(handout.id) : [];
+
+  const cap =
+    (await prisma.workflowConfig.findUnique({ where: { key: 'default' } }))?.offCampusMaxCourses ??
+    3;
+
+  let facultyChoices: FacultyChoice[] = [];
+  let recommendation: RecommendationResult | null = null;
+  if (request.status === HandoutStatus.REQUESTED) {
+    const list = await listFacultyForAllocation(request.offering.semesterId);
+    facultyChoices = list.map((f) => ({
+      id: f.id,
+      name: f.name,
+      email: f.email,
+      facultyType: f.facultyType,
+      loadInSemester: f.loadInSemester,
+      capped: CAPPED_TYPES.has(f.facultyType) && f.loadInSemester >= cap,
+    }));
+    try {
+      recommendation = await recommendFaculty({ requestId: request.id });
+    } catch {
+      recommendation = null;
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between space-y-0">
+          <div>
+            <CardTitle className="font-mono text-base">{request.refNo}</CardTitle>
+            <CardDescription>
+              {request.offering.course.code} — {request.offering.course.title}
+            </CardDescription>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {request.offering.semester.programme.code} · {request.offering.semester.name} ·{' '}
+              initiated by {request.initiator.name}
+            </p>
+          </div>
+          <StatusBadge status={request.status} />
+        </CardHeader>
+      </Card>
+
+      {request.status === HandoutStatus.REQUESTED && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Allocate faculty</CardTitle>
+            <CardDescription>Off-campus / adjunct cap: {cap} courses per semester.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AllocationPanel
+              requestId={request.id}
+              faculties={facultyChoices}
+              cap={cap}
+              recommendation={recommendation}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {request.status === HandoutStatus.UNDER_REVIEW && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Final approval</CardTitle>
+            <CardDescription>PC has signed off. Approve, rework, or reject.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FinalApprovalPanel requestId={request.id} />
+          </CardContent>
+        </Card>
+      )}
+
+      {handout && handout.currentVersion && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Handout (v{handout.currentVersion.versionNo})</CardTitle>
+            <CardDescription>Latest version for final review.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <HandoutViewer html={handout.currentVersion.contentHtml} />
+            <VersionList handoutId={handout.id} />
+            {versions.length >= 2 && (
+              <VersionDiff
+                handoutId={handout.id}
+                fromVersion={versions[versions.length - 2]!.versionNo}
+                toVersion={versions[versions.length - 1]!.versionNo}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {handout && <QualityReportCard handoutId={handout.id} />}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Faculty</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FacultyAssignmentsList requestId={request.id} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Approvals</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ApprovalsList requestId={request.id} />
+        </CardContent>
+      </Card>
+
+      {handout && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Discussion</CardTitle>
+            <CardDescription>Visible to IC, HOG, PC and the assigned faculty.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CommentThread handoutId={handout.id} requestId={request.id} />
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Lifecycle</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <StatusTimeline requestId={request.id} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

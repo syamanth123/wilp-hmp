@@ -1,0 +1,49 @@
+{
+  "name": "@hmp/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@hmp/ai": "workspace:*",
+    "@hmp/auth": "workspace:*",
+    "@hmp/db": "workspace:*",
+    "@hmp/integrations": "workspace:*",
+    "@hmp/ui": "workspace:*",
+    "@hmp/workflow": "workspace:*",
+    "@tiptap/core": "^2.6.6",
+    "@tiptap/html": "^2.6.6",
+    "@tiptap/pm": "^2.6.6",
+    "@tiptap/react": "^2.6.6",
+    "@tiptap/starter-kit": "^2.6.6",
+    "bcryptjs": "^2.4.3",
+    "diff": "^5.2.0",
+    "next": "^14.2.13",
+    "next-auth": "5.0.0-beta.20",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/diff": "^5.2.2",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "eslint-config-next": "^14.2.13",
+    "postcss": "^8.4.45",
+    "prettier-plugin-tailwindcss": "^0.6.6",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
+  }
+}

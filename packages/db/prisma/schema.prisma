@@ -1,0 +1,487 @@
+// HMP — Prisma schema
+// Covers RFP entities: users/roles/permissions, academic structure,
+// handout lifecycle, workflow, approvals, AI artifacts, integrations, audit.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// Identity & Access
+// =====================================================================
+
+enum RoleName {
+  ADMIN
+  INSTRUCTION_CELL
+  HOG
+  PROGRAMME_COMMITTEE
+  FACULTY
+  SME
+}
+
+enum FacultyType {
+  ON_CAMPUS
+  OFF_CAMPUS
+  ADJUNCT
+  GUEST
+}
+
+model User {
+  id                String              @id @default(cuid())
+  email             String              @unique
+  name              String
+  passwordHash      String?
+  ssoSubject        String?             @unique
+  facultyType       FacultyType?
+  active            Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+
+  roles             UserRole[]
+  initiatedRequests HandoutRequest[]    @relation("RequestInitiator")
+  assignments       FacultyAssignment[]
+  approvals         Approval[]
+  comments          Comment[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  versionsAuthored  HandoutVersion[]    @relation("VersionAuthor")
+
+  @@index([email])
+}
+
+model Role {
+  id          String        @id @default(cuid())
+  name        RoleName      @unique
+  description String?
+  permissions RolePermission[]
+  users       UserRole[]
+  createdAt   DateTime      @default(now())
+}
+
+model Permission {
+  id        String           @id @default(cuid())
+  key       String           @unique // e.g. "user.create", "handout.approve"
+  label     String
+  roles     RolePermission[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+// =====================================================================
+// Academic Structure
+// =====================================================================
+
+model Programme {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  active    Boolean    @default(true)
+  semesters Semester[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Semester {
+  id          String           @id @default(cuid())
+  programmeId String
+  name        String           // e.g. "Sem-I 2025-26"
+  year        Int
+  term        String           // FIRST | SECOND | SUMMER
+  startDate   DateTime
+  endDate     DateTime
+  examDate    DateTime?
+  ec1Deadline DateTime?
+  programme   Programme        @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  offerings   CourseOffering[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([programmeId, name])
+}
+
+model Course {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  title       String
+  credits     Int              @default(3)
+  description String?
+  active      Boolean          @default(true)
+  offerings   CourseOffering[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model CourseOffering {
+  id            String           @id @default(cuid())
+  courseId      String
+  semesterId    String
+  slotInfo      String?          // class slot
+  course        Course           @relation(fields: [courseId], references: [id])
+  semester      Semester         @relation(fields: [semesterId], references: [id])
+  requests      HandoutRequest[]
+  slotBookings  SlotBooking[]
+  createdAt     DateTime         @default(now())
+
+  @@unique([courseId, semesterId])
+  @@index([semesterId])
+}
+
+model SlotBooking {
+  id               String         @id @default(cuid())
+  courseOfferingId String
+  slotType         String         @default("class") // "class" | "exam"
+  slot             String
+  dayOfWeek        Int
+  startTime        String
+  endTime          String
+  room             String?
+  offering         CourseOffering @relation(fields: [courseOfferingId], references: [id], onDelete: Cascade)
+  createdAt        DateTime       @default(now())
+
+  @@unique([courseOfferingId, slotType, slot, dayOfWeek, startTime])
+}
+
+// =====================================================================
+// Handout Lifecycle
+// =====================================================================
+
+enum HandoutStatus {
+  DRAFT
+  REQUESTED
+  ALLOCATED
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  REWORK_REQUESTED
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+  REJECTED
+}
+
+model HandoutRequest {
+  id                  String             @id @default(cuid())
+  refNo               String             @unique // human-readable ref like HMP-2025-0001
+  courseOfferingId    String
+  initiatedById       String
+  status              HandoutStatus      @default(REQUESTED)
+  notes               String?
+  previousHandoutUrl  String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  offering            CourseOffering     @relation(fields: [courseOfferingId], references: [id])
+  initiator           User               @relation("RequestInitiator", fields: [initiatedById], references: [id])
+  handout             Handout?
+  assignments         FacultyAssignment[]
+  approvals           Approval[]
+  attachments         Attachment[]
+  recommendations     AIRecommendation[]
+  auditLogs           AuditLog[]
+
+  @@index([status])
+  @@index([courseOfferingId])
+}
+
+model Handout {
+  id           String           @id @default(cuid())
+  requestId    String           @unique
+  currentVersionId String?      @unique
+  status       HandoutStatus    @default(DRAFT)
+  templateId   String?
+  request      HandoutRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  template     Template?        @relation(fields: [templateId], references: [id])
+  versions     HandoutVersion[] @relation("HandoutVersions")
+  currentVersion HandoutVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  comments     Comment[]
+  qualityReports AIQualityReport[]
+  aiDraftLogs  AIDraftLog[]
+  publishLogs  LmsPublishLog[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model HandoutVersion {
+  id           String   @id @default(cuid())
+  handoutId    String
+  versionNo    Int
+  contentJson  Json     // TipTap JSON
+  contentHtml  String   @db.Text
+  partBJson    Json?
+  evaluativeJson Json?
+  authorId     String
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  handout      Handout  @relation("HandoutVersions", fields: [handoutId], references: [id], onDelete: Cascade)
+  current      Handout? @relation("CurrentVersion")
+  author       User     @relation("VersionAuthor", fields: [authorId], references: [id])
+
+  @@unique([handoutId, versionNo])
+}
+
+model Template {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  contentJson Json
+  active    Boolean  @default(true)
+  handouts  Handout[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FacultyAssignment {
+  id          String         @id @default(cuid())
+  requestId   String
+  facultyId   String
+  facultyType FacultyType
+  active      Boolean        @default(true)
+  assignedAt  DateTime       @default(now())
+  acceptedAt  DateTime?
+
+  request     HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  faculty     User           @relation(fields: [facultyId], references: [id])
+
+  @@index([requestId])
+  @@index([facultyId])
+}
+
+enum ApprovalStage {
+  HOG_REVIEW
+  PC_REVIEW
+  HOG_FINAL
+  IC_PUBLISH
+}
+
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REWORK
+  REJECTED
+}
+
+model Approval {
+  id         String           @id @default(cuid())
+  requestId  String
+  stage      ApprovalStage
+  decision   ApprovalDecision @default(PENDING)
+  reviewerId String
+  comments   String?
+  createdAt  DateTime         @default(now())
+  decidedAt  DateTime?
+
+  request    HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  reviewer   User           @relation(fields: [reviewerId], references: [id])
+
+  @@index([requestId, stage])
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  handoutId  String
+  authorId   String
+  body       String
+  anchor     String?  // for inline anchoring in editor
+  resolved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  handout    Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+  author     User     @relation(fields: [authorId], references: [id])
+
+  @@index([handoutId])
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  requestId  String
+  filename   String
+  mimeType   String
+  size       Int
+  s3Key      String
+  uploadedAt DateTime @default(now())
+
+  request    HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+// =====================================================================
+// Notifications & Workflow Config
+// =====================================================================
+
+enum NotificationChannel {
+  IN_PORTAL
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  channel   NotificationChannel
+  status    NotificationStatus  @default(PENDING)
+  subject   String
+  body      String
+  link      String?
+  meta      Json?
+  createdAt DateTime            @default(now())
+  sentAt    DateTime?
+  readAt    DateTime?
+
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+model NotificationTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique // e.g. "handout.submitted"
+  subject   String
+  body      String   @db.Text
+  channels  NotificationChannel[]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WorkflowConfig {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  // SLAs in hours
+  hogReviewSla    Int      @default(72)
+  pcReviewSla     Int      @default(72)
+  facultySubmitSla Int     @default(168)
+  hogFinalSla     Int      @default(48)
+  offCampusMaxCourses Int  @default(3)
+  matrixJson      Json     // approval matrix; configurable
+  updatedAt       DateTime @updatedAt
+}
+
+// =====================================================================
+// AI Artifacts
+// =====================================================================
+
+model AIRecommendation {
+  id         String   @id @default(cuid())
+  requestId  String
+  kind       String   // "faculty" | "sme"
+  payload    Json     // top-N candidates with rationales/scores
+  model      String
+  createdAt  DateTime @default(now())
+
+  request    HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+model AIQualityReport {
+  id         String   @id @default(cuid())
+  handoutId  String
+  score      Float
+  bloomsJson Json
+  coverageJson Json
+  suggestions String   @db.Text
+  model      String
+  createdAt  DateTime @default(now())
+
+  handout    Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+}
+
+model AIDraftLog {
+  id         String   @id @default(cuid())
+  handoutId  String
+  versionNo  Int?     // null = pre-version (preview before Insert), else the version produced by Insert
+  source     String   @default("ai") // "ai" | "stub" (template fallback when provider unconfigured)
+  payload    Json     // { structured, tiptapJson, model, [promptTokens, completionTokens] }
+  model      String
+  createdAt  DateTime @default(now())
+
+  handout    Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+
+  @@index([handoutId, createdAt])
+}
+
+model Embedding {
+  id         String   @id @default(cuid())
+  ownerType  String   // "Course" | "User"
+  ownerId    String
+  model      String
+  vector     Json     // number[]
+  sourceHash String
+  createdAt  DateTime @default(now())
+
+  @@unique([ownerType, ownerId, model])
+  @@index([ownerType, model])
+}
+
+// =====================================================================
+// Integration Snapshots
+// =====================================================================
+
+model ErpSnapshot {
+  id        String   @id @default(cuid())
+  source    String   // "csv" | "api"
+  payload   Json
+  importedBy String?
+  createdAt DateTime @default(now())
+}
+
+model LmsPublishLog {
+  id        String   @id @default(cuid())
+  handoutId String
+  status    String   // "success" | "failed"
+  responseJson Json?
+  publishedAt DateTime @default(now())
+
+  handout   Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+}
+
+// =====================================================================
+// Audit
+// =====================================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String   // e.g. "user.create", "handout.transition"
+  entity     String   // entity name
+  entityId   String
+  before     Json?
+  after      Json?
+  requestId  String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  actor      User?            @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  request    HandoutRequest?  @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+}

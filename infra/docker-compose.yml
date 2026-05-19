@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hmp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hmp
+      POSTGRES_PASSWORD: hmp
+      POSTGRES_DB: hmp
+    ports:
+      - "5432:5432"
+    volumes:
+      - hmp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hmp -d hmp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: hmp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - hmp_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: hmp-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: hmpaccess
+      MINIO_ROOT_PASSWORD: hmpsecret123
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - hmp_miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: hmp-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  hmp_pgdata:
+  hmp_redisdata:
+  hmp_miniodata:
