@@ -75,7 +75,13 @@ test('IC publishes an approved handout and archives it', async ({ page }) => {
   await signIn(page, 'ic@hmp.local');
   await page.goto(`/ic/requests/${requestId}`);
   await page.getByRole('button', { name: /publish to lms/i }).click();
-  await expect(page.getByText(/Published to LMS/i)).toBeVisible({ timeout: 10_000 });
+  // The publish action's transient "Published to LMS…" success message gets
+  // replaced by the revalidate-driven re-render (which switches the page to
+  // PUBLISHED state and renders the Archive panel) before Playwright can
+  // observe it. Assert on the persistent status badge instead — it appears
+  // either via the success message ("Published to LMS…") or the re-rendered
+  // page's badge ("Published"), and both confirm the action committed.
+  await expect(page.getByText(/Published/i).first()).toBeVisible({ timeout: 15_000 });
   await page.reload();
   await expect(page.getByText(/PUBLISHED/i).first()).toBeVisible();
   await expect(page.getByText(/taxila-stub/i)).toBeVisible();
@@ -83,7 +89,9 @@ test('IC publishes an approved handout and archives it', async ({ page }) => {
   // 8. IC archives.
   await page.getByLabel(/I understand this moves the handout to ARCHIVED/i).check();
   await page.getByRole('button', { name: /archive this handout/i }).click();
-  await expect(page.getByText(/Archived\./i)).toBeVisible({ timeout: 10_000 });
+  // Same pattern: "Archived." is transient; reload + check the persistent
+  // ARCHIVED badge.
+  await expect(page.getByText(/Archived/i).first()).toBeVisible({ timeout: 15_000 });
   await page.reload();
   await expect(page.getByText(/ARCHIVED/i).first()).toBeVisible();
 });
