@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hmp
+          POSTGRES_PASSWORD: hmp
+          POSTGRES_DB: hmp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hmp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Database
+      DATABASE_URL: postgresql://hmp:hmp@localhost:5432/hmp?schema=public
+      # Auth
+      NEXTAUTH_SECRET: ci-secret-for-testing-purposes-do-not-use-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      AUTH_MODE: credentials
+      # AI — noop disables real API calls; all AI features degrade gracefully
+      AI_PROVIDER: noop
+      # Redis — var must be set so modules import cleanly; no service needed for build/test
+      REDIS_URL: redis://localhost:6379
+      # Storage — dummy values; not contacted during build or unit tests
+      S3_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: hmp-handouts
+      S3_ACCESS_KEY: ci-access-key
+      S3_SECRET_KEY: ci-secret-key
+      # Email — not contacted during build or unit tests
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+      SMTP_FROM: "HMP <no-reply@hmp.local>"
+      # Cron
+      CRON_SECRET: ci-cron-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @hmp/db generate
+
+      - name: Push schema to DB
+        run: pnpm --filter @hmp/db push
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: ci
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hmp
+          POSTGRES_PASSWORD: hmp
+          POSTGRES_DB: hmp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hmp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://hmp:hmp@localhost:5432/hmp?schema=public
+      NEXTAUTH_SECRET: ci-secret-for-testing-purposes-do-not-use-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      AUTH_MODE: credentials
+      AI_PROVIDER: noop
+      REDIS_URL: redis://localhost:6379
+      S3_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: hmp-handouts
+      S3_ACCESS_KEY: ci-access-key
+      S3_SECRET_KEY: ci-secret-key
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+      SMTP_FROM: "HMP <no-reply@hmp.local>"
+      CRON_SECRET: ci-cron-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @hmp/db generate
+
+      - name: Push schema to DB
+        run: pnpm --filter @hmp/db push
+
+      - name: Seed dev users
+        run: pnpm --filter @hmp/db seed
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - run: pnpm e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
