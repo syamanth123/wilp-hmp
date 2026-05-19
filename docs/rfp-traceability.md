@@ -22,10 +22,12 @@ Effort estimates for remediation:
 
 | Tier | Count | Percentage |
 |---|---|---|
-| ✅ Done | 12 | 40% |
-| 🟡 Partial | 10 | 33% |
-| 🔴 Missing | 8 | 27% |
-| **Total tracked** | **30** | 100% |
+| ✅ Done | 13 | 42% |
+| 🟡 Partial | 11 | 35% |
+| 🔴 Missing | 7 | 23% |
+| **Total tracked** | **31** | 100% |
+
+_Last updated by Prompt 4 (`feat/sme-schema-and-first-migration`): row 23 (SME flow) flipped 🔴 → 🟡 (schema + seed user landed; routes still missing); row 31 (initial Prisma migration) added as ✅._
 
 **Headline gaps to close before a real deploy** (all 🔴):
 
@@ -33,10 +35,11 @@ Effort estimates for remediation:
 - Notification queue (BullMQ workers don't exist; everything is in-band)
 - LMS publish (Taxila stub returns simulated success)
 - File attachments (no upload code anywhere)
-- SME flow (role enum exists; no routes, no seed user)
 - Backups / disaster recovery
 - Security headers (CSP / HSTS / X-Frame-Options)
 - Edge rate limiting (only AI in-DB 60s window today)
+
+SME flow is no longer in this 🔴 list — schema, seed user, and migration now exist; routes and UI surface remain. See row 23.
 
 ---
 
@@ -66,7 +69,7 @@ Effort estimates for remediation:
 | 20 | LMS publish (Taxila) | 🔴 | [packages/integrations/src/taxila.ts](../packages/integrations/src/taxila.ts) — stub | E2E asserts the stub's `taxila-stub` response signature in [m6-publish-archive.spec.ts](../apps/web/e2e/m6-publish-archive.spec.ts) | `publishToLms()` returns `{ status: 'success', responseJson: { provider: 'taxila-stub', simulatedAt: ... } }`. No HTTP. Status transitions and `LmsPublishLog` writes around it are real. |
 | 21 | File attachments / uploads | 🔴 | `Attachment` model + `s3Key` column exist; no producer anywhere | None | Repo-wide `rg "presigned\|S3Client\|@aws-sdk\|PutObjectCommand"` returns zero matches. No `@aws-sdk` dependency, no upload route, no `<input type="file">`. `attachments: true` in [ic/requests/[id]/page.tsx:25](../apps/web/src/app/ic/requests/[id]/page.tsx) is dead — the JSX never renders them. MinIO in compose is unused. |
 | 22 | Inline comments | ✅ | [apps/web/src/app/(shared)/comment-actions.ts](../apps/web/src/app/(shared)/comment-actions.ts), [components/comment-thread.tsx](../apps/web/src/components/comment-thread.tsx), [components/comment-form.tsx](../apps/web/src/components/comment-form.tsx) | E2E "Faculty and PC can exchange comments on a request" in [m6-publish-archive.spec.ts](../apps/web/e2e/m6-publish-archive.spec.ts) | Per-handout `Comment` rows; thread locked once status is PUBLISHED / ARCHIVED / REJECTED. Notifies all involved parties (best-effort). |
-| 23 | SME flow | 🔴 | `RoleName.SME` enum at [schema.prisma:24](../packages/db/prisma/schema.prisma); referenced in [components/app-shell.tsx](../apps/web/src/components/app-shell.tsx) and [lib/notifications.ts](../apps/web/src/lib/notifications.ts) | None | **No `/sme/*` routes**, no seed user, not in admin user picker, not in workflow `EVENT_ROLE_MATRIX`. Defined but inert. |
+| 23 | SME flow | 🟡 | `SmeNomination` model + `SmeNominationStatus` enum + back-relations on `HandoutRequest` and `User` ([schema.prisma](../packages/db/prisma/schema.prisma)); migration `*_add_sme_nomination`; seeded `sme@hmp.local` user; idempotent SmeNomination upsert in [seed.ts](../packages/db/prisma/seed.ts) (warn-and-skip when no HandoutRequest exists yet) | None — UI not built yet | **Still missing**: `/sme/*` routes, nomination UI in PC view, SME acceptance/completion server actions, workflow events for SME transitions, notification templates for SME events. Schema is ready; UI flow is the next prompt. |
 | 24 | Reporting — faculty workload | 🟡 | [apps/web/src/lib/faculty-load.ts](../apps/web/src/lib/faculty-load.ts) powers HOG allocation | None dedicated | Per-faculty per-semester load is computed inline for the allocation picker. No aggregate workload report page exists. |
 | 25 | Reporting — AI usage | 🟡 | [apps/web/src/app/admin/ai-metrics/page.tsx](../apps/web/src/app/admin/ai-metrics/page.tsx) — 14-day rolling buckets | E2E [m8-ai-layer.spec.ts](../apps/web/e2e/m8-ai-layer.spec.ts) "Admin AI metrics page" | Usage volumes ship; cost is blocked (see row 12). |
 | 26 | Mobile / responsive UI | 🟡 | Tailwind responsive utilities are present (`sm:`, `lg:`, etc. in many components); login + admin pages use responsive grids | None | No formal responsive audit, no documented breakpoints policy, no mobile-specific E2E run. |
@@ -74,6 +77,7 @@ Effort estimates for remediation:
 | 28 | Backups / disaster recovery | 🔴 | None | None | `infra/docker-compose.yml` declares named volumes for Postgres/Redis/MinIO but nothing snapshots them. No documented restore procedure beyond a paragraph in `docs/deployment-runbook.md`. |
 | 29 | Security headers (CSP / HSTS / X-Frame-Options) | 🔴 | None | None | [apps/web/next.config.mjs](../apps/web/next.config.mjs) sets no security headers. Default Next.js exposure. |
 | 30 | Rate limiting at edge | 🔴 | Only [packages/ai/src/quality.ts](../packages/ai/src/quality.ts) has a 60-second in-DB rate limit per handout | None | No per-IP or per-user rate limit on `/api/notifications/stream`, `/api/cron/reminders`, login, or any server action. DDoS/abuse exposure. |
+| 31 | Initial Prisma migration | ✅ | [`packages/db/prisma/migrations/`](../packages/db/prisma/migrations) — `*_init` baseline (28 models) + `*_add_sme_nomination` (29th model + enum). [migration_lock.toml](../packages/db/prisma/migrations/migration_lock.toml) pins provider to `postgresql`. | Integration test [concurrent.test.ts](../apps/web/src/app/ic/requests/new/__tests__/concurrent.test.ts) runs against the migrated DB and passes. Local + CI both verified. | Production now uses `prisma migrate deploy` (see [deployment-runbook.md § Migration lifecycle](deployment-runbook.md)). CI still uses `db push` for speed against per-run service containers — acceptable while the schema is small; revisit when migration count grows. |
 
 ---
 
@@ -84,7 +88,7 @@ Every 🟡 and 🔴 from above, with effort estimate and the prompt that address
 | # | Gap | Effort | Addressed by |
 |---|---|---|---|
 | 2 | Implement real BITS SSO (SAML or OIDC) behind the `SsoProvider` interface | **L** | `NEW` — requires real IdP coordination |
-| 3 | Wire SME role: routes (`/sme/*`), seed user, admin picker entries, workflow event matrix membership | **M** | `NEW` |
+| 3 | Wire SME UI: `/sme/*` routes, PC-side nomination form, SME accept/decline/complete actions, workflow event matrix entries, notification templates. (Schema + seed user + first migration landed in Prompt 4.) | **M** | Prompts 5–8 |
 | 9 | Test real-AI recommender happy path with a recorded fixture | **S** | `NEW` (M9 polish bucket) |
 | 10 | Test real-AI handout draft happy path with a recorded fixture | **S** | `NEW` (M9 polish bucket) |
 | 11 | Test real-AI quality report happy path with a recorded fixture | **S** | `NEW` (M9 polish bucket) |

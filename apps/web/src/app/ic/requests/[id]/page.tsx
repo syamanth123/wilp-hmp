@@ -3,6 +3,12 @@ import { prisma, HandoutStatus } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
+
+// Workflow detail pages MUST be force-dynamic. Without it, Next.js production
+// builds can serve a stale RSC payload from before revalidatePath propagated,
+// which manifests as e2e failures where the badge shows pre-transition state
+// while the DB has already committed the new status.
+export const dynamic = 'force-dynamic';
 import { ApprovalsList } from '@/components/approvals-list';
 import { FacultyAssignmentsList } from '@/components/faculty-assignments-list';
 import { HandoutViewer } from '@/components/handout-viewer';

@@ -10,7 +10,7 @@ Status reflects what the code does today, verified against CI on every push. ✅
 
 | # | Status | Scope | Notes |
 |---|---|---|---|
-| **M1** | ✅ | Foundations | NextAuth v5 (credentials), 28-model Prisma schema, three-layer RBAC (middleware → server-action → workflow guards). CI green. |
+| **M1** | ✅ | Foundations | NextAuth v5 (credentials), 29-model Prisma schema, three-layer RBAC (middleware → server-action → workflow guards). CI green. |
 | **M2** | ✅ | Admin module | Eight admin routes — users, programmes, roles, audit log, CSV import, notification templates, workflow config, AI metrics. |
 | **M3** | ✅ | Workflow engine + IC | XState lifecycle (11 states / 12 events) wired through a single `transition()` orchestrator. IC create is race-safe: optimistic P2002 retry (commit `3b2e834`), proven by [concurrent.test.ts](apps/web/src/app/ic/requests/new/__tests__/concurrent.test.ts) — 10 simultaneous creates produce 10 unique sequential refNos. |
 | **M4** | ✅ | HOG + PC | Faculty allocation with the off-campus / adjunct / guest cap enforced *inside* the transaction; PC confirm + review + rework; E2E covers IC→HOG→PC chain end-to-end. |
@@ -65,7 +65,11 @@ The app comes up at **http://localhost:3000**. Mailhog UI at **:8025**, MinIO co
 
 ### DB migration story
 
-The repo currently uses `prisma db push` rather than `prisma migrate dev` — **there is no `packages/db/prisma/migrations/` folder yet**. CI uses `db push` too. This is acceptable for the current solo-author development phase but **must change before deploy**: production environments need `prisma migrate deploy` against versioned migration files. Creating the initial migration is tracked as a follow-up.
+Migrations now live under [`packages/db/prisma/migrations/`](packages/db/prisma/migrations). The first migration (`*_init`) captures the full 29-model baseline; subsequent migrations are incremental diffs (e.g. `*_add_sme_nomination`).
+
+- **Local dev (new schema change)**: `pnpm --filter @hmp/db exec prisma migrate dev --name <slug>` generates the migration file, applies it, and regenerates the client.
+- **CI**: still uses `pnpm --filter @hmp/db push` against a fresh service container each run — faster than replaying every historical migration when the schema is small.
+- **Production**: `pnpm --filter @hmp/db exec prisma migrate deploy`. Never `db push` or `migrate dev` in production. Full lifecycle table in [docs/deployment-runbook.md](docs/deployment-runbook.md#migration-lifecycle-dev-vs-ci-vs-prod).
 
 ---
 
@@ -85,8 +89,9 @@ All seeded users share password `password`.
 | `faculty.off2@hmp.local` | `FACULTY` | `OFF_CAMPUS` |
 | `faculty.adj@hmp.local` | `FACULTY` | `ADJUNCT` |
 | `faculty.guest@hmp.local` | `FACULTY` | `GUEST` |
+| `sme@hmp.local` | `SME` | — |
 
-The `SME` role exists in the schema enum but **no seed user, no `/sme/*` routes, and no UI surface** — that flow is queued for a later milestone. See [docs/rfp-traceability.md](docs/rfp-traceability.md) row 23.
+The `SME` role + seed user + `SmeNomination` schema (model + enum + back-relations) all exist as of the `add_sme_nomination` migration. **No `/sme/*` routes or UI surface yet** — those come in later prompts. See [docs/rfp-traceability.md](docs/rfp-traceability.md) row 23.
 
 ---
 
@@ -96,7 +101,7 @@ Four short paragraphs. Detail in [docs/architecture.md](docs/architecture.md).
 
 **Application shell.** Next.js 14 App Router with a single shared `apps/web` package. All mutations are React Server Actions co-located with their pages (`actions.ts` per route folder). All authenticated routes are gated by NextAuth middleware → server-action `requireRole(...)` → workflow `assertRoleAllowed(...)`. ADMIN is a super-role that bypasses `requireRole` for navigation but not for workflow events.
 
-**Data layer.** Postgres (Prisma) is the single source of truth across **28 models** grouped into identity, academic structure, handout lifecycle, notifications, workflow config, AI artifacts, integration snapshots, and audit. The Prisma client is exported from `@hmp/db` as a singleton; every server action uses it directly or via the helpers in `apps/web/src/lib/`.
+**Data layer.** Postgres (Prisma) is the single source of truth across **29 models** grouped into identity, academic structure, handout lifecycle, notifications, workflow config, AI artifacts, integration snapshots, and audit. The Prisma client is exported from `@hmp/db` as a singleton; every server action uses it directly or via the helpers in `apps/web/src/lib/`.
 
 **Workflow engine.** [`packages/workflow`](packages/workflow) defines the XState lifecycle and exposes one orchestrator — `transition({ requestId, event, actor, effects? })` — that runs the status update, the caller's atomic side-effects (assignments, approvals, version writes), and the audit row inside a single `prisma.$transaction`. Off-campus / adjunct / guest faculty caps are re-checked inside the transaction's `effects` so concurrent allocations can't both squeak past the limit.
 

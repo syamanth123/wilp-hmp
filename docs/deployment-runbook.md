@@ -40,6 +40,17 @@ Copy `.env.example` and fill every value. Required in production:
 5. **Build**: `pnpm install --frozen-lockfile && pnpm --filter @hmp/web build`.
 6. **Start**: `pnpm --filter @hmp/web start` (or platform default).
 
+### Migration lifecycle (dev vs CI vs prod)
+
+| Environment | Command | Why |
+|---|---|---|
+| Local dev (creating a new migration) | `pnpm --filter @hmp/db exec prisma migrate dev --name <slug>` | Generates a new migration file, applies it, regenerates the client. |
+| Local dev (reset to a known state) | `pnpm --filter @hmp/db exec prisma migrate reset --force` | Drops + recreates the DB, re-runs every migration, re-runs the seed. Destructive — dev only. |
+| CI (every PR / push) | `pnpm --filter @hmp/db push` *(current)* — fast, schema-only sync against the per-run service container. | A fresh `_prisma_migrations`-less DB each run, so `push` is faster than re-running every historical migration. Acceptable while CI doesn't need to verify migration-file integrity. |
+| **Production** | `pnpm --filter @hmp/db exec prisma migrate deploy` | Applies pending migrations in order, idempotent. **Never use `db push` or `migrate dev` in production.** |
+
+Migrations now live under [`packages/db/prisma/migrations/`](../packages/db/prisma/migrations) — the `*_init` migration captures the 28-model pre-SME baseline; `*_add_sme_nomination` adds the SME nomination model, bringing the schema to 29 models.
+
 ## Scheduled jobs
 
 Schedule a daily HTTPS POST to `/api/cron/reminders` with `Authorization: Bearer <CRON_SECRET>`.

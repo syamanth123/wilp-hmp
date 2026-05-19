@@ -51,6 +51,8 @@ model User {
   notifications     Notification[]
   auditLogs         AuditLog[]
   versionsAuthored  HandoutVersion[]    @relation("VersionAuthor")
+  smeNominationsAsSme       SmeNomination[] @relation("SmeNominationsAsSme")
+  smeNominationsAsNominator SmeNomination[] @relation("SmeNominationsAsNominator")
 
   @@index([email])
 }
@@ -201,6 +203,7 @@ model HandoutRequest {
   attachments         Attachment[]
   recommendations     AIRecommendation[]
   auditLogs           AuditLog[]
+  smeNominations      SmeNomination[]
 
   @@index([status])
   @@index([courseOfferingId])
@@ -267,6 +270,33 @@ model FacultyAssignment {
 
   @@index([requestId])
   @@index([facultyId])
+}
+
+enum SmeNominationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  COMPLETED
+}
+
+model SmeNomination {
+  id             String              @id @default(cuid())
+  requestId      String
+  request        HandoutRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  smeUserId      String
+  smeUser        User                @relation("SmeNominationsAsSme", fields: [smeUserId], references: [id])
+  nominatedById  String
+  nominatedBy    User                @relation("SmeNominationsAsNominator", fields: [nominatedById], references: [id])
+  topic          String
+  notes          String?
+  status         SmeNominationStatus @default(PENDING)
+  respondedAt    DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([requestId])
+  @@index([smeUserId, status])
 }
 
 enum ApprovalStage {

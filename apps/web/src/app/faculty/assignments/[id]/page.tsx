@@ -16,6 +16,10 @@ import { StartEditingPanel } from './start-editing-panel';
 import { EditorPanel } from './editor-panel';
 import { QualityPanel } from './quality-panel';
 
+// Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
+// for the rationale (Next.js production-build RSC caching vs revalidatePath).
+export const dynamic = 'force-dynamic';
+
 const EDITABLE = new Set<HandoutStatus>([
   HandoutStatus.IN_PROGRESS,
   HandoutStatus.REWORK_REQUESTED,
