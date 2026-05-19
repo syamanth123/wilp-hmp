@@ -204,9 +204,9 @@ Start here:
 
 **Team**
 
-- Deepanshu — Tech Lead / Full Stack (architecture, auth, workflow, AI, DevOps)
-- Ritwik — Full Stack (IC + HOG + PC modules, ERP/LMS integrations)
-- Shyamanth — Full Stack (Faculty module, editor, notifications, dashboards)
-- Shipra — Design / QA / Documentation
+- **Syamanth** — Sole contributor. Architecture, full-stack development
+  (all role modules: Admin, IC, HOG, PC, Faculty), auth, workflow engine,
+  AI layer, ERP/LMS integrations, editor, notifications, dashboards,
+  DevOps, design, QA, documentation.
 
 License: TBD (internal BITS WILP project).
