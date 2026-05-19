@@ -24,7 +24,18 @@ export default defineConfig({
     navigationTimeout: 60_000,
   },
   webServer: {
-    command: 'pnpm dev',
+    // In CI we serve a production build (`next start`). Dev mode's per-route
+    // first-compile under load + RSC streaming hiccups cause server actions
+    // to occasionally log "failed to forward action response" and leave the
+    // client's `useTransition` in success state even though the underlying
+    // commit/revalidate didn't propagate — manifests as flaky downstream
+    // assertions. Production builds are pre-compiled and stable.
+    //
+    // Local dev keeps `pnpm dev` for hot reload — CI runs a single `pnpm build`
+    // (in the e2e job, before playwright) and `pnpm start` serves it.
+    command: process.env.CI
+      ? 'pnpm --filter @hmp/web start'
+      : 'pnpm --filter @hmp/web dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

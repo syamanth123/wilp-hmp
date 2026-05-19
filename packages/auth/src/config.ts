@@ -13,6 +13,13 @@ const credentialsSchema = z.object({
 export const authConfig: NextAuthConfig = {
   session: { strategy: 'jwt' },
   pages: { signIn: '/login' },
+  // Required for NextAuth v5 in production builds behind any reverse proxy
+  // or when running under `next start` on http://localhost (CI e2e). Without
+  // this, NextAuth refuses to honour the Host header and the session cookie
+  // set by signIn isn't recognized on the redirect — the middleware bounces
+  // every authed request back to /login. Dev mode is permissive and hides it.
+  // See https://authjs.dev/reference/nextjs#trusthost
+  trustHost: true,
   providers: [
     Credentials({
       name: 'credentials',

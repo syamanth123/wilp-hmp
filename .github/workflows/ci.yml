@@ -137,6 +137,11 @@ jobs:
       - name: Seed dev users
         run: pnpm --filter @hmp/db seed
 
+      - name: Build production app
+        # Playwright's webServer runs `next start` in CI (see
+        # apps/web/playwright.config.ts). Build must happen before e2e.
+        run: pnpm --filter @hmp/web build
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
