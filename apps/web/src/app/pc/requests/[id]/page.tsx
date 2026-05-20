@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { prisma, HandoutStatus } from '@hmp/db';
+import { prisma, HandoutStatus, RoleName } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
@@ -13,6 +13,12 @@ import { listVersions } from '@/lib/handout-versioning';
 import { QualityReportCard } from '@/components/quality-report-card';
 import { AssignmentPanel } from './assignment-panel';
 import { ReviewPanel } from './review-panel';
+import {
+  SmeNominationsPanel,
+  type ExistingNomination,
+  type SmeOption,
+} from './sme-nominations-panel';
+import { NOMINATION_ALLOWED_STATUSES } from './sme-nomination';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
 // for the rationale (Next.js production-build RSC caching vs revalidatePath).
@@ -30,6 +36,44 @@ export default async function PCRequestDetail({ params }: { params: { id: string
   if (!request) notFound();
   const handout = request.handout;
   const versions = handout ? await listVersions(handout.id) : [];
+
+  // SME nominations: list existing + fetch active SME users for the dropdown.
+  // Both queries are cheap (small tables, indexed) and the page is already
+  // force-dynamic so they always reflect the latest state.
+  const [nominationRows, smeUsers] = await Promise.all([
+    prisma.smeNomination.findMany({
+      where: { requestId: request.id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        topic: true,
+        notes: true,
+        status: true,
+        createdAt: true,
+        smeUser: { select: { name: true, email: true } },
+        nominatedBy: { select: { name: true } },
+      },
+    }),
+    prisma.user.findMany({
+      where: {
+        active: true,
+        roles: { some: { role: { name: RoleName.SME } } },
+      },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
+  const nominations: ExistingNomination[] = nominationRows.map((n) => ({
+    id: n.id,
+    topic: n.topic,
+    notes: n.notes,
+    status: n.status,
+    createdAt: n.createdAt.toISOString(),
+    smeUser: n.smeUser,
+    nominatedBy: n.nominatedBy,
+  }));
+  const smeOptions: SmeOption[] = smeUsers;
+  const canNominate = NOMINATION_ALLOWED_STATUSES.has(request.status);
 
   return (
     <div className="space-y-4">
@@ -73,6 +117,26 @@ export default async function PCRequestDetail({ params }: { params: { id: string
           </CardHeader>
           <CardContent>
             <ReviewPanel requestId={request.id} />
+          </CardContent>
+        </Card>
+      )}
+
+      {(nominations.length > 0 || canNominate) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>SME nominations</CardTitle>
+            <CardDescription>
+              Invite a Subject Matter Expert to advise on this handout. Their input is advisory
+              and does not block the workflow.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SmeNominationsPanel
+              requestId={request.id}
+              canNominate={canNominate}
+              smeOptions={smeOptions}
+              nominations={nominations}
+            />
           </CardContent>
         </Card>
       )}
