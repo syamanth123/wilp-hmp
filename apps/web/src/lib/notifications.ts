@@ -59,7 +59,11 @@ const LINK_PREFIX_BY_ROLE: Partial<Record<RoleName, (id: string) => string>> = {
   [RoleName.PROGRAMME_COMMITTEE]: (id) => `/pc/requests/${id}`,
   [RoleName.FACULTY]: (id) => `/faculty/assignments/${id}`,
   [RoleName.ADMIN]: (id) => `/ic/requests/${id}`,
-  [RoleName.SME]: (id) => `/faculty/assignments/${id}`,
+  // SMEs land on /sme/nominations (their list view) and navigate to detail
+  // from there. The arg is intentionally unused — every other entry takes
+  // an id, so we keep the signature `(id) => string` so callers don't have
+  // to branch on role. (Prompt 7 will build the /sme route group.)
+  [RoleName.SME]: (_id) => '/sme/nominations',
 };
 
 interface RequestForNotify {
@@ -412,4 +416,89 @@ export async function notifySlaReminder(input: {
     ),
   );
   return filtered.length;
+}
+
+/**
+ * Fires when a PC nominates an SME on a request. Side-channel notification —
+ * does NOT go through the workflow state machine.
+ *
+ * Tries to load the DB template `handout.sme_nominated` first; if absent
+ * (the template row isn't seeded yet — Prompt 8 will add it), falls back
+ * to hardcoded production-quality wording defined inline below.
+ *
+ * NOTE for Prompt 8: when you seed the `handout.sme_nominated` template,
+ * the template's `subject` and `body` MUST equal or improve on the inline
+ * fallback wording below — we do NOT want to introduce a copy regression
+ * the day Prompt 8 lands. The inline wording here is what real recipients
+ * see in production until that template exists. Treat as production copy.
+ *
+ * Whole body is wrapped in try / catch so a missing template, broken
+ * `deliver()`, or any other failure inside this helper never propagates
+ * back to the calling server action. The action's success path is
+ * independent of notification delivery.
+ */
+export async function notifySmeNomination(input: {
+  requestId: string;
+  nominationId: string;
+  smeUserId: string;
+  topic: string;
+  actor: ActorRef;
+}): Promise<void> {
+  try {
+    const [req, sme, tpl] = await Promise.all([
+      loadRequest(input.requestId),
+      prisma.user.findUnique({
+        where: { id: input.smeUserId },
+        select: { id: true, email: true, name: true },
+      }),
+      loadTemplate('handout.sme_nominated'),
+    ]);
+    if (!req || !sme) {
+      // No request or no SME user — nothing to notify. The action already
+      // committed; this is a no-op, not a failure.
+      return;
+    }
+
+    // Inline fallback wording. PROMPT 8: the seeded template's subject and
+    // body must equal or improve on these strings to avoid a copy regression
+    // (see jsdoc above).
+    const fallbackSubject = `You have been nominated as SME for ${req.refNo}`;
+    const fallbackBody =
+      `${input.actor.name} has nominated you as a Subject Matter Expert to advise on handout ` +
+      `${req.refNo} (${req.offering.course.code} — ${req.offering.course.title}). ` +
+      `Topic: "${input.topic}". Please review the request and accept or decline at your earliest convenience.`;
+
+    const tokens: Record<string, string> = {
+      refNo: req.refNo,
+      course: `${req.offering.course.code} — ${req.offering.course.title}`,
+      programme: req.offering.semester.programme.code,
+      semester: req.offering.semester.name,
+      actor: input.actor.name,
+      topic: input.topic,
+    };
+
+    const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
+    const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
+    const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
+
+    await deliver({
+      userId: sme.id,
+      email: sme.email,
+      role: RoleName.SME,
+      subject,
+      body,
+      link: linkFor(RoleName.SME, req.id),
+      channels,
+      metaKind: 'sme.nominated',
+      extraMeta: {
+        nominationId: input.nominationId,
+        requestId: req.id,
+        refNo: req.refNo,
+        topic: input.topic,
+        templateMissing: !tpl,
+      },
+    });
+  } catch (err) {
+    console.error('[notifySmeNomination] failed', err);
+  }
 }

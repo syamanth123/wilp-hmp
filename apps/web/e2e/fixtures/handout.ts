@@ -58,8 +58,9 @@ const TAXILA_STUB_RESPONSE = {
 };
 
 export interface SeedHandoutOptions {
-  /** Target status — only APPROVED or PUBLISHED are supported. */
-  status: 'APPROVED' | 'PUBLISHED';
+  /** Target status. Each adds the upstream approval rows that would
+   *  realistically exist for a real request at that point in the workflow. */
+  status: 'ASSIGNED' | 'APPROVED' | 'PUBLISHED';
   /** IC user email (defaults to the seeded `ic@hmp.local`). */
   initiatorEmail?: string;
   /** Faculty user email (defaults to the seeded `faculty@hmp.local`). */
@@ -82,16 +83,17 @@ export interface SeededHandout {
  * on purpose — the workflow contract is already covered by m3/m4/m5 E2E specs;
  * this fixture exists for setup speed and isolation in m6.
  *
- * What gets created:
+ * What gets created (varies by status — each row reflects what would
+ * realistically exist for a real request at that workflow point):
  *   HandoutRequest               (status: opts.status, refNo: HMP-8888-...)
  *   └── Handout                  (status: opts.status)
  *       └── HandoutVersion v1    (content + html)
  *   FacultyAssignment            (acceptedAt set)
- *   Approval HOG_REVIEW APPROVED
- *   Approval PC_REVIEW  APPROVED
- *   Approval HOG_FINAL  APPROVED
- *   Approval IC_PUBLISH APPROVED — only when status === PUBLISHED
- *   LmsPublishLog success         — only when status === PUBLISHED
+ *   Approval HOG_REVIEW APPROVED — always (HOG allocated)
+ *   Approval PC_REVIEW  APPROVED — always (PC confirmed)
+ *   Approval HOG_FINAL  APPROVED — APPROVED + PUBLISHED only
+ *   Approval IC_PUBLISH APPROVED — PUBLISHED only
+ *   LmsPublishLog success         — PUBLISHED only
  *
  * The refNo is constructed with a monotonic suffix (process.hrtime + random)
  * so concurrent beforeEach calls cannot collide on the @unique constraint.
@@ -124,7 +126,12 @@ export async function seedHandoutAtStatus(opts: SeedHandoutOptions): Promise<See
     .toString(36)
     .slice(2, 6)}`;
 
-  const status = opts.status === 'PUBLISHED' ? HandoutStatus.PUBLISHED : HandoutStatus.APPROVED;
+  const status =
+    opts.status === 'PUBLISHED'
+      ? HandoutStatus.PUBLISHED
+      : opts.status === 'APPROVED'
+        ? HandoutStatus.APPROVED
+        : HandoutStatus.ASSIGNED;
   const facultyType = faculty.facultyType ?? FacultyType.ON_CAMPUS;
   const now = new Date();
 
@@ -174,32 +181,35 @@ export async function seedHandoutAtStatus(opts: SeedHandoutOptions): Promise<See
       },
     });
 
-    // Upstream approvals — present at both APPROVED and PUBLISHED states.
-    await tx.approval.createMany({
-      data: [
-        {
-          requestId: request.id,
-          stage: ApprovalStage.HOG_REVIEW,
-          decision: ApprovalDecision.APPROVED,
-          reviewerId: hog.id,
-          decidedAt: now,
-        },
-        {
-          requestId: request.id,
-          stage: ApprovalStage.PC_REVIEW,
-          decision: ApprovalDecision.APPROVED,
-          reviewerId: pc.id,
-          decidedAt: now,
-        },
-        {
-          requestId: request.id,
-          stage: ApprovalStage.HOG_FINAL,
-          decision: ApprovalDecision.APPROVED,
-          reviewerId: hog.id,
-          decidedAt: now,
-        },
-      ],
-    });
+    // Upstream approvals — HOG_REVIEW + PC_REVIEW always present (true
+    // from ASSIGNED onwards). HOG_FINAL only after the review cycle,
+    // so APPROVED + PUBLISHED only.
+    const approvals = [
+      {
+        requestId: request.id,
+        stage: ApprovalStage.HOG_REVIEW,
+        decision: ApprovalDecision.APPROVED,
+        reviewerId: hog.id,
+        decidedAt: now,
+      },
+      {
+        requestId: request.id,
+        stage: ApprovalStage.PC_REVIEW,
+        decision: ApprovalDecision.APPROVED,
+        reviewerId: pc.id,
+        decidedAt: now,
+      },
+    ];
+    if (opts.status === 'APPROVED' || opts.status === 'PUBLISHED') {
+      approvals.push({
+        requestId: request.id,
+        stage: ApprovalStage.HOG_FINAL,
+        decision: ApprovalDecision.APPROVED,
+        reviewerId: hog.id,
+        decidedAt: now,
+      });
+    }
+    await tx.approval.createMany({ data: approvals });
 
     if (opts.status === 'PUBLISHED') {
       await tx.approval.create({
