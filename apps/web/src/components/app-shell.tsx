@@ -44,12 +44,24 @@ function EditIcon() {
     </svg>
   );
 }
+function AdvisorIcon() {
+  // Briefcase glyph — visually distinct from Faculty's pencil so the SME
+  // advisory role reads differently in the sidebar at a glance.
+  return (
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 9h16v10a2 2 0 01-2 2H6a2 2 0 01-2-2V9z"/>
+      <path d="M9 9V6a2 2 0 012-2h2a2 2 0 012 2v3"/>
+      <path d="M4 13h16"/>
+    </svg>
+  );
+}
 const NAV: NavItem[] = [
   { href: '/admin',    label: 'Admin',               roles: [RoleName.ADMIN],                                              icon: <ShieldIcon /> },
   { href: '/ic',       label: 'Instruction Cell',     roles: [RoleName.INSTRUCTION_CELL, RoleName.ADMIN],                  icon: <BookIcon /> },
   { href: '/hog',      label: 'HOG',                  roles: [RoleName.HOG, RoleName.ADMIN],                               icon: <UsersIcon /> },
   { href: '/pc',       label: 'Programme Committee',  roles: [RoleName.PROGRAMME_COMMITTEE, RoleName.ADMIN],               icon: <FlowIcon /> },
   { href: '/faculty',  label: 'Faculty',              roles: [RoleName.FACULTY, RoleName.ADMIN],                           icon: <EditIcon /> },
+  { href: '/sme',      label: 'SME',                  roles: [RoleName.SME, RoleName.ADMIN],                               icon: <AdvisorIcon /> },
 ];
 
 function initials(name: string) {
@@ -72,7 +84,7 @@ export async function AppShell({
   area,
   children,
 }: {
-  area: '/admin' | '/ic' | '/hog' | '/pc' | '/faculty';
+  area: '/admin' | '/ic' | '/hog' | '/pc' | '/faculty' | '/sme';
   children: React.ReactNode;
 }) {
   const user = await getSessionUser();
