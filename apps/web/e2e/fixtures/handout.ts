@@ -59,8 +59,11 @@ const TAXILA_STUB_RESPONSE = {
 
 export interface SeedHandoutOptions {
   /** Target status. Each adds the upstream approval rows that would
-   *  realistically exist for a real request at that point in the workflow. */
-  status: 'ASSIGNED' | 'APPROVED' | 'PUBLISHED';
+   *  realistically exist for a real request at that point in the workflow.
+   *  IN_PROGRESS is identical to ASSIGNED in seeded shape — faculty has started
+   *  editing (the fixture already always creates an initial HandoutVersion) so
+   *  comments are available, which the SME-response flow needs. */
+  status: 'ASSIGNED' | 'IN_PROGRESS' | 'APPROVED' | 'PUBLISHED';
   /** IC user email (defaults to the seeded `ic@hmp.local`). */
   initiatorEmail?: string;
   /** Faculty user email (defaults to the seeded `faculty@hmp.local`). */
@@ -87,7 +90,9 @@ export interface SeededHandout {
  * realistically exist for a real request at that workflow point):
  *   HandoutRequest               (status: opts.status, refNo: HMP-8888-...)
  *   └── Handout                  (status: opts.status)
- *       └── HandoutVersion v1    (content + html)
+ *       └── HandoutVersion v1    (content + html — always created for fixture
+ *                                 simplicity, even for ASSIGNED where real
+ *                                 requests wouldn't have one yet)
  *   FacultyAssignment            (acceptedAt set)
  *   Approval HOG_REVIEW APPROVED — always (HOG allocated)
  *   Approval PC_REVIEW  APPROVED — always (PC confirmed)
@@ -131,7 +136,9 @@ export async function seedHandoutAtStatus(opts: SeedHandoutOptions): Promise<See
       ? HandoutStatus.PUBLISHED
       : opts.status === 'APPROVED'
         ? HandoutStatus.APPROVED
-        : HandoutStatus.ASSIGNED;
+        : opts.status === 'IN_PROGRESS'
+          ? HandoutStatus.IN_PROGRESS
+          : HandoutStatus.ASSIGNED;
   const facultyType = faculty.facultyType ?? FacultyType.ON_CAMPUS;
   const now = new Date();
 
