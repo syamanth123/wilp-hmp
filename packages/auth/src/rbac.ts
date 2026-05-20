@@ -35,6 +35,12 @@ export function hasRole(user: SessionUser | null | undefined, role: RoleName | R
 
 export function hasPermission(user: SessionUser | null | undefined, permission: string): boolean {
   if (!user) return false;
+  // ADMIN is a super-role: it bypasses every permission gate, matching the
+  // hasRole() behaviour above. Without this, an ADMIN whose role->permission
+  // grants don't explicitly include a given key (a real possibility — the
+  // seed grants are not 100% exhaustive) would be denied — surprising for a
+  // super-role. Tested in rbac.test.ts.
+  if (user.roles.includes(RoleName.ADMIN)) return true;
   return user.permissions.includes(permission);
 }
 

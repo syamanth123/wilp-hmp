@@ -28,6 +28,16 @@ const PERMISSIONS: Array<{ key: string; label: string; roles: RoleName[] }> = [
   { key: 'audit.read', label: 'View audit logs', roles: [RoleName.ADMIN] },
   // ai
   { key: 'ai.use', label: 'Use AI features', roles: [RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY] },
+  // SME advisory flow (Prompt 5). handout.read + comment.write are foundational
+  // permissions the rest of the app currently relies on via role gates — they
+  // were missing from the seeded set. Added here so future RBAC-tightening
+  // work has them to check against.
+  { key: 'handout.read', label: 'View assigned handouts',
+    roles: [RoleName.ADMIN, RoleName.INSTRUCTION_CELL, RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY, RoleName.SME] },
+  { key: 'comment.write', label: 'Add comments to a handout',
+    roles: [RoleName.ADMIN, RoleName.INSTRUCTION_CELL, RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY, RoleName.SME] },
+  { key: 'handout.advise', label: 'View assigned handouts and add advisory comments',
+    roles: [RoleName.ADMIN, RoleName.SME] },
 ];
 
 async function main() {
@@ -75,7 +85,7 @@ async function main() {
     { email: 'faculty.off2@hmp.local', name: 'Off-Campus Faculty Two', role: RoleName.FACULTY, facultyType: FacultyType.OFF_CAMPUS },
     { email: 'faculty.adj@hmp.local', name: 'Adjunct Faculty', role: RoleName.FACULTY, facultyType: FacultyType.ADJUNCT },
     { email: 'faculty.guest@hmp.local', name: 'Guest Faculty', role: RoleName.FACULTY, facultyType: FacultyType.GUEST },
-    { email: 'sme@hmp.local', name: 'Subject Matter Expert', role: RoleName.SME },
+    { email: 'sme@hmp.local', name: 'Dr. Sneha Mehta', role: RoleName.SME },
   ];
 
   for (const u of seededUsers) {
