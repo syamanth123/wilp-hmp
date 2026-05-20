@@ -9,6 +9,12 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
+  // Retries stay at 2 in CI. The previously observed m6 flake (long publish
+  // + archive walk asserting on transient UI text) was addressed structurally
+  // by splitting m6 into m6a / m6b / m6c specs each starting from a seeded
+  // fixture — see e2e/fixtures/handout.ts and PR "fix(e2e): split m6 for
+  // stability". Retries here remain as defence-in-depth against the residual
+  // Next.js production-build RSC streaming race the split worked around.
   retries: process.env.CI ? 2 : 0,
   reporter: 'html',
   // First-compile latency in Next.js dev mode can exceed the default 5s for
