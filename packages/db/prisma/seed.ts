@@ -1,6 +1,9 @@
 import { PrismaClient, RoleName, FacultyType, NotificationChannel } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { SME_NOTIFICATION_TEMPLATES } from '../src/notification-templates';
+import {
+  SME_NOTIFICATION_TEMPLATES,
+  PUBLISH_NOTIFICATION_TEMPLATES,
+} from '../src/notification-templates';
 
 const prisma = new PrismaClient();
 
@@ -11,34 +14,87 @@ const PERMISSIONS: Array<{ key: string; label: string; roles: RoleName[] }> = [
   { key: 'user.update', label: 'Update users', roles: [RoleName.ADMIN] },
   { key: 'user.deactivate', label: 'Deactivate users', roles: [RoleName.ADMIN] },
   // academic
-  { key: 'academic.read', label: 'View academic structure', roles: [RoleName.ADMIN, RoleName.INSTRUCTION_CELL, RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY] },
+  {
+    key: 'academic.read',
+    label: 'View academic structure',
+    roles: [
+      RoleName.ADMIN,
+      RoleName.INSTRUCTION_CELL,
+      RoleName.HOG,
+      RoleName.PROGRAMME_COMMITTEE,
+      RoleName.FACULTY,
+    ],
+  },
   { key: 'academic.manage', label: 'Manage academic structure', roles: [RoleName.ADMIN] },
   // workflow config
   { key: 'workflow.config', label: 'Configure workflow', roles: [RoleName.ADMIN] },
   // handout request
-  { key: 'request.initiate', label: 'Initiate handout request', roles: [RoleName.INSTRUCTION_CELL] },
+  {
+    key: 'request.initiate',
+    label: 'Initiate handout request',
+    roles: [RoleName.INSTRUCTION_CELL],
+  },
   { key: 'request.allocate', label: 'Allocate faculty', roles: [RoleName.HOG] },
-  { key: 'request.assign', label: 'Assign handout to faculty', roles: [RoleName.PROGRAMME_COMMITTEE] },
+  {
+    key: 'request.assign',
+    label: 'Assign handout to faculty',
+    roles: [RoleName.PROGRAMME_COMMITTEE],
+  },
   { key: 'handout.edit', label: 'Edit handout', roles: [RoleName.FACULTY] },
   { key: 'handout.submit', label: 'Submit handout', roles: [RoleName.FACULTY] },
-  { key: 'handout.review', label: 'Review handout', roles: [RoleName.PROGRAMME_COMMITTEE, RoleName.HOG] },
+  {
+    key: 'handout.review',
+    label: 'Review handout',
+    roles: [RoleName.PROGRAMME_COMMITTEE, RoleName.HOG],
+  },
   { key: 'handout.approve', label: 'Approve handout', roles: [RoleName.HOG] },
   { key: 'handout.publish', label: 'Publish handout', roles: [RoleName.INSTRUCTION_CELL] },
-  { key: 'handout.archive', label: 'Archive handout', roles: [RoleName.ADMIN, RoleName.INSTRUCTION_CELL] },
+  {
+    key: 'handout.archive',
+    label: 'Archive handout',
+    roles: [RoleName.ADMIN, RoleName.INSTRUCTION_CELL],
+  },
   // audit
   { key: 'audit.read', label: 'View audit logs', roles: [RoleName.ADMIN] },
   // ai
-  { key: 'ai.use', label: 'Use AI features', roles: [RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY] },
+  {
+    key: 'ai.use',
+    label: 'Use AI features',
+    roles: [RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY],
+  },
   // SME advisory flow (Prompt 5). handout.read + comment.write are foundational
   // permissions the rest of the app currently relies on via role gates — they
   // were missing from the seeded set. Added here so future RBAC-tightening
   // work has them to check against.
-  { key: 'handout.read', label: 'View assigned handouts',
-    roles: [RoleName.ADMIN, RoleName.INSTRUCTION_CELL, RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY, RoleName.SME] },
-  { key: 'comment.write', label: 'Add comments to a handout',
-    roles: [RoleName.ADMIN, RoleName.INSTRUCTION_CELL, RoleName.HOG, RoleName.PROGRAMME_COMMITTEE, RoleName.FACULTY, RoleName.SME] },
-  { key: 'handout.advise', label: 'View assigned handouts and add advisory comments',
-    roles: [RoleName.ADMIN, RoleName.SME] },
+  {
+    key: 'handout.read',
+    label: 'View assigned handouts',
+    roles: [
+      RoleName.ADMIN,
+      RoleName.INSTRUCTION_CELL,
+      RoleName.HOG,
+      RoleName.PROGRAMME_COMMITTEE,
+      RoleName.FACULTY,
+      RoleName.SME,
+    ],
+  },
+  {
+    key: 'comment.write',
+    label: 'Add comments to a handout',
+    roles: [
+      RoleName.ADMIN,
+      RoleName.INSTRUCTION_CELL,
+      RoleName.HOG,
+      RoleName.PROGRAMME_COMMITTEE,
+      RoleName.FACULTY,
+      RoleName.SME,
+    ],
+  },
+  {
+    key: 'handout.advise',
+    label: 'View assigned handouts and add advisory comments',
+    roles: [RoleName.ADMIN, RoleName.SME],
+  },
 ];
 
 async function main() {
@@ -75,17 +131,52 @@ async function main() {
 
   // --- Users ---
   const password = await bcrypt.hash('password', 10);
-  const seededUsers: Array<{ email: string; name: string; role: RoleName; facultyType?: FacultyType }> = [
+  const seededUsers: Array<{
+    email: string;
+    name: string;
+    role: RoleName;
+    facultyType?: FacultyType;
+  }> = [
     { email: 'admin@hmp.local', name: 'Admin User', role: RoleName.ADMIN },
     { email: 'ic@hmp.local', name: 'Instruction Cell', role: RoleName.INSTRUCTION_CELL },
     { email: 'hog@hmp.local', name: 'Head of Group', role: RoleName.HOG },
     { email: 'pc@hmp.local', name: 'Programme Committee', role: RoleName.PROGRAMME_COMMITTEE },
-    { email: 'faculty@hmp.local', name: 'On-Campus Faculty', role: RoleName.FACULTY, facultyType: FacultyType.ON_CAMPUS },
-    { email: 'faculty2@hmp.local', name: 'On-Campus Faculty Two', role: RoleName.FACULTY, facultyType: FacultyType.ON_CAMPUS },
-    { email: 'faculty.off@hmp.local', name: 'Off-Campus Faculty', role: RoleName.FACULTY, facultyType: FacultyType.OFF_CAMPUS },
-    { email: 'faculty.off2@hmp.local', name: 'Off-Campus Faculty Two', role: RoleName.FACULTY, facultyType: FacultyType.OFF_CAMPUS },
-    { email: 'faculty.adj@hmp.local', name: 'Adjunct Faculty', role: RoleName.FACULTY, facultyType: FacultyType.ADJUNCT },
-    { email: 'faculty.guest@hmp.local', name: 'Guest Faculty', role: RoleName.FACULTY, facultyType: FacultyType.GUEST },
+    {
+      email: 'faculty@hmp.local',
+      name: 'On-Campus Faculty',
+      role: RoleName.FACULTY,
+      facultyType: FacultyType.ON_CAMPUS,
+    },
+    {
+      email: 'faculty2@hmp.local',
+      name: 'On-Campus Faculty Two',
+      role: RoleName.FACULTY,
+      facultyType: FacultyType.ON_CAMPUS,
+    },
+    {
+      email: 'faculty.off@hmp.local',
+      name: 'Off-Campus Faculty',
+      role: RoleName.FACULTY,
+      facultyType: FacultyType.OFF_CAMPUS,
+    },
+    {
+      email: 'faculty.off2@hmp.local',
+      name: 'Off-Campus Faculty Two',
+      role: RoleName.FACULTY,
+      facultyType: FacultyType.OFF_CAMPUS,
+    },
+    {
+      email: 'faculty.adj@hmp.local',
+      name: 'Adjunct Faculty',
+      role: RoleName.FACULTY,
+      facultyType: FacultyType.ADJUNCT,
+    },
+    {
+      email: 'faculty.guest@hmp.local',
+      name: 'Guest Faculty',
+      role: RoleName.FACULTY,
+      facultyType: FacultyType.GUEST,
+    },
     { email: 'sme@hmp.local', name: 'Dr. Sneha Mehta', role: RoleName.SME },
   ];
 
@@ -187,19 +278,60 @@ async function main() {
 
   // --- Default Notification Templates ---
   const templates = [
-    { key: 'handout.requested', subject: 'New handout request {{refNo}}', body: 'A new handout request {{refNo}} has been initiated.' },
-    { key: 'handout.allocated', subject: 'Faculty allocated for {{refNo}}', body: 'Faculty allocation completed for {{refNo}}.' },
-    { key: 'handout.assigned', subject: 'You have been assigned {{refNo}}', body: 'Please log in to view and edit your assigned handout.' },
-    { key: 'handout.submitted', subject: 'Handout {{refNo}} submitted', body: 'Handout {{refNo}} is now awaiting review.' },
-    { key: 'handout.rework', subject: 'Rework requested on {{refNo}}', body: 'Please address the review comments and resubmit.' },
-    { key: 'handout.review_approved', subject: 'Review approved for {{refNo}}', body: 'PC has approved {{refNo}} and forwarded to HOG.' },
-    { key: 'handout.approved', subject: 'Handout {{refNo}} approved', body: 'Handout {{refNo}} has been approved.' },
-    { key: 'handout.rejected', subject: 'Handout {{refNo}} rejected', body: 'Handout {{refNo}} has been rejected.' },
-    { key: 'handout.published', subject: 'Handout {{refNo}} published to LMS', body: 'Handout {{refNo}} has been published to Taxila.' },
-    // SME advisory templates (Prompt 8). Defined in the shared
-    // SME_NOTIFICATION_TEMPLATES constant so the token-contract unit test
-    // renders byte-identical strings — see packages/db/src/notification-templates.ts.
+    {
+      key: 'handout.requested',
+      subject: 'New handout request {{refNo}}',
+      body: 'A new handout request {{refNo}} has been initiated.',
+    },
+    {
+      key: 'handout.allocated',
+      subject: 'Faculty allocated for {{refNo}}',
+      body: 'Faculty allocation completed for {{refNo}}.',
+    },
+    {
+      key: 'handout.assigned',
+      subject: 'You have been assigned {{refNo}}',
+      body: 'Please log in to view and edit your assigned handout.',
+    },
+    {
+      key: 'handout.submitted',
+      subject: 'Handout {{refNo}} submitted',
+      body: 'Handout {{refNo}} is now awaiting review.',
+    },
+    {
+      key: 'handout.rework',
+      subject: 'Rework requested on {{refNo}}',
+      body: 'Please address the review comments and resubmit.',
+    },
+    {
+      key: 'handout.review_approved',
+      subject: 'Review approved for {{refNo}}',
+      body: 'PC has approved {{refNo}} and forwarded to HOG.',
+    },
+    {
+      key: 'handout.approved',
+      subject: 'Handout {{refNo}} approved',
+      body: 'Handout {{refNo}} has been approved.',
+    },
+    {
+      key: 'handout.rejected',
+      subject: 'Handout {{refNo}} rejected',
+      body: 'Handout {{refNo}} has been rejected.',
+    },
+    {
+      key: 'handout.published',
+      subject: 'Handout {{refNo}} published to LMS',
+      body: 'Handout {{refNo}} has been published to Taxila.',
+    },
+    // SME advisory templates (Prompt 8) + Taxila publish templates (Prompt 9b).
+    // Defined in shared constants so the token-contract unit test renders
+    // byte-identical strings — see packages/db/src/notification-templates.ts.
     ...SME_NOTIFICATION_TEMPLATES.map((t) => ({ key: t.key, subject: t.subject, body: t.body })),
+    ...PUBLISH_NOTIFICATION_TEMPLATES.map((t) => ({
+      key: t.key,
+      subject: t.subject,
+      body: t.body,
+    })),
   ];
   for (const t of templates) {
     await prisma.notificationTemplate.upsert({
@@ -218,12 +350,31 @@ async function main() {
       contentJson: {
         type: 'doc',
         content: [
-          { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Course Handout' }] },
-          { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Part A — Course Description' }] },
-          { type: 'paragraph', content: [{ type: 'text', text: 'Auto-filled from Course master.' }] },
-          { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Part B — Course Plan' }] },
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: 'Course Handout' }],
+          },
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Part A — Course Description' }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Auto-filled from Course master.' }],
+          },
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Part B — Course Plan' }],
+          },
           { type: 'paragraph' },
-          { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Evaluative Components' }] },
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Evaluative Components' }],
+          },
           { type: 'paragraph' },
         ],
       },
@@ -255,9 +406,11 @@ async function main() {
     if (!sme || !pc || !request) {
       console.warn(
         '[seed] SME nomination skipped:',
-        !sme ? 'no SME user found' :
-        !pc ? 'no PC user found' :
-        'no HandoutRequest exists yet (create one via IC flow then re-seed)',
+        !sme
+          ? 'no SME user found'
+          : !pc
+            ? 'no PC user found'
+            : 'no HandoutRequest exists yet (create one via IC flow then re-seed)',
       );
     } else {
       // No @@unique on (requestId, smeUserId, topic), so we do a find-or-create

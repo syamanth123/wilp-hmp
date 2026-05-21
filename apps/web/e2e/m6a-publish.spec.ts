@@ -1,6 +1,26 @@
 import { test, expect, type Page } from '@playwright/test';
 import { seedHandoutAtStatus, cleanupTestHandouts } from './fixtures/handout';
 
+// ─── REQUIRES MINIO ──────────────────────────────────────────────────────────
+// Prompt 9b changed publish to the real two-mode Taxila engine. With no
+// TAXILA_API_URL (the default), publishing runs Mode B: it exports a ZIP to
+// object storage (MinIO) and the request stays APPROVED until the IC confirms a
+// manual upload. This spec therefore needs MinIO. It SKIPS locally without
+// Docker and RUNS in CI, which provides MinIO via a `docker run` step (see
+// .github/workflows/ci.yml). The skip is gated on a MinIO reachability probe.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MINIO_HEALTH = `${process.env.S3_ENDPOINT ?? 'http://localhost:9000'}/minio/health/live`;
+
+async function minioReachable(): Promise<boolean> {
+  try {
+    const res = await fetch(MINIO_HEALTH, { signal: AbortSignal.timeout(3000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function signIn(page: Page, email: string) {
   await page.goto('/login');
   await page.getByLabel('Email').fill(email);
@@ -9,48 +29,55 @@ async function signIn(page: Page, email: string) {
   await page.waitForURL((url) => !url.pathname.startsWith('/login'));
 }
 
-// m6 originally walked IC → HOG → PC → Faculty → PC → HOG → IC publish → archive
-// in a single 8-step test. Under CI load that single test occasionally flaked
-// on the trailing publish/archive assertions. This split puts publish into its
-// own spec that starts from a seeded APPROVED state (see fixtures/handout.ts)
-// so the single user action under test runs with no upstream-flake exposure.
-test.describe('IC publish', () => {
+test.describe('IC publish (Mode B — export + manual confirm)', () => {
   let requestId: string;
+  let skip = false;
 
   test.beforeEach(async () => {
+    skip = !(await minioReachable());
+    test.skip(skip, 'MinIO not reachable — Mode B export requires object storage (CI only)');
     const { requestId: id } = await seedHandoutAtStatus({ status: 'APPROVED' });
     requestId = id;
   });
 
   test.afterEach(async () => {
-    await cleanupTestHandouts();
+    if (!skip) await cleanupTestHandouts();
   });
 
-  test('IC publishes an approved handout to LMS', async ({ page }) => {
+  test('IC exports an approved handout, then confirms manual publication', async ({ page }) => {
     await signIn(page, 'ic@hmp.local');
     await page.goto(`/ic/requests/${requestId}`);
 
-    // No `waitForLoadState('networkidle')` — the page opens a long-lived SSE
-    // connection to /api/notifications/stream, so 'networkidle' never fires
-    // within Playwright's timeout. The next `expect.toBeVisible` auto-polls
-    // and handles waiting for content.
     await expect(page.getByText(/^Approved$/).first()).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Publish to LMS' })).toBeVisible();
 
-    // Action.
+    // Step 1 — publish → Mode B export. Request stays APPROVED.
     await page.getByRole('button', { name: /publish to lms/i }).click();
 
-    // Persistent post-action signal: the Archive card *only* renders when
-    // status === PUBLISHED (gated server-side in ic/requests/[id]/page.tsx).
-    // Seeing this heading is a positive proof the transition committed AND
-    // the page re-fetched the new state. Single durable assertion.
-    await expect(
-      page.getByRole('heading', { name: 'Archive', exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    // Persistent post-export signal: the action-required callout with a
+    // download link + the "Mark as manually published" button.
+    await expect(page.getByText(/Action required: finish publishing/i)).toBeVisible({
+      timeout: 30_000,
+    });
+    const downloadLink = page.getByRole('link', { name: /download the export package/i });
+    await expect(downloadLink).toBeVisible();
+    // Status is still APPROVED (NOT auto-published).
+    await expect(page.getByText(/^Approved$/).first()).toBeVisible();
 
-    // Now that the post-publish UI is up, the rest of the assertions are
-    // cheap consistency checks.
+    // Step 2 — the presigned link resolves against MinIO (HEAD → 200).
+    const href = await downloadLink.getAttribute('href');
+    expect(href).toBeTruthy();
+    const head = await page.request.get(href!);
+    expect(head.status()).toBe(200);
+
+    // Step 3 — confirm manual publication → workflow advances to PUBLISHED.
+    await page.getByRole('button', { name: /mark as manually published/i }).click();
+
+    // Persistent post-action signal: the Archive card appears (gated on
+    // status === PUBLISHED server-side).
+    await expect(page.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText(/^Published$/).first()).toBeVisible();
-    await expect(page.getByText(/taxila-stub/i)).toBeVisible();
   });
 });

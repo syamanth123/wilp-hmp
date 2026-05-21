@@ -58,3 +58,33 @@ export const SME_NOTIFICATION_TEMPLATES: readonly NotificationTemplateSeed[] = [
       'Their comments are visible on the handout discussion.',
   },
 ] as const;
+
+/**
+ * Taxila publish templates (Prompt 9b). Same shared-constant pattern as the
+ * SME set: imported by both seed.ts and the token-contract test. Token
+ * contract: refNo, courseCode, actor.
+ *
+ * `publish_export_ready` fires in Mode B when the export ZIP is generated but
+ * the request is NOT yet published (it stays APPROVED until the IC confirms a
+ * manual upload). `manually_published` fires when the IC confirms — kept
+ * DISTINCT from the workflow's automatic `handout.published` because the
+ * wording signals *how* the publish happened (a human uploaded the ZIP), which
+ * is the audit breadcrumb for "PUBLISHED but Taxila has no automated record".
+ */
+export const PUBLISH_NOTIFICATION_TEMPLATES: readonly NotificationTemplateSeed[] = [
+  {
+    key: 'handout.publish_export_ready',
+    subject: 'Export ready for manual upload: {{refNo}}',
+    body:
+      'The handout {{refNo}} ({{courseCode}}) has been exported as a downloadable ' +
+      'package. Download it from HMP, upload to Taxila manually, then mark it as ' +
+      'published in HMP. Exported by {{actor}}.',
+  },
+  {
+    key: 'handout.manually_published',
+    subject: 'Manually published: {{refNo}}',
+    body:
+      '{{actor}} confirmed manual publication of {{refNo}} ({{courseCode}}) to ' +
+      'Taxila. The request is now in PUBLISHED state.',
+  },
+] as const;

@@ -100,3 +100,23 @@ export async function uploadAndPresign(
     expiresIn: input.expiresIn,
   });
 }
+
+const DEFAULT_DOWNLOAD_TTL_SECONDS = 24 * 60 * 60; // 24h
+
+/**
+ * Mints a fresh presigned GET URL for an existing object key. Used by the IC
+ * publish panel to (re)generate the export download link on each render — the
+ * presigned URL is ephemeral (TTL-bound) and is regenerated from the durable
+ * s3Key rather than persisted, so a link is never stale and survives an
+ * endpoint move. Reads the default client + bucket from env.
+ */
+export async function getPresignedDownloadUrl(
+  key: string,
+  options?: { bucket?: string; expiresIn?: number; client?: S3Client },
+): Promise<string> {
+  const client = options?.client ?? getS3Client();
+  const bucket = options?.bucket ?? process.env.LMS_EXPORTS_BUCKET ?? 'hmp-lms-exports';
+  return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
+    expiresIn: options?.expiresIn ?? DEFAULT_DOWNLOAD_TTL_SECONDS,
+  });
+}

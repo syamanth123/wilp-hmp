@@ -21,23 +21,9 @@ export type {
   SlotBookingRow,
   ParseResult,
 } from './erp';
-export {
-  publishToLms,
-  buildTaxilaRequestBody,
-  buildExportZip,
-  TaxilaPublishError,
-  // Legacy stub — still used by the IC publish action until Prompt 9b wires
-  // the real engine. Removed in 9b.
-  publishToLmsStub,
-} from './taxila';
-export type {
-  PublishInput,
-  PublishResult,
-  LmsPublishLogStatus,
-  StubPublishInput,
-  StubPublishResult,
-} from './taxila';
-export { getS3Client, ensureBucket, uploadAndPresign } from './storage';
+export { publishToLms, buildTaxilaRequestBody, buildExportZip, TaxilaPublishError } from './taxila';
+export type { PublishInput, PublishResult, LmsPublishLogStatus } from './taxila';
+export { getS3Client, ensureBucket, uploadAndPresign, getPresignedDownloadUrl } from './storage';
 export type { UploadAndPresignInput } from './storage';
 export { sendMail } from './email';
 export type { SendMailInput, SendMailResult } from './email';
