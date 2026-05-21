@@ -173,6 +173,53 @@ export function renderTemplate(tpl: string, tokens: Record<string, string>): str
   return tpl.replace(/\{\{(\w+)\}\}/g, (_, k: string) => tokens[k] ?? `{{${k}}}`);
 }
 
+/**
+ * Token suppliers for the four SME notification templates. Extracted as named,
+ * exported functions (rather than inline object literals) so the token-contract
+ * unit test can render each seeded template against the EXACT token set its
+ * notify function supplies — see notifications.test.ts.
+ *
+ * `course` is the combined "CODE — Title" form kept for backward-compat with
+ * any wording that uses {{course}}; `courseCode` / `courseTitle` are the split
+ * forms the seeded templates use. Both are supplied so either works.
+ */
+export interface SmeTokenArgs {
+  refNo: string;
+  courseCode: string;
+  courseTitle: string;
+  programme: string;
+  semester: string;
+  actorName: string;
+  topic: string;
+  reason?: string;
+}
+
+function smeBaseTokens(a: SmeTokenArgs): Record<string, string> {
+  return {
+    refNo: a.refNo,
+    course: `${a.courseCode} — ${a.courseTitle}`,
+    courseCode: a.courseCode,
+    courseTitle: a.courseTitle,
+    programme: a.programme,
+    semester: a.semester,
+    actor: a.actorName,
+    topic: a.topic,
+  };
+}
+
+export function smeNominationTokens(a: SmeTokenArgs): Record<string, string> {
+  return smeBaseTokens(a);
+}
+export function smeAcceptedTokens(a: SmeTokenArgs): Record<string, string> {
+  return smeBaseTokens(a);
+}
+export function smeDeclinedTokens(a: SmeTokenArgs): Record<string, string> {
+  return { ...smeBaseTokens(a), reason: a.reason ?? '' };
+}
+export function smeCompletedTokens(a: SmeTokenArgs): Record<string, string> {
+  return smeBaseTokens(a);
+}
+
 async function loadTemplate(key: string | null) {
   if (!key) return null;
   return prisma.notificationTemplate.findUnique({ where: { key } });
@@ -468,14 +515,15 @@ export async function notifySmeNomination(input: {
       `${req.refNo} (${req.offering.course.code} — ${req.offering.course.title}). ` +
       `Topic: "${input.topic}". Please review the request and accept or decline at your earliest convenience.`;
 
-    const tokens: Record<string, string> = {
+    const tokens = smeNominationTokens({
       refNo: req.refNo,
-      course: `${req.offering.course.code} — ${req.offering.course.title}`,
+      courseCode: req.offering.course.code,
+      courseTitle: req.offering.course.title,
       programme: req.offering.semester.programme.code,
       semester: req.offering.semester.name,
-      actor: input.actor.name,
+      actorName: input.actor.name,
       topic: input.topic,
-    };
+    });
 
     const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
     const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
@@ -559,14 +607,15 @@ export async function notifySmeAccepted(input: {
       `(${req.offering.course.code} — ${req.offering.course.title}). ` +
       `Topic: "${nom.topic}". They can now advise on this handout.`;
 
-    const tokens: Record<string, string> = {
+    const tokens = smeAcceptedTokens({
       refNo: req.refNo,
-      course: `${req.offering.course.code} — ${req.offering.course.title}`,
+      courseCode: req.offering.course.code,
+      courseTitle: req.offering.course.title,
       programme: req.offering.semester.programme.code,
       semester: req.offering.semester.name,
-      actor: input.actor.name,
+      actorName: input.actor.name,
       topic: nom.topic,
-    };
+    });
 
     const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
     const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
@@ -626,15 +675,16 @@ export async function notifySmeDeclined(input: {
       `(${req.offering.course.code} — ${req.offering.course.title}). ` +
       `Reason: "${input.reason}". You can nominate a different SME from the request page.`;
 
-    const tokens: Record<string, string> = {
+    const tokens = smeDeclinedTokens({
       refNo: req.refNo,
-      course: `${req.offering.course.code} — ${req.offering.course.title}`,
+      courseCode: req.offering.course.code,
+      courseTitle: req.offering.course.title,
       programme: req.offering.semester.programme.code,
       semester: req.offering.semester.name,
-      actor: input.actor.name,
+      actorName: input.actor.name,
       topic: nom.topic,
       reason: input.reason,
-    };
+    });
 
     const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
     const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
@@ -710,14 +760,15 @@ export async function notifySmeCompleted(input: {
       `(${req.offering.course.code} — ${req.offering.course.title}). ` +
       `Topic: "${nom.topic}". Review their comments on the handout page.`;
 
-    const tokens: Record<string, string> = {
+    const tokens = smeCompletedTokens({
       refNo: req.refNo,
-      course: `${req.offering.course.code} — ${req.offering.course.title}`,
+      courseCode: req.offering.course.code,
+      courseTitle: req.offering.course.title,
       programme: req.offering.semester.programme.code,
       semester: req.offering.semester.name,
-      actor: input.actor.name,
+      actorName: input.actor.name,
       topic: nom.topic,
-    };
+    });
 
     const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
     const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;

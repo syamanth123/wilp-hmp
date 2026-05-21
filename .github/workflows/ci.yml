@@ -96,6 +96,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Mailhog captures SMTP so the m4d multi-role spec can assert real email
+      # delivery (subject + recipient) via its HTTP API on 8025. Without this,
+      # the SMTP send to localhost:1025 fails gracefully (notification FAILED)
+      # and m4d skips its email assertions — we want them ASSERTED in CI.
+      mailhog:
+        image: mailhog/mailhog:latest
+        ports:
+          - 1025:1025
+          - 8025:8025
 
     env:
       DATABASE_URL: postgresql://hmp:hmp@localhost:5432/hmp?schema=public
@@ -112,6 +121,8 @@ jobs:
       SMTP_HOST: localhost
       SMTP_PORT: "1025"
       SMTP_FROM: "HMP <no-reply@hmp.local>"
+      # m4d reads this to reach the Mailhog HTTP API. Matches the service above.
+      MAILHOG_URL: http://localhost:8025
       CRON_SECRET: ci-cron-secret
 
     steps:
@@ -145,6 +156,19 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
+
+      - name: Wait for Mailhog
+        # The mailhog image ships no shell/curl, so it can't self-report health
+        # via --health-cmd. Poll its HTTP API from the runner instead so the
+        # m4d email assertions don't race a not-yet-ready Mailhog.
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8025/api/v2/messages?limit=1 >/dev/null; then
+              echo "Mailhog ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "Mailhog did not become ready in 30s"; exit 1
 
       - run: pnpm e2e
 

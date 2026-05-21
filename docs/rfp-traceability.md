@@ -22,12 +22,14 @@ Effort estimates for remediation:
 
 | Tier | Count | Percentage |
 |---|---|---|
-| ✅ Done | 13 | 42% |
-| 🟡 Partial | 11 | 35% |
+| ✅ Done | 14 | 45% |
+| 🟡 Partial | 10 | 32% |
 | 🔴 Missing | 7 | 23% |
 | **Total tracked** | **31** | 100% |
 
-_Last updated by Prompt 4 (`feat/sme-schema-and-first-migration`): row 23 (SME flow) flipped 🔴 → 🟡 (schema + seed user landed; routes still missing); row 31 (initial Prisma migration) added as ✅._
+_Last updated by Prompt 8 (`feat/sme-notification-templates`): row 23 (SME flow) flipped 🟡 → ✅ — the feature is now complete end-to-end (schema → RBAC → PC inbound → SME outbound → notification templates + multi-role E2E). SME feature shipped across 5 PRs: #1 (schema + migration), #4 (RBAC + seed), #5 (PC inbound), #6 (SME outbound + faculty integration), this PR (templates + multi-role loop). Pattern established for future features: schema → RBAC → inbound → outbound → templates+E2E._
+
+_Earlier: Prompt 4 flipped row 23 🔴 → 🟡 (schema + seed user); row 31 (initial Prisma migration) added as ✅._
 
 **Headline gaps to close before a real deploy** (all 🔴):
 
@@ -39,7 +41,7 @@ _Last updated by Prompt 4 (`feat/sme-schema-and-first-migration`): row 23 (SME f
 - Security headers (CSP / HSTS / X-Frame-Options)
 - Edge rate limiting (only AI in-DB 60s window today)
 
-SME flow is no longer in this 🔴 list — schema, seed user, and migration now exist; routes and UI surface remain. See row 23.
+SME flow is now fully ✅ (see row 23) — the first end-to-end-complete feature shipped through the PR rhythm: schema, RBAC, both UI sides, notification templates, audit trail, and a multi-role E2E proving the full PC → SME → PC + faculty loop with real email delivery.
 
 ---
 
@@ -69,7 +71,7 @@ SME flow is no longer in this 🔴 list — schema, seed user, and migration now
 | 20 | LMS publish (Taxila) | 🔴 | [packages/integrations/src/taxila.ts](../packages/integrations/src/taxila.ts) — stub | E2E asserts the stub's `taxila-stub` response signature in [m6-publish-archive.spec.ts](../apps/web/e2e/m6-publish-archive.spec.ts) | `publishToLms()` returns `{ status: 'success', responseJson: { provider: 'taxila-stub', simulatedAt: ... } }`. No HTTP. Status transitions and `LmsPublishLog` writes around it are real. |
 | 21 | File attachments / uploads | 🔴 | `Attachment` model + `s3Key` column exist; no producer anywhere | None | Repo-wide `rg "presigned\|S3Client\|@aws-sdk\|PutObjectCommand"` returns zero matches. No `@aws-sdk` dependency, no upload route, no `<input type="file">`. `attachments: true` in [ic/requests/[id]/page.tsx:25](../apps/web/src/app/ic/requests/[id]/page.tsx) is dead — the JSX never renders them. MinIO in compose is unused. |
 | 22 | Inline comments | ✅ | [apps/web/src/app/(shared)/comment-actions.ts](../apps/web/src/app/(shared)/comment-actions.ts), [components/comment-thread.tsx](../apps/web/src/components/comment-thread.tsx), [components/comment-form.tsx](../apps/web/src/components/comment-form.tsx) | E2E "Faculty and PC can exchange comments on a request" in [m6-publish-archive.spec.ts](../apps/web/e2e/m6-publish-archive.spec.ts) | Per-handout `Comment` rows; thread locked once status is PUBLISHED / ARCHIVED / REJECTED. Notifies all involved parties (best-effort). |
-| 23 | SME flow | 🟡 | `SmeNomination` model + `SmeNominationStatus` enum + back-relations on `HandoutRequest` and `User` ([schema.prisma](../packages/db/prisma/schema.prisma)); migration `*_add_sme_nomination`; seeded `sme@hmp.local` user; idempotent SmeNomination upsert in [seed.ts](../packages/db/prisma/seed.ts) (warn-and-skip when no HandoutRequest exists yet) | None — UI not built yet | **Still missing**: `/sme/*` routes, nomination UI in PC view, SME acceptance/completion server actions, workflow events for SME transitions, notification templates for SME events. Schema is ready; UI flow is the next prompt. |
+| 23 | SME flow | ✅ | Schema: `SmeNomination` model + enum ([schema.prisma](../packages/db/prisma/schema.prisma)). RBAC + seed: `sme@hmp.local`, route guards. PC inbound: nominate action + panel ([pc/requests/[id]/sme-nomination.ts](../apps/web/src/app/pc/requests/[id]/sme-nomination.ts), [sme-nominations-panel.tsx](../apps/web/src/app/pc/requests/[id]/sme-nominations-panel.tsx)). SME outbound: `/sme` route group + accept/decline/complete ([sme-response.ts](../apps/web/src/app/sme/nominations/[id]/sme-response.ts)). Faculty integration: [sme-advisory-panel.tsx](../apps/web/src/components/sme-advisory-panel.tsx). Notifications: 4 templates ([notification-templates.ts](../packages/db/src/notification-templates.ts)) + 4 `notifySme*` functions with inline fallbacks. | Unit [nominate-sme.test.ts](../apps/web/src/app/pc/requests/[id]/__tests__/nominate-sme.test.ts), [sme-response.test.ts](../apps/web/src/app/sme/nominations/[id]/__tests__/sme-response.test.ts), token-contract in [notifications.test.ts](../apps/web/src/lib/notifications.test.ts). E2E [m4b](../apps/web/e2e/m4b-sme-nomination-inbound.spec.ts) (inbound), [m4c](../apps/web/e2e/m4c-sme-response.spec.ts) (outbound), [m4d](../apps/web/e2e/m4d-sme-multi-role-loop.spec.ts) (full multi-role loop + Mailhog email delivery) | Complete end-to-end across 5 PRs (#1, #4, #5, #6, this PR). Advisory-only — SME nominations have their own status lifecycle and do NOT gate the workflow state machine. |
 | 24 | Reporting — faculty workload | 🟡 | [apps/web/src/lib/faculty-load.ts](../apps/web/src/lib/faculty-load.ts) powers HOG allocation | None dedicated | Per-faculty per-semester load is computed inline for the allocation picker. No aggregate workload report page exists. |
 | 25 | Reporting — AI usage | 🟡 | [apps/web/src/app/admin/ai-metrics/page.tsx](../apps/web/src/app/admin/ai-metrics/page.tsx) — 14-day rolling buckets | E2E [m8-ai-layer.spec.ts](../apps/web/e2e/m8-ai-layer.spec.ts) "Admin AI metrics page" | Usage volumes ship; cost is blocked (see row 12). |
 | 26 | Mobile / responsive UI | 🟡 | Tailwind responsive utilities are present (`sm:`, `lg:`, etc. in many components); login + admin pages use responsive grids | None | No formal responsive audit, no documented breakpoints policy, no mobile-specific E2E run. |
