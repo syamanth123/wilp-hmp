@@ -1,5 +1,6 @@
 import { PrismaClient, RoleName, FacultyType, NotificationChannel } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { SME_NOTIFICATION_TEMPLATES } from '../src/notification-templates';
 
 const prisma = new PrismaClient();
 
@@ -195,6 +196,10 @@ async function main() {
     { key: 'handout.approved', subject: 'Handout {{refNo}} approved', body: 'Handout {{refNo}} has been approved.' },
     { key: 'handout.rejected', subject: 'Handout {{refNo}} rejected', body: 'Handout {{refNo}} has been rejected.' },
     { key: 'handout.published', subject: 'Handout {{refNo}} published to LMS', body: 'Handout {{refNo}} has been published to Taxila.' },
+    // SME advisory templates (Prompt 8). Defined in the shared
+    // SME_NOTIFICATION_TEMPLATES constant so the token-contract unit test
+    // renders byte-identical strings — see packages/db/src/notification-templates.ts.
+    ...SME_NOTIFICATION_TEMPLATES.map((t) => ({ key: t.key, subject: t.subject, body: t.body })),
   ];
   for (const t of templates) {
     await prisma.notificationTemplate.upsert({
