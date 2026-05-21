@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SME_NOTIFICATION_TEMPLATES } from '@hmp/db';
+import { SME_NOTIFICATION_TEMPLATES, PUBLISH_NOTIFICATION_TEMPLATES } from '@hmp/db';
 import {
   renderTemplate,
   EVENT_TEMPLATE_KEY,
@@ -7,7 +7,9 @@ import {
   smeAcceptedTokens,
   smeDeclinedTokens,
   smeCompletedTokens,
+  publishNotificationTokens,
   type SmeTokenArgs,
+  type PublishTokenArgs,
 } from './notifications';
 
 describe('renderTemplate', () => {
@@ -57,27 +59,39 @@ describe('notification template token contract', () => {
     topic: 'Industry case study selection',
     reason: 'Out of expertise this term',
   };
+  const publishSample: PublishTokenArgs = {
+    refNo: 'HMP-9999-0002',
+    courseCode: 'SE-ZG502',
+    courseTitle: 'Object-Oriented Analysis',
+    actorName: 'IC Officer',
+  };
 
+  // All seeded template families that have a notify-function token supplier.
+  // Adding a future template is a one-line row here; the coverage check below
+  // then forces it to be present in its constant.
+  const ALL_TEMPLATES = [...SME_NOTIFICATION_TEMPLATES, ...PUBLISH_NOTIFICATION_TEMPLATES];
   const CONTRACT: Array<[string, () => Record<string, string>]> = [
     ['handout.sme_nominated', () => smeNominationTokens(sample)],
     ['handout.sme_accepted', () => smeAcceptedTokens(sample)],
     ['handout.sme_declined', () => smeDeclinedTokens(sample)],
     ['handout.sme_completed', () => smeCompletedTokens(sample)],
+    ['handout.publish_export_ready', () => publishNotificationTokens(publishSample)],
+    ['handout.manually_published', () => publishNotificationTokens(publishSample)],
   ];
 
   for (const [key, supplier] of CONTRACT) {
     it(`template ${key} renders subject + body with no residual tokens`, () => {
-      const tpl = SME_NOTIFICATION_TEMPLATES.find((t) => t.key === key);
-      expect(tpl, `template ${key} must exist in SME_NOTIFICATION_TEMPLATES`).toBeDefined();
+      const tpl = ALL_TEMPLATES.find((t) => t.key === key);
+      expect(tpl, `template ${key} must exist in a shared template constant`).toBeDefined();
       const tokens = supplier();
       expect(renderTemplate(tpl!.subject, tokens)).not.toMatch(/\{\{.*?\}\}/);
       expect(renderTemplate(tpl!.body, tokens)).not.toMatch(/\{\{.*?\}\}/);
     });
   }
 
-  it('every SME template key in the constant is covered by the contract table', () => {
+  it('every shared template key is covered by the contract table', () => {
     const covered = new Set(CONTRACT.map(([k]) => k));
-    for (const t of SME_NOTIFICATION_TEMPLATES) {
+    for (const t of ALL_TEMPLATES) {
       expect(covered.has(t.key), `${t.key} is seeded but not in the contract table`).toBe(true);
     }
   });

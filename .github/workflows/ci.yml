@@ -44,8 +44,8 @@ jobs:
       S3_SECRET_KEY: ci-secret-key
       # Email — not contacted during build or unit tests
       SMTP_HOST: localhost
-      SMTP_PORT: "1025"
-      SMTP_FROM: "HMP <no-reply@hmp.local>"
+      SMTP_PORT: '1025'
+      SMTP_FROM: 'HMP <no-reply@hmp.local>'
       # Cron
       CRON_SECRET: ci-cron-secret
 
@@ -118,9 +118,14 @@ jobs:
       S3_BUCKET: hmp-handouts
       S3_ACCESS_KEY: ci-access-key
       S3_SECRET_KEY: ci-secret-key
+      # Bucket for Taxila Mode B export ZIPs (auto-created by storage.ensureBucket).
+      LMS_EXPORTS_BUCKET: hmp-lms-exports
+      # Empty on purpose: the e2e run exercises Taxila Mode B (export → MinIO).
+      # Mode A (HTTP) is covered by unit tests, not e2e.
+      TAXILA_API_URL: ''
       SMTP_HOST: localhost
-      SMTP_PORT: "1025"
-      SMTP_FROM: "HMP <no-reply@hmp.local>"
+      SMTP_PORT: '1025'
+      SMTP_FROM: 'HMP <no-reply@hmp.local>'
       # m4d reads this to reach the Mailhog HTTP API. Matches the service above.
       MAILHOG_URL: http://localhost:8025
       CRON_SECRET: ci-cron-secret
@@ -156,6 +161,28 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
+
+      - name: Start MinIO
+        # Run via `docker run` (not a services: block) because MinIO needs the
+        # `server /data` command, which services: can't express. Creds match the
+        # S3_ACCESS_KEY / S3_SECRET_KEY env above so the app can authenticate.
+        run: |
+          docker run -d --name minio -p 9000:9000 -p 9001:9001 \
+            -e MINIO_ROOT_USER=ci-access-key \
+            -e MINIO_ROOT_PASSWORD=ci-secret-key \
+            minio/minio:latest server /data --console-address ":9001"
+
+      - name: Wait for MinIO
+        # Real poll with timeout (not a fixed sleep): the container reports
+        # "started" before MinIO is accepting connections. Dump logs on failure.
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/live >/dev/null; then
+              echo "MinIO ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "MinIO did not become ready in 30s"; docker logs minio; exit 1
 
       - name: Wait for Mailhog
         # The mailhog image ships no shell/curl, so it can't self-report health

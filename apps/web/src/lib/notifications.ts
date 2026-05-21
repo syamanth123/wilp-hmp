@@ -40,16 +40,46 @@ export const EVENT_TEMPLATE_KEY: Record<WorkflowEventType, string | null> = {
 };
 
 const INLINE_FALLBACK: Record<WorkflowEventType, { subject: string; body: string }> = {
-  REQUEST_INITIATED: { subject: 'New handout request {{refNo}}', body: 'A new handout request {{refNo}} has been initiated.' },
-  FACULTY_ALLOCATED: { subject: 'Faculty allocated for {{refNo}}', body: 'Faculty allocation completed for {{refNo}}.' },
-  ASSIGNED: { subject: 'You have been assigned {{refNo}}', body: 'Please log in to view and edit your assigned handout.' },
-  EDIT_STARTED: { subject: 'Editing started on {{refNo}}', body: '{{actor}} started editing {{refNo}}.' },
-  SUBMITTED: { subject: 'Handout {{refNo}} submitted', body: 'Handout {{refNo}} is now awaiting review.' },
-  REVIEW_REWORK: { subject: 'Rework requested on {{refNo}}', body: 'Please address the review comments and resubmit.' },
-  REVIEW_APPROVED: { subject: 'Review approved for {{refNo}}', body: 'PC has approved {{refNo}} and forwarded to HOG.' },
-  FINAL_APPROVED: { subject: 'Handout {{refNo}} approved', body: 'Handout {{refNo}} has been approved.' },
-  FINAL_REJECTED: { subject: 'Handout {{refNo}} rejected', body: 'Handout {{refNo}} has been rejected.' },
-  PUBLISHED: { subject: 'Handout {{refNo}} published to LMS', body: 'Handout {{refNo}} has been published to Taxila.' },
+  REQUEST_INITIATED: {
+    subject: 'New handout request {{refNo}}',
+    body: 'A new handout request {{refNo}} has been initiated.',
+  },
+  FACULTY_ALLOCATED: {
+    subject: 'Faculty allocated for {{refNo}}',
+    body: 'Faculty allocation completed for {{refNo}}.',
+  },
+  ASSIGNED: {
+    subject: 'You have been assigned {{refNo}}',
+    body: 'Please log in to view and edit your assigned handout.',
+  },
+  EDIT_STARTED: {
+    subject: 'Editing started on {{refNo}}',
+    body: '{{actor}} started editing {{refNo}}.',
+  },
+  SUBMITTED: {
+    subject: 'Handout {{refNo}} submitted',
+    body: 'Handout {{refNo}} is now awaiting review.',
+  },
+  REVIEW_REWORK: {
+    subject: 'Rework requested on {{refNo}}',
+    body: 'Please address the review comments and resubmit.',
+  },
+  REVIEW_APPROVED: {
+    subject: 'Review approved for {{refNo}}',
+    body: 'PC has approved {{refNo}} and forwarded to HOG.',
+  },
+  FINAL_APPROVED: {
+    subject: 'Handout {{refNo}} approved',
+    body: 'Handout {{refNo}} has been approved.',
+  },
+  FINAL_REJECTED: {
+    subject: 'Handout {{refNo}} rejected',
+    body: 'Handout {{refNo}} has been rejected.',
+  },
+  PUBLISHED: {
+    subject: 'Handout {{refNo}} published to LMS',
+    body: 'Handout {{refNo}} has been published to Taxila.',
+  },
   ARCHIVED: { subject: 'Handout {{refNo}} archived', body: 'Handout {{refNo}} has been archived.' },
 };
 
@@ -96,7 +126,9 @@ async function loadRequest(requestId: string): Promise<RequestForNotify | null> 
   return r;
 }
 
-async function usersWithRole(role: RoleName): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+async function usersWithRole(
+  role: RoleName,
+): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
   const users = await prisma.user.findMany({
     where: { active: true, roles: { some: { role: { name: role } } } },
     select: { id: true, email: true },
@@ -104,7 +136,9 @@ async function usersWithRole(role: RoleName): Promise<{ id: string; email: strin
   return users.map((u) => ({ ...u, primaryRole: role }));
 }
 
-async function usersById(ids: string[]): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+async function usersById(
+  ids: string[],
+): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
   if (ids.length === 0) return [];
   const users = await prisma.user.findMany({
     where: { id: { in: ids }, active: true },
@@ -220,6 +254,25 @@ export function smeCompletedTokens(a: SmeTokenArgs): Record<string, string> {
   return smeBaseTokens(a);
 }
 
+/** Token supplier for the Taxila publish templates (Prompt 9b). The templates
+ *  use refNo, courseCode, actor. Exported so the token-contract test renders
+ *  the seeded strings against the exact tokens these notify functions pass. */
+export interface PublishTokenArgs {
+  refNo: string;
+  courseCode: string;
+  courseTitle: string;
+  actorName: string;
+}
+export function publishNotificationTokens(a: PublishTokenArgs): Record<string, string> {
+  return {
+    refNo: a.refNo,
+    course: `${a.courseCode} — ${a.courseTitle}`,
+    courseCode: a.courseCode,
+    courseTitle: a.courseTitle,
+    actor: a.actorName,
+  };
+}
+
 async function loadTemplate(key: string | null) {
   if (!key) return null;
   return prisma.notificationTemplate.findUnique({ where: { key } });
@@ -306,8 +359,10 @@ export async function notifyTransition(input: {
     const fallback = INLINE_FALLBACK[input.event];
     const subjectTpl = tpl?.subject ?? fallback.subject;
     const bodyTpl = tpl?.body ?? fallback.body;
-    const channels: NotificationChannel[] =
-      tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
+    const channels: NotificationChannel[] = tpl?.channels ?? [
+      NotificationChannel.IN_PORTAL,
+      NotificationChannel.EMAIL,
+    ];
 
     const subject = renderTemplate(subjectTpl, tokens);
     const body = renderTemplate(bodyTpl, tokens);
@@ -796,5 +851,134 @@ export async function notifySmeCompleted(input: {
     );
   } catch (err) {
     console.error('[notifySmeCompleted] failed', err);
+  }
+}
+
+/**
+ * Fires in Mode B when a handout is exported as a manual-upload package (the
+ * request stays APPROVED until the IC confirms the manual upload). Audience:
+ * the IC pool — the actor who triggered it plus other IC users, so the team
+ * knows an export is pending confirmation. Template `handout.publish_export_ready`.
+ */
+export async function notifyPublishExportReady(input: {
+  requestId: string;
+  actor: ActorRef;
+}): Promise<void> {
+  try {
+    const [req, tpl] = await Promise.all([
+      loadRequest(input.requestId),
+      loadTemplate('handout.publish_export_ready'),
+    ]);
+    if (!req) return;
+
+    // Self-notification: unlike most notify functions, the actor is INCLUDED.
+    // An export-ready is a pending-task reminder — the IC who triggered it
+    // needs the "download → upload → confirm" to-do in their bell/inbox, not
+    // just other IC users. (Also why this isn't a notifyTransition reuse.)
+    const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
+    for (const u of await usersWithRole(RoleName.INSTRUCTION_CELL)) {
+      out.set(u.id, u);
+    }
+    const recipients = [...out.values()];
+    if (recipients.length === 0) return;
+
+    const fallbackSubject = `Export ready for manual upload: ${req.refNo}`;
+    const fallbackBody =
+      `The handout ${req.refNo} (${req.offering.course.code}) has been exported as a ` +
+      `downloadable package. Download it from HMP, upload to Taxila manually, then mark ` +
+      `it as published in HMP. Exported by ${input.actor.name}.`;
+    const tokens = publishNotificationTokens({
+      refNo: req.refNo,
+      courseCode: req.offering.course.code,
+      courseTitle: req.offering.course.title,
+      actorName: input.actor.name,
+    });
+
+    const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
+    const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
+    const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
+
+    await Promise.allSettled(
+      recipients.map((r) =>
+        deliver({
+          userId: r.id,
+          email: r.email,
+          role: r.primaryRole,
+          subject,
+          body,
+          link: linkFor(r.primaryRole, req.id),
+          channels,
+          metaKind: 'handout.publish_export_ready',
+          extraMeta: { requestId: req.id, refNo: req.refNo, templateMissing: !tpl },
+        }),
+      ),
+    );
+  } catch (err) {
+    console.error('[notifyPublishExportReady] failed', err);
+  }
+}
+
+/**
+ * Fires when the IC confirms a manual publication (Mode B). Audience: HOG + PC
+ * + assigned faculty + IC pool — same set the workflow PUBLISHED event would
+ * notify. Kept as its own template `handout.manually_published` (NOT a reuse of
+ * notifyTransition('PUBLISHED')) because the wording signals the publish was
+ * a manual ZIP upload, not an automated API push — the audit breadcrumb for
+ * "PUBLISHED but Taxila has no automated record".
+ */
+export async function notifyManuallyPublished(input: {
+  requestId: string;
+  actor: ActorRef;
+}): Promise<void> {
+  try {
+    const [req, tpl] = await Promise.all([
+      loadRequest(input.requestId),
+      loadTemplate('handout.manually_published'),
+    ]);
+    if (!req) return;
+
+    const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
+    const add = (us: { id: string; email: string; primaryRole: RoleName }[]) => {
+      for (const u of us) if (u.id !== input.actor.id) out.set(u.id, u);
+    };
+    add(await usersWithRole(RoleName.HOG));
+    add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+    add(await usersWithRole(RoleName.INSTRUCTION_CELL));
+    add(await usersById(req.assignments.map((a) => a.facultyId)));
+    const recipients = [...out.values()];
+    if (recipients.length === 0) return;
+
+    const fallbackSubject = `Manually published: ${req.refNo}`;
+    const fallbackBody =
+      `${input.actor.name} confirmed manual publication of ${req.refNo} ` +
+      `(${req.offering.course.code}) to Taxila. The request is now in PUBLISHED state.`;
+    const tokens = publishNotificationTokens({
+      refNo: req.refNo,
+      courseCode: req.offering.course.code,
+      courseTitle: req.offering.course.title,
+      actorName: input.actor.name,
+    });
+
+    const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
+    const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
+    const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
+
+    await Promise.allSettled(
+      recipients.map((r) =>
+        deliver({
+          userId: r.id,
+          email: r.email,
+          role: r.primaryRole,
+          subject,
+          body,
+          link: linkFor(r.primaryRole, req.id),
+          channels,
+          metaKind: 'handout.manually_published',
+          extraMeta: { requestId: req.id, refNo: req.refNo, templateMissing: !tpl },
+        }),
+      ),
+    );
+  } catch (err) {
+    console.error('[notifyManuallyPublished] failed', err);
   }
 }

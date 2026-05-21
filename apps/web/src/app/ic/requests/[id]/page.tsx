@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { prisma, HandoutStatus } from '@hmp/db';
+import { prisma, HandoutStatus, LmsPublishMode } from '@hmp/db';
+import { getPresignedDownloadUrl } from '@hmp/integrations';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
@@ -36,6 +37,30 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
 
   const handout = request.handout;
   const versions = handout ? await listVersions(handout.id) : [];
+
+  // Mode B "awaiting manual confirmation" state: an EXPORTED publish log exists
+  // while the request is still APPROVED. Regenerate the download URL fresh from
+  // the durable s3Key each render — the presigned URL is ephemeral, so we never
+  // persist/serve a stale one. taxilaConfigured is a boolean only; the URL value
+  // never crosses to the client.
+  const taxilaConfigured = Boolean(process.env.TAXILA_API_URL);
+  let exportDownloadUrl: string | null = null;
+  if (handout && request.status === HandoutStatus.APPROVED) {
+    const exportLog = await prisma.lmsPublishLog.findFirst({
+      where: { handoutId: handout.id, mode: LmsPublishMode.EXPORT, status: 'EXPORTED' },
+      orderBy: { publishedAt: 'desc' },
+      select: { s3Key: true },
+    });
+    if (exportLog?.s3Key) {
+      try {
+        exportDownloadUrl = await getPresignedDownloadUrl(exportLog.s3Key);
+      } catch {
+        // Object storage unreachable — panel falls back to "Publish" state and
+        // surfaces the issue on retry rather than crashing the page render.
+        exportDownloadUrl = null;
+      }
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -92,8 +117,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {(!request.offering.semester.examDate ||
-              !request.offering.semester.ec1Deadline) && (
+            {(!request.offering.semester.examDate || !request.offering.semester.ec1Deadline) && (
               <div
                 role="status"
                 style={{
@@ -115,7 +139,11 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                 . You can still publish — but downstream LMS sync may be incomplete.
               </div>
             )}
-            <PublishPanel requestId={request.id} />
+            <PublishPanel
+              requestId={request.id}
+              taxilaConfigured={taxilaConfigured}
+              exportDownloadUrl={exportDownloadUrl}
+            />
           </CardContent>
         </Card>
       )}
