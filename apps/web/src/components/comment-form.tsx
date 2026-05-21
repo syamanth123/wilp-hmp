@@ -33,7 +33,7 @@ export function CommentForm({ requestId }: { requestId: string }) {
         id="comment-body"
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        placeholder="Visible to IC, HOG, PC and the assigned faculty."
+        placeholder="Visible to IC, HOG, PC, assigned faculty, and active SME advisors."
         className="min-h-[80px] w-full rounded-md border bg-background p-2 text-sm"
       />
       {error && <p className="text-sm text-destructive">{error}</p>}

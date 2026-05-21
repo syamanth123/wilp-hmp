@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { prisma, RoleName, HandoutStatus } from '@hmp/db';
+import { prisma, RoleName, HandoutStatus, SmeNominationStatus } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { notifyComment } from '@/lib/notifications';
@@ -18,6 +18,10 @@ const ALLOWED_ROLES: ReadonlySet<RoleName> = new Set([
   RoleName.HOG,
   RoleName.PROGRAMME_COMMITTEE,
   RoleName.FACULTY,
+  // SME advisors can post comments, but only when they have an ACCEPTED
+  // nomination on this specific request — gated below per the same pattern
+  // as the faculty-only assignment check.
+  RoleName.SME,
 ]);
 
 export async function addCommentAction(formData: FormData) {
@@ -48,19 +52,37 @@ export async function addCommentAction(formData: FormData) {
   }
 
   // Faculty-only users must be assigned to this specific request.
-  const hasNonFacultyRole = me.roles.some(
+  const hasPriviligedRole = me.roles.some(
     (r) =>
       r === RoleName.ADMIN ||
       r === RoleName.INSTRUCTION_CELL ||
       r === RoleName.HOG ||
       r === RoleName.PROGRAMME_COMMITTEE,
   );
-  if (!hasNonFacultyRole && me.roles.includes(RoleName.FACULTY)) {
+  if (!hasPriviligedRole && me.roles.includes(RoleName.FACULTY)) {
     const assigned = await prisma.facultyAssignment.findFirst({
       where: { requestId: request.id, facultyId: me.id, active: true },
       select: { id: true },
     });
     if (!assigned) return { error: 'Forbidden' };
+  }
+  // SME-only users (no privileged role, not assigned faculty) must have an
+  // ACCEPTED nomination on this specific request. PENDING is too early
+  // (they haven't agreed to advise yet); DECLINED/COMPLETED close the window.
+  if (
+    !hasPriviligedRole &&
+    !me.roles.includes(RoleName.FACULTY) &&
+    me.roles.includes(RoleName.SME)
+  ) {
+    const nominated = await prisma.smeNomination.findFirst({
+      where: {
+        requestId: request.id,
+        smeUserId: me.id,
+        status: SmeNominationStatus.ACCEPTED,
+      },
+      select: { id: true },
+    });
+    if (!nominated) return { error: 'Forbidden' };
   }
 
   const comment = await prisma.comment.create({
@@ -90,5 +112,11 @@ export async function addCommentAction(formData: FormData) {
   revalidatePath(`/hog/requests/${request.id}`);
   revalidatePath(`/pc/requests/${request.id}`);
   revalidatePath(`/faculty/assignments/${request.id}`);
+  // SME detail pages are keyed by nominationId, not requestId, so we can't
+  // narrow-revalidate /sme/nominations/[id] from here without an extra query.
+  // Revalidate the list (which lists every nomination + its parent request)
+  // — cheap to render, and the detail page is force-dynamic so the next
+  // visit re-fetches anyway.
+  revalidatePath('/sme/nominations');
   return { ok: true };
 }
