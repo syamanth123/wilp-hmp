@@ -2,16 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import {
-  prisma,
-  RoleName,
-  ApprovalStage,
-  ApprovalDecision,
-  HandoutStatus,
-} from '@hmp/db';
+import { prisma, RoleName, ApprovalStage, ApprovalDecision, HandoutStatus } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition, WorkflowError } from '@hmp/workflow';
-import { publishToLms } from '@hmp/integrations';
+// Prompt 9a: the real two-mode `publishToLms` ships in @hmp/integrations but is
+// not wired here yet — that's Prompt 9b. Until then publishAction keeps using
+// the preserved stub so behavior is unchanged (no Taxila API / MinIO needed).
+import { publishToLmsStub } from '@hmp/integrations';
 import { notifyTransition } from '@/lib/notifications';
 
 const schema = z.object({
@@ -49,7 +46,7 @@ export async function publishAction(formData: FormData) {
     return { error: 'No current version to publish' };
   }
 
-  const lmsResult = await publishToLms({
+  const lmsResult = await publishToLmsStub({
     handoutId: request.handout.id,
     versionNo: request.handout.currentVersion.versionNo,
     contentHtml: request.handout.currentVersion.contentHtml,

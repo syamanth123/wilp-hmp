@@ -484,11 +484,25 @@ model ErpSnapshot {
 model LmsPublishLog {
   id        String   @id @default(cuid())
   handoutId String
-  status    String   // "success" | "failed"
+  // Free string by convention (see LmsPublishLogStatus union in @hmp/integrations):
+  // "success" | "failed" | "EXPORTED" | "MANUALLY_CONFIRMED". Kept as String so
+  // pre-existing rows stay valid without a data migration.
+  status    String
+  // mode/externalRef/s3Key added in Prompt 9a — all NULLABLE so legacy
+  // (stub-era) rows remain valid as null.
+  mode         LmsPublishMode?
+  externalRef  String?          // HTTP external id (Mode A) or presigned URL (Mode B)
+  s3Key        String?          // object key for the export ZIP (Mode B)
   responseJson Json?
   publishedAt DateTime @default(now())
 
   handout   Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+}
+
+enum LmsPublishMode {
+  HTTP
+  EXPORT
+  MANUALLY_CONFIRMED
 }
 
 // =====================================================================
