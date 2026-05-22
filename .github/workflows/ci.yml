@@ -24,6 +24,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Redis powers the @hmp/queue integration tests (BullMQ enqueue/retry/
+      # dedup/permanent-failure). Those tests probe REDIS_URL and skip if it's
+      # unreachable, so without this service they'd silently skip in CI.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       # Database

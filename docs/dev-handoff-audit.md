@@ -49,6 +49,25 @@ The whole module is best-effort: all delivery happens inside `Promise.allSettled
 
 Channels: `IN_PORTAL` writes a row with status `SENT` immediately (no transport). `EMAIL` calls `sendMail()` from `@hmp/integrations` and updates status based on result.
 
+**Notification recipient categories (event vs task).** When adding a notification, decide which category it is — the actor-inclusion rule differs:
+
+- **Event notifications** ("X happened") — exclude the actor; they caused the event and don't need to be told. Examples: `notifyComment`, `notifyManuallyPublished`, `notifySme*`.
+- **Task notifications** ("you need to do Y") — _include_ the actor; they're the one who must act on the pending task. Example: `notifyPublishExportReady` (the IC who exported needs the "download → upload → confirm" reminder).
+
+Copying a notify function from another is fine, but name the category first — "both are notifications" is not enough (this exact slip shipped a self-notification bug caught only by CI; PR #9).
+
+**Async queue vs synchronous (workers).** Notifications and the AI quality report route through the BullMQ queue boundary (`dispatchOrEnqueue` in notifications.ts) when `WORKERS_ENABLED=true`, else run inline. Three routing categories make the rule complete:
+
+1. **Void fire-and-forget side-effects** → queue when `WORKERS_ENABLED` (e.g. the 8 `notify*` void functions, the quality report on submit).
+2. **Value-returning notifications** (return a count / summary / id the caller consumes) → **never queue** — the return value is the response contract. `notifySlaReminder` returns the count both the cron route and the admin manual-sweep accumulate (`notified += await …`); queueing would report zero.
+3. **User-triggered "do this now" actions** where the result IS the response → **never queue**. `regenerateRecommendation` — the HOG waits on the recommendation it returns.
+
+When adding a notify/action, pick the category and the queueing decision is forced. See [@hmp/queue](../packages/queue/) and `apps/web/src/workers/`.
+
+**Splitting large changes (mechanical-then-behavioral).** A large change that includes a risky behavior modification is split into two PRs: ship the mechanical/safe half first (a new engine/package/refactor with _no behavior change_, zero production callers), then the behavioral half second (wiring, UX, the new behavior) with a small focused diff. Each PR is reviewable in isolation and the behavioral half is independently revertible. Precedents: PRs #8/#9 (Taxila stub → real), #10a/#10b (synchronous → queued workers).
+
+**Tests that need a real external service are probe-skipped locally, run in CI.** Some integrations can't be faithfully mocked: BullMQ needs real Redis (ioredis-mock implements neither Lua scripts nor the blocking commands BullMQ relies on); Mode B export needs MinIO; email-delivery assertions need Mailhog. The pattern: split each suite into **pure-logic tests** (no service — always run) and **integration tests** that probe the service at startup and `skipIf` it's unreachable. CI provides the service so the integration half actually runs; a Docker-less dev box runs the pure half and skips the rest. Don't burn time trying to mock these — reach for the probe-skip. Precedents: MinIO (m6a/m6c), Mailhog (m4d/m6c email), Redis (`@hmp/queue` integration tests).
+
 ### How audit rows are written
 
 Two paths:

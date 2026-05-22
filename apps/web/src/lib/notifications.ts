@@ -6,6 +6,33 @@ import {
   type HandoutRequest,
 } from '@hmp/db';
 import { sendMail } from '@hmp/integrations';
+import { enqueueNotification, type NotifyJob } from '@hmp/queue';
+
+/**
+ * The single boundary that decides queue-vs-synchronous for notifications.
+ * When WORKERS_ENABLED=true it enqueues a job (the worker process calls the
+ * matching dispatch* impl); otherwise — and ALSO if enqueue throws because
+ * Redis is down — it runs the dispatch inline. So a queue outage gracefully
+ * degrades to today's synchronous behaviour rather than dropping the
+ * notification. This is the ONLY place WORKERS_ENABLED is read.
+ *
+ * Why a wrapper-per-notify + shared boundary (not the env check inside each
+ * function): the worker must call the dispatch impl WITHOUT re-checking the
+ * flag, or it would re-enqueue forever. So public `notify*` = enqueue-or-run
+ * decision; `dispatch*` = the actual work (exported for the worker).
+ */
+async function dispatchOrEnqueue(job: NotifyJob, run: () => Promise<void>): Promise<void> {
+  if (process.env.WORKERS_ENABLED === 'true') {
+    try {
+      await enqueueNotification(job);
+      return;
+    } catch (err) {
+      console.error('[notify] enqueue failed — running inline', err);
+      // fall through to synchronous dispatch
+    }
+  }
+  await run();
+}
 
 export type WorkflowEventType =
   | 'REQUEST_INITIATED'
@@ -341,6 +368,23 @@ export async function notifyTransition(input: {
   event: WorkflowEventType;
   actor: ActorRef;
 }): Promise<void> {
+  return dispatchOrEnqueue(
+    {
+      kind: 'transition',
+      requestId: input.requestId,
+      event: input.event,
+      actor: input.actor,
+      occurredAtMs: Date.now(),
+    },
+    () => dispatchTransition(input),
+  );
+}
+
+export async function dispatchTransition(input: {
+  requestId: string;
+  event: WorkflowEventType;
+  actor: ActorRef;
+}): Promise<void> {
   try {
     const req = await loadRequest(input.requestId);
     if (!req) return;
@@ -388,6 +432,17 @@ export async function notifyTransition(input: {
 }
 
 export async function notifyComment(input: {
+  requestId: string;
+  commentId: string;
+  actor: ActorRef;
+}): Promise<void> {
+  return dispatchOrEnqueue(
+    { kind: 'comment', requestId: input.requestId, commentId: input.commentId, actor: input.actor },
+    () => dispatchComment(input),
+  );
+}
+
+export async function dispatchComment(input: {
   requestId: string;
   commentId: string;
   actor: ActorRef;
@@ -546,6 +601,26 @@ export async function notifySmeNomination(input: {
   topic: string;
   actor: ActorRef;
 }): Promise<void> {
+  return dispatchOrEnqueue(
+    {
+      kind: 'sme_nominated',
+      requestId: input.requestId,
+      nominationId: input.nominationId,
+      smeUserId: input.smeUserId,
+      topic: input.topic,
+      actor: input.actor,
+    },
+    () => dispatchSmeNomination(input),
+  );
+}
+
+export async function dispatchSmeNomination(input: {
+  requestId: string;
+  nominationId: string;
+  smeUserId: string;
+  topic: string;
+  actor: ActorRef;
+}): Promise<void> {
   try {
     const [req, sme, tpl] = await Promise.all([
       loadRequest(input.requestId),
@@ -639,6 +714,24 @@ export async function notifySmeAccepted(input: {
   smeUserId: string;
   actor: ActorRef;
 }): Promise<void> {
+  return dispatchOrEnqueue(
+    {
+      kind: 'sme_accepted',
+      requestId: input.requestId,
+      nominationId: input.nominationId,
+      smeUserId: input.smeUserId,
+      actor: input.actor,
+    },
+    () => dispatchSmeAccepted(input),
+  );
+}
+
+export async function dispatchSmeAccepted(input: {
+  requestId: string;
+  nominationId: string;
+  smeUserId: string;
+  actor: ActorRef;
+}): Promise<void> {
   try {
     const [req, nom, pc, tpl] = await Promise.all([
       loadRequest(input.requestId),
@@ -703,6 +796,26 @@ export async function notifySmeAccepted(input: {
  * someone else.
  */
 export async function notifySmeDeclined(input: {
+  requestId: string;
+  nominationId: string;
+  smeUserId: string;
+  reason: string;
+  actor: ActorRef;
+}): Promise<void> {
+  return dispatchOrEnqueue(
+    {
+      kind: 'sme_declined',
+      requestId: input.requestId,
+      nominationId: input.nominationId,
+      smeUserId: input.smeUserId,
+      reason: input.reason,
+      actor: input.actor,
+    },
+    () => dispatchSmeDeclined(input),
+  );
+}
+
+export async function dispatchSmeDeclined(input: {
   requestId: string;
   nominationId: string;
   smeUserId: string;
@@ -774,6 +887,24 @@ export async function notifySmeDeclined(input: {
  * advisory pass so they can review the comments left.
  */
 export async function notifySmeCompleted(input: {
+  requestId: string;
+  nominationId: string;
+  smeUserId: string;
+  actor: ActorRef;
+}): Promise<void> {
+  return dispatchOrEnqueue(
+    {
+      kind: 'sme_completed',
+      requestId: input.requestId,
+      nominationId: input.nominationId,
+      smeUserId: input.smeUserId,
+      actor: input.actor,
+    },
+    () => dispatchSmeCompleted(input),
+  );
+}
+
+export async function dispatchSmeCompleted(input: {
   requestId: string;
   nominationId: string;
   smeUserId: string;
@@ -864,6 +995,21 @@ export async function notifyPublishExportReady(input: {
   requestId: string;
   actor: ActorRef;
 }): Promise<void> {
+  return dispatchOrEnqueue(
+    {
+      kind: 'publish_export_ready',
+      requestId: input.requestId,
+      actor: input.actor,
+      occurredAtMs: Date.now(),
+    },
+    () => dispatchPublishExportReady(input),
+  );
+}
+
+export async function dispatchPublishExportReady(input: {
+  requestId: string;
+  actor: ActorRef;
+}): Promise<void> {
   try {
     const [req, tpl] = await Promise.all([
       loadRequest(input.requestId),
@@ -927,6 +1073,16 @@ export async function notifyPublishExportReady(input: {
  * "PUBLISHED but Taxila has no automated record".
  */
 export async function notifyManuallyPublished(input: {
+  requestId: string;
+  actor: ActorRef;
+}): Promise<void> {
+  return dispatchOrEnqueue(
+    { kind: 'manually_published', requestId: input.requestId, actor: input.actor },
+    () => dispatchManuallyPublished(input),
+  );
+}
+
+export async function dispatchManuallyPublished(input: {
   requestId: string;
   actor: ActorRef;
 }): Promise<void> {
