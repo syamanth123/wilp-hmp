@@ -16,6 +16,7 @@
     "@hmp/auth": "workspace:*",
     "@hmp/db": "workspace:*",
     "@hmp/integrations": "workspace:*",
+    "@hmp/queue": "workspace:*",
     "@hmp/ui": "workspace:*",
     "@hmp/workflow": "workspace:*",
     "@tiptap/core": "^2.6.6",
