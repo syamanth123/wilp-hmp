@@ -9,6 +9,7 @@ const TABS = [
   { href: '/admin/import', label: 'Import' },
   { href: '/admin/workflow', label: 'Workflow' },
   { href: '/admin/notifications', label: 'Notifications' },
+  { href: '/admin/queues', label: 'Queues' },
   { href: '/admin/ai-metrics', label: 'AI Metrics' },
   { href: '/admin/audit', label: 'Audit' },
 ];
@@ -24,7 +25,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Link
               key={t.href}
               href={t.href}
-              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5"
             >
               {t.label}
             </Link>

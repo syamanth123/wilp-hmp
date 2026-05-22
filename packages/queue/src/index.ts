@@ -14,6 +14,7 @@ export {
   type ActorRef,
 } from './job-types';
 export { getNotificationsQueue, getAiQueue, closeQueues } from './queues';
+export { startHeartbeat, readHeartbeat, heartbeatKey } from './heartbeat';
 export { enqueueNotification, enqueueAiJob } from './enqueue';
 export {
   runNotificationsWorker,
@@ -21,3 +22,6 @@ export {
   wrapProcessor,
   PermanentJobError,
 } from './worker-factory';
+// Re-export the BullMQ types apps/web needs so it doesn't depend on bullmq
+// directly — apps/web → @hmp/queue is the only edge.
+export type { Job, Queue } from 'bullmq';

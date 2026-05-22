@@ -9,6 +9,7 @@ import { appendVersion, createInitialVersion } from '@/lib/handout-versioning';
 import { audit } from '@/lib/audit';
 import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
+import { enqueueAiJob } from '@hmp/queue';
 
 const tiptapDocSchema = z.object({
   type: z.literal('doc'),
@@ -208,17 +209,37 @@ export async function submitForReviewAction(formData: FormData) {
     actor: { id: me.id, name: me.name },
   });
 
-  // Best-effort AI quality check on the freshly-submitted version. Never blocks.
+  // AI quality check on the freshly-submitted version — a fire-and-forget
+  // side-effect (the faculty has submitted and moved on; the report just needs
+  // to exist by the time a reviewer opens the page). When WORKERS_ENABLED, it's
+  // queued so the submit returns without waiting on the LLM; otherwise it runs
+  // inline (and inline is also the fallback if enqueue throws). The manual
+  // "Run quality check" button (runQualityCheckAction) stays SYNCHRONOUS — the
+  // faculty awaits that result, so it's not queued. See audit §1 (queueing is
+  // a property of the calling context).
   try {
     const handoutAfter = await prisma.handout.findUnique({
       where: { id: request.handout.id },
       select: { currentVersionId: true },
     });
     if (handoutAfter?.currentVersionId) {
-      await runQualityReport({
-        handoutVersionId: handoutAfter.currentVersionId,
-        bypassRateLimit: true,
-      });
+      const versionId = handoutAfter.currentVersionId;
+      let queued = false;
+      if (process.env.WORKERS_ENABLED === 'true') {
+        try {
+          await enqueueAiJob({
+            kind: 'quality_report',
+            handoutVersionId: versionId,
+            requestId: request.id,
+          });
+          queued = true;
+        } catch (err) {
+          console.error('quality_check_enqueue_failed — running inline', err);
+        }
+      }
+      if (!queued) {
+        await runQualityReport({ handoutVersionId: versionId, bypassRateLimit: true });
+      }
     }
   } catch (err) {
     if (!(err instanceof AiUnconfiguredError)) {
