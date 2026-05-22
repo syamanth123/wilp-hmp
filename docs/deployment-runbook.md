@@ -42,12 +42,12 @@ Copy `.env.example` and fill every value. Required in production:
 
 ### Migration lifecycle (dev vs CI vs prod)
 
-| Environment | Command | Why |
-|---|---|---|
-| Local dev (creating a new migration) | `pnpm --filter @hmp/db exec prisma migrate dev --name <slug>` | Generates a new migration file, applies it, regenerates the client. |
-| Local dev (reset to a known state) | `pnpm --filter @hmp/db exec prisma migrate reset --force` | Drops + recreates the DB, re-runs every migration, re-runs the seed. Destructive — dev only. |
-| CI (every PR / push) | `pnpm --filter @hmp/db push` *(current)* — fast, schema-only sync against the per-run service container. | A fresh `_prisma_migrations`-less DB each run, so `push` is faster than re-running every historical migration. Acceptable while CI doesn't need to verify migration-file integrity. |
-| **Production** | `pnpm --filter @hmp/db exec prisma migrate deploy` | Applies pending migrations in order, idempotent. **Never use `db push` or `migrate dev` in production.** |
+| Environment                          | Command                                                                                                  | Why                                                                                                                                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local dev (creating a new migration) | `pnpm --filter @hmp/db exec prisma migrate dev --name <slug>`                                            | Generates a new migration file, applies it, regenerates the client.                                                                                                                 |
+| Local dev (reset to a known state)   | `pnpm --filter @hmp/db exec prisma migrate reset --force`                                                | Drops + recreates the DB, re-runs every migration, re-runs the seed. Destructive — dev only.                                                                                        |
+| CI (every PR / push)                 | `pnpm --filter @hmp/db push` _(current)_ — fast, schema-only sync against the per-run service container. | A fresh `_prisma_migrations`-less DB each run, so `push` is faster than re-running every historical migration. Acceptable while CI doesn't need to verify migration-file integrity. |
+| **Production**                       | `pnpm --filter @hmp/db exec prisma migrate deploy`                                                       | Applies pending migrations in order, idempotent. **Never use `db push` or `migrate dev` in production.**                                                                            |
 
 Migrations now live under [`packages/db/prisma/migrations/`](../packages/db/prisma/migrations) — the `*_init` migration captures the 28-model pre-SME baseline; `*_add_sme_nomination` adds the SME nomination model, bringing the schema to 29 models.
 
@@ -59,11 +59,24 @@ Schedule a daily HTTPS POST to `/api/cron/reminders` with `Authorization: Bearer
 - **Vercel**: add `vercel.json` `crons` entry.
 - **GitHub Actions**: scheduled workflow + `curl`.
 
+## Running workers in production
+
+Background processing (notifications, on-submit AI quality reports) is **opt-in**. To enable it:
+
+1. Set `WORKERS_ENABLED=true` and a reachable `REDIS_URL` in the **web** service env. With this set, those side-effects are enqueued instead of run inline; with it unset, everything runs synchronously (the default — no Redis needed).
+2. Run the **worker process** as a long-lived service alongside web: `pnpm workers` (it runs `apps/web/src/workers/start.ts` via tsx). Give it the same `DATABASE_URL`, `REDIS_URL`, and `SMTP_*` env as web.
+   - Railway/Render/Fly: a second service/process from the same repo, command `pnpm workers`.
+   - Docker Compose (full stack): `docker compose --profile workers up`.
+3. **Critical:** enabling `WORKERS_ENABLED=true` without a running worker means jobs queue but never process (silent backlog). Always run the worker when the flag is on.
+
+The worker handles `SIGTERM`/`SIGINT` gracefully — it stops accepting new jobs and drains in-flight ones before exiting, so rolling deploys don't drop work.
+
 ## Monitoring
 
 - **Sentry** (or alternative): wire the DSN in `apps/web/sentry.{client,server}.config.ts` (not yet committed; add when go-live nears).
 - **Uptime check**: hit `/login` every minute.
 - **Logs**: structured JSON to stdout. Pipe to platform log drain.
+- **Queue health**: `/admin/queues` shows per-queue counts, failed jobs (with retry/delete), and a **worker heartbeat** — a "⚠ Workers may not be running" banner appears if no heartbeat in 5 min. Monitor queue **waiting** depth: sustained growth means the worker is down or under-provisioned.
 
 ## Backups
 

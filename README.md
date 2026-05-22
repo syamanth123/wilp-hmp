@@ -8,17 +8,17 @@ The Handout Management Portal automates the end-to-end lifecycle of course hando
 
 Status reflects what the code does today, verified against CI on every push. ✅ = done. 🟡 = partially built; the path works but has named caveats. 🔴 = not in the repo.
 
-| # | Status | Scope | Notes |
-|---|---|---|---|
-| **M1** | ✅ | Foundations | NextAuth v5 (credentials), 29-model Prisma schema, three-layer RBAC (middleware → server-action → workflow guards). CI green. |
-| **M2** | ✅ | Admin module | Eight admin routes — users, programmes, roles, audit log, CSV import, notification templates, workflow config, AI metrics. |
-| **M3** | ✅ | Workflow engine + IC | XState lifecycle (11 states / 12 events) wired through a single `transition()` orchestrator. IC create is race-safe: optimistic P2002 retry (commit `3b2e834`), proven by [concurrent.test.ts](apps/web/src/app/ic/requests/new/__tests__/concurrent.test.ts) — 10 simultaneous creates produce 10 unique sequential refNos. |
-| **M4** | ✅ | HOG + PC | Faculty allocation with the off-campus / adjunct / guest cap enforced *inside* the transaction; PC confirm + review + rework; E2E covers IC→HOG→PC chain end-to-end. |
-| **M5** | ✅ | Faculty + Editor | TipTap editor, accept → start-editing → save → submit. E2E exercises the full flow including version save and submit. |
-| **M6** | 🟡 | Publish / Archive | Status transitions through PUBLISHED → ARCHIVED work and write `LmsPublishLog`. **`publishToLms()` is a pure stub** — [packages/integrations/src/taxila.ts](packages/integrations/src/taxila.ts) returns simulated success with no HTTP call. Real Taxila client is Phase 3. |
-| **M7** | 🟡 | Notifications + Dashboards | In-portal `Notification` model + bell + SSE stream all work. Email via Nodemailer SMTP works. SLA reminder cron at [`/api/cron/reminders`](apps/web/src/app/api/cron/reminders/route.ts) runs synchronously. **No BullMQ workers exist in the repo** (verified — earlier README incorrectly listed them). Every notification is delivered in-band inside the user's request cycle; a slow SMTP server stalls the user's submit. Dashboards: SLA widgets + AI metrics ship; cost rollup blocked on schema work (see M8). |
-| **M8** | 🟡 | AI layer | Recommender, quality report, and handout-draft generator all work end-to-end. **All three gracefully degrade to stubs when `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are absent** — the UI surfaces a "not configured" / "template stub" message. AI usage dashboard renders real per-day buckets; **cost dashboard is blocked** on a schema migration to promote `promptTokens` / `completionTokens` from the JSON payload to indexed columns (see in-page comment at [ai-metrics/page.tsx:208-211](apps/web/src/app/admin/ai-metrics/page.tsx)). |
-| **M9** | 🟡 | Tests + Docs + Polish | 37 unit tests + 13 Playwright E2E specs both run in CI on every push. **E2E runs against the production build (`next start`)**, not dev mode (see commit `279d48c` for why). Coverage gaps: the rework loop (`SUBMITTED → REWORK_REQUESTED → SUBMITTED`), multi-version diff edge cases, SSE reconnection, concurrent-edit conflicts. |
+| #      | Status | Scope                      | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------ | ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **M1** | ✅     | Foundations                | NextAuth v5 (credentials), 29-model Prisma schema, three-layer RBAC (middleware → server-action → workflow guards). CI green.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **M2** | ✅     | Admin module               | Eight admin routes — users, programmes, roles, audit log, CSV import, notification templates, workflow config, AI metrics.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **M3** | ✅     | Workflow engine + IC       | XState lifecycle (11 states / 12 events) wired through a single `transition()` orchestrator. IC create is race-safe: optimistic P2002 retry (commit `3b2e834`), proven by [concurrent.test.ts](apps/web/src/app/ic/requests/new/__tests__/concurrent.test.ts) — 10 simultaneous creates produce 10 unique sequential refNos.                                                                                                                                                                                                                                                                                                                                 |
+| **M4** | ✅     | HOG + PC                   | Faculty allocation with the off-campus / adjunct / guest cap enforced _inside_ the transaction; PC confirm + review + rework; E2E covers IC→HOG→PC chain end-to-end.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **M5** | ✅     | Faculty + Editor           | TipTap editor, accept → start-editing → save → submit. E2E exercises the full flow including version save and submit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **M6** | 🟡     | Publish / Archive          | Status transitions through PUBLISHED → ARCHIVED work and write `LmsPublishLog`. **`publishToLms()` is a pure stub** — [packages/integrations/src/taxila.ts](packages/integrations/src/taxila.ts) returns simulated success with no HTTP call. Real Taxila client is Phase 3.                                                                                                                                                                                                                                                                                                                                                                                 |
+| **M7** | ✅     | Notifications + Dashboards | In-portal `Notification` model + bell + SSE stream + email via Nodemailer SMTP. **BullMQ background workers** ([`@hmp/queue`](packages/queue) + [`apps/web/src/workers`](apps/web/src/workers)) move notification + on-submit-AI work off the request cycle when `WORKERS_ENABLED=true` (synchronous fallback otherwise); admin observability at `/admin/queues` with worker heartbeat + failed-job retry/delete. SLA reminder cron at [`/api/cron/reminders`](apps/web/src/app/api/cron/reminders/route.ts) stays synchronous (returns a count the caller reports). Dashboards: SLA widgets + AI metrics ship; cost rollup blocked on schema work (see M8). |
+| **M8** | 🟡     | AI layer                   | Recommender, quality report, and handout-draft generator all work end-to-end. **All three gracefully degrade to stubs when `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are absent** — the UI surfaces a "not configured" / "template stub" message. AI usage dashboard renders real per-day buckets; **cost dashboard is blocked** on a schema migration to promote `promptTokens` / `completionTokens` from the JSON payload to indexed columns (see in-page comment at [ai-metrics/page.tsx:208-211](apps/web/src/app/admin/ai-metrics/page.tsx)).                                                                                                              |
+| **M9** | 🟡     | Tests + Docs + Polish      | 37 unit tests + 13 Playwright E2E specs both run in CI on every push. **E2E runs against the production build (`next start`)**, not dev mode (see commit `279d48c` for why). Coverage gaps: the rework loop (`SUBMITTED → REWORK_REQUESTED → SUBMITTED`), multi-version diff edge cases, SSE reconnection, concurrent-edit conflicts.                                                                                                                                                                                                                                                                                                                        |
 
 Honesty rule: if the code doesn't have it, the table doesn't claim it. The full per-area breakdown — including everything outside the M1–M9 milestone framing (SSO, file uploads, SME flow, backups, security headers, etc.) — lives in [docs/rfp-traceability.md](docs/rfp-traceability.md).
 
@@ -77,19 +77,19 @@ Migrations now live under [`packages/db/prisma/migrations/`](packages/db/prisma/
 
 All seeded users share password `password`.
 
-| Email | Role | Faculty type |
-|---|---|---|
-| `admin@hmp.local` | `ADMIN` | — |
-| `ic@hmp.local` | `INSTRUCTION_CELL` | — |
-| `hog@hmp.local` | `HOG` | — |
-| `pc@hmp.local` | `PROGRAMME_COMMITTEE` | — |
-| `faculty@hmp.local` | `FACULTY` | `ON_CAMPUS` |
-| `faculty2@hmp.local` | `FACULTY` | `ON_CAMPUS` |
-| `faculty.off@hmp.local` | `FACULTY` | `OFF_CAMPUS` |
-| `faculty.off2@hmp.local` | `FACULTY` | `OFF_CAMPUS` |
-| `faculty.adj@hmp.local` | `FACULTY` | `ADJUNCT` |
-| `faculty.guest@hmp.local` | `FACULTY` | `GUEST` |
-| `sme@hmp.local` | `SME` | — |
+| Email                     | Role                  | Faculty type |
+| ------------------------- | --------------------- | ------------ |
+| `admin@hmp.local`         | `ADMIN`               | —            |
+| `ic@hmp.local`            | `INSTRUCTION_CELL`    | —            |
+| `hog@hmp.local`           | `HOG`                 | —            |
+| `pc@hmp.local`            | `PROGRAMME_COMMITTEE` | —            |
+| `faculty@hmp.local`       | `FACULTY`             | `ON_CAMPUS`  |
+| `faculty2@hmp.local`      | `FACULTY`             | `ON_CAMPUS`  |
+| `faculty.off@hmp.local`   | `FACULTY`             | `OFF_CAMPUS` |
+| `faculty.off2@hmp.local`  | `FACULTY`             | `OFF_CAMPUS` |
+| `faculty.adj@hmp.local`   | `FACULTY`             | `ADJUNCT`    |
+| `faculty.guest@hmp.local` | `FACULTY`             | `GUEST`      |
+| `sme@hmp.local`           | `SME`                 | —            |
 
 The `SME` role + seed user + `SmeNomination` schema (model + enum + back-relations) all exist as of the `add_sme_nomination` migration. **No `/sme/*` routes or UI surface yet** — those come in later prompts. See [docs/rfp-traceability.md](docs/rfp-traceability.md) row 23.
 
@@ -120,9 +120,11 @@ Four short paragraphs. Detail in [docs/architecture.md](docs/architecture.md).
 - **Testing**: Vitest (unit), Playwright (E2E)
 - **Monorepo**: Turborepo + pnpm workspaces
 - **Email**: Nodemailer (Mailhog dev / SMTP prod)
+- **Queues**: BullMQ + ioredis ([`@hmp/queue`](packages/queue)) — background workers for notifications + AI quality reports, opt-in via `WORKERS_ENABLED`
+- **Object storage**: AWS S3 SDK against MinIO (dev) / S3 (prod) — Taxila Mode B LMS exports ([`packages/integrations/src/storage.ts`](packages/integrations/src/storage.ts))
 - **AI**: OpenAI SDK + Anthropic SDK (both optional — features degrade to stubs without keys)
 
-Notably absent (despite earlier claims): **no BullMQ**, **no Redis queue producer/consumer**, **no S3/MinIO SDK in any project package**. Redis and MinIO are wired in `infra/docker-compose.yml` but neither is consumed by the application yet.
+Both BullMQ (Redis-backed queues, Prompt 10) and the S3/MinIO SDK (Taxila Mode B exports, Prompt 9) are now genuinely consumed by the application — earlier READMEs over-claimed these before they existed, so this list reflects what's actually wired today.
 
 ---
 

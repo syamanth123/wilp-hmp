@@ -8,11 +8,11 @@ services:
       POSTGRES_PASSWORD: hmp
       POSTGRES_DB: hmp
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - hmp_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hmp -d hmp"]
+      test: ['CMD-SHELL', 'pg_isready -U hmp -d hmp']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,11 +22,11 @@ services:
     container_name: hmp-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - hmp_redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -40,12 +40,12 @@ services:
       MINIO_ROOT_PASSWORD: hmpsecret123
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     volumes:
       - hmp_miniodata:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -55,8 +55,36 @@ services:
     container_name: hmp-mailhog
     restart: unless-stopped
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - '1025:1025'
+      - '8025:8025'
+
+  # Background worker process (BullMQ). OPT-IN: `docker compose --profile workers up`.
+  # For local dev the lighter path is running `pnpm workers` on the host (it
+  # reaches the services on localhost). This containerised variant exists so the
+  # full stack — including async processing — can be brought up with one command.
+  # Production should run the worker as its own built image/process alongside web,
+  # not via this bind-mount+install convenience service.
+  workers:
+    profiles: ['workers']
+    image: node:20-alpine
+    container_name: hmp-workers
+    working_dir: /repo
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm workers"
+    environment:
+      DATABASE_URL: postgresql://hmp:hmp@postgres:5432/hmp?schema=public
+      REDIS_URL: redis://redis:6379
+      SMTP_HOST: mailhog
+      SMTP_PORT: '1025'
+      SMTP_FROM: 'HMP <no-reply@hmp.local>'
+      AI_PROVIDER: noop
+      WORKERS_ENABLED: 'true'
+    volumes:
+      - ../:/repo
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   hmp_pgdata:

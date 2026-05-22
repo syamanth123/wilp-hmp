@@ -117,6 +117,18 @@ jobs:
         ports:
           - 1025:1025
           - 8025:8025
+      # Redis for the m9 workers-on step (BullMQ). The main e2e run keeps
+      # WORKERS_ENABLED unset, so notifications stay synchronous there; m9 is
+      # run separately below with workers on.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://hmp:hmp@localhost:5432/hmp?schema=public
@@ -209,7 +221,28 @@ jobs:
           done
           echo "Mailhog did not become ready in 30s"; exit 1
 
+      # Main suite runs WORKERS_ENABLED unset → notifications synchronous; m9
+      # self-skips. This proves the synchronous-fallback path and keeps the
+      # existing specs unchanged.
       - run: pnpm e2e
+
+      - name: e2e (workers on) — m9
+        # Separate step so only m9 runs with WORKERS_ENABLED=true and a live
+        # worker. trap guarantees the background worker is killed even if the
+        # step aborts (orphan processes break later steps). worker.log is dumped
+        # unconditionally so we can confirm the worker actually processed a job.
+        env:
+          WORKERS_ENABLED: 'true'
+        run: |
+          set +e
+          trap 'kill "$(cat worker.pid 2>/dev/null)" 2>/dev/null || true' EXIT
+          pnpm workers > worker.log 2>&1 &
+          echo $! > worker.pid
+          pnpm --filter @hmp/web exec playwright test m9-workers.spec.ts --repeat-each=5
+          status=$?
+          echo "=== worker.log (last 50 lines) ==="
+          tail -50 worker.log
+          exit $status
 
       - name: Upload Playwright report on failure
         if: failure()
