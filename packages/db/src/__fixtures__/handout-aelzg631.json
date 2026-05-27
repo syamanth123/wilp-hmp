@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "institutionHeader": "Birla Institute of Technology & Science, Pilani",
+    "divisionHeader": "Work Integrated Learning Programmes Division",
+    "semester": "First Semester 2025-2026",
+    "documentTitle": "Digital Learning Handout",
+    "formNumber": ""
+  },
+  "partA": {
+    "courseTitle": "Automotive Diagnostics and Interfaces",
+    "courseNumbers": ["AE ZG631", "AEL ZG631"],
+    "creditModel": {
+      "description": "3-1-1"
+    },
+    "instructors": ["KOTHA SRINIVASA REDDY"],
+    "date": "6 Jan2025",
+    "courseDescription": "<p>Sensors used in today's vehicles, such as temperature, pressure, position, distance, velocity, torque and flow; Designing and building analogue interfaces, regulation and control problem with reference to power electronic converters; converter models for feedback: basic converter dynamics, fast switching, piece-wise linear models, discrete-time models, On board diagnostics II (OBD II); Voltage mode and current mode controls for DC-DC converters, comparator based control for rectifier systems, proportional and proportional-integral control applications; Control design based on linearization: transfer functions, compensation and filtering, compensated feedback control systems; Hysteresis control basics, and application to DC-DC converters and inverters; Automotive diagnostics, electronic interfaces, sensors and interfacing, introduction to microsystems packaging, microcomputer control systems, reliability, diagnostics, and testing of vehicles</p>",
+    "courseObjectives": [
+      {
+        "code": "CO1",
+        "description": "To study the different automotive sensors and their interfacing"
+      },
+      { "code": "CO2", "description": "Understand the different on-board diagnostics tools" },
+      { "code": "CO3", "description": "To study the diagnostics of different vehicle subsystems" },
+      {
+        "code": "CO4",
+        "description": "To study the different DC-DC converters used in automotive applications"
+      },
+      { "code": "CO5", "description": "To model and design the power electronic converters" }
+    ],
+    "textBooks": [
+      {
+        "code": "T1",
+        "citation": "Tom Denton 2021, Routledge, Advanced Automotive Fault Diagnosis 5th ed"
+      },
+      {
+        "code": "T2",
+        "citation": "Randall Shaffer 2007, Charles River Media, Fundamentals of Power Electronics with Matlab"
+      }
+    ],
+    "referenceBooks": [
+      {
+        "code": "R1",
+        "citation": "William B. Ribbens 2017, Butterworth-Heinemann, Understanding Automotive electronics 8th ed"
+      },
+      {
+        "code": "R2",
+        "citation": "Robert Bosch GmbH (Ed.) 2007, Springer-Vieweg, Bosch Automotive Electrics and Automotive Electronics 5th ed"
+      },
+      {
+        "code": "R3",
+        "citation": "Santini, Al - Automotive Electricity and Electronics-Cengage Learning, Inc. (2013)"
+      }
+    ],
+    "learningOutcomes": [
+      { "code": "LO1", "description": "Diagnose electrical and mechanical systems in automobiles" },
+      {
+        "code": "LO2",
+        "description": "Introduce the power electronics interfaces of ECUs with actuators"
+      },
+      {
+        "code": "LO3",
+        "description": "Develop modeling methods for converters and study closed loop control"
+      },
+      { "code": "LO4", "description": "Introduction to microcomputer control of converters" }
+    ]
+  },
+  "partB": {
+    "sessions": [
+      {
+        "sessionNumber": "1",
+        "topicTitle": "Introduction to automotive diagnostics",
+        "subTopics": "Introduction to diagnostics and prognostics; Diagnostics Techniques",
+        "references": ["T1 Chap 1, 2", "R1 Chap 11"]
+      },
+      {
+        "sessionNumber": "2",
+        "topicTitle": "Diagnostics tools and equipment",
+        "subTopics": "Oscilloscope diagnostics; Sensors and actuators; Sensor diagnostics",
+        "references": ["T1 Chap 3, 4"]
+      },
+      {
+        "sessionNumber": "3",
+        "topicTitle": "On-board diagnostics",
+        "subTopics": "OBD, OBD2, OBD3, UDS; Trouble codes",
+        "references": ["T1 Chap 5"]
+      },
+      {
+        "sessionNumber": "4",
+        "topicTitle": "Vehicle level diagnostics",
+        "subTopics": "Electrical systems and diagnostics",
+        "references": ["T1 Chap 8"]
+      },
+      {
+        "sessionNumber": "5-6",
+        "topicTitle": "Engine Diagnostics",
+        "subTopics": "Fuel system diagnostics; Ignition diagnostics",
+        "references": ["T1 Chap 6"]
+      },
+      {
+        "sessionNumber": "7-8",
+        "topicTitle": "Chassis Diagnostics & transmission diagnostics",
+        "subTopics": "Brake diagnostics; Suspension Diagnostics",
+        "references": ["T1 Chap 7"]
+      },
+      {
+        "sessionNumber": "9",
+        "topicTitle": "Review",
+        "subTopics": "",
+        "references": []
+      },
+      {
+        "sessionNumber": "10",
+        "topicTitle": "Mechanical and Electrical diagnostics",
+        "subTopics": "Electrical components and circuits; Lighting; Central Control; Cruise control",
+        "references": ["T1 Chap 9"]
+      },
+      {
+        "sessionNumber": "11",
+        "topicTitle": "Review",
+        "subTopics": "",
+        "references": []
+      },
+      {
+        "sessionNumber": "12-13",
+        "topicTitle": "Power electronic converters in automobiles",
+        "subTopics": "Analysis of DC-DC power converters – buck/boost/buck-boost; Isolated converters - forward and flyback topologies; DC-AC converter topologies; Pulse width modulation methods; Control methods; Simulation",
+        "references": ["Lecture slides"]
+      },
+      {
+        "sessionNumber": "14",
+        "topicTitle": "Converter modelling and analysis",
+        "subTopics": "Input-output relations; Differential equations and linearization; State space representation; Transfer functions, poles, zeros and block representation; State space averaging method",
+        "references": ["Lecture slides"]
+      },
+      {
+        "sessionNumber": "15",
+        "topicTitle": "State space analysis",
+        "subTopics": "PID control; Voltage & current control design; Closed loop control & simulation, digital power electronics",
+        "references": ["Lecture slides"]
+      },
+      {
+        "sessionNumber": "16",
+        "topicTitle": "Peripherals/interfaces for microcomputer control of converters",
+        "subTopics": "Gate drivers and driver design; Protection circuits in converters; Reliability, redundancy, diagnosis, packaging and testing; ECU packaging; Automated test methods and test standards; Universal Diagnostic Services (UDS)",
+        "references": ["Lecture slides"]
+      }
+    ]
+  },
+  "experientialLearning": {
+    "components": [],
+    "overallObjective": "",
+    "overallScope": [],
+    "labInfrastructure": [
+      "Virtual Lab: Electude Virtual Simulation – 2 hours of lab lecture and 12 hours of practice (currently the student can access over a period of three (3) weeks); Matlab software tool – 4 hours of lab lecture and 6 hours of practice. Access: through their own system with wilp email id (Matlab); through Electude platform (credentials via mail).",
+      "Remote Lab: 2 hours using Physical experiments – 2 hours of VL Electude assignment. Access: at Integrated Automotive Engineering lab, Hyderabad campus.",
+      "Assignment/Quiz – 4 hours."
+    ],
+    "experiments": [
+      {
+        "experimentNumber": "1",
+        "title": "Introduction to the lab",
+        "moduleReference": "The students will be introduced to the lab team, software to be used, list of experiments and evaluation components. Sensors, Actuators, Diagnosis Tools & Vehicle Simulator — the measurement and actuation of the system will be implemented using ELECTUDE."
+      },
+      {
+        "experimentNumber": "2",
+        "title": "Diagnostics to detect",
+        "moduleReference": "Wiper motor, Ideal RPM, Etc. Model and simulate diagnostic error lamp."
+      },
+      {
+        "experimentNumber": "3",
+        "title": "VCDS tool, Pico scope, Multi-meter and Current clamp (Remote lab)",
+        "moduleReference": "Log data from the vehicle and use diagnostic tool to identify DTC code and perform required action. Case studies on detecting issues related to wiper motors, ideal RPM, etc."
+      },
+      {
+        "experimentNumber": "4",
+        "title": "Simulation of buck, boost converter and inverter using MATLAB Simulink",
+        "moduleReference": "The open loop and closed operation of buck and boost converters will be implemented using MATLAB Simulink."
+      }
+    ]
+  },
+  "evaluation": {
+    "legend": "EC = Evaluation Component; AN = After Noon Session; FN = Fore Noon Session",
+    "components": [
+      {
+        "ecNumber": "EC - 1",
+        "subComponents": [
+          {
+            "name": "Quiz",
+            "type": "Online",
+            "weight": 10,
+            "duration": "",
+            "scheduledAt": "September 01-10, 2025"
+          },
+          {
+            "name": "Virtual lab",
+            "type": "Online",
+            "weight": 20,
+            "duration": "",
+            "scheduledAt": "November 01-10, 2025"
+          }
+        ]
+      },
+      {
+        "ecNumber": "EC - 2",
+        "subComponents": [
+          {
+            "name": "Mid-Semester exam",
+            "type": "Closed book",
+            "weight": 30,
+            "duration": "2 hours",
+            "scheduledAt": "21/09/2025 (AN)"
+          }
+        ]
+      },
+      {
+        "ecNumber": "EC - 3",
+        "subComponents": [
+          {
+            "name": "Comprehensive exam",
+            "type": "Open book",
+            "weight": 40,
+            "duration": "2 ½ hours",
+            "scheduledAt": "30/11/2025 (AN)"
+          }
+        ]
+      }
+    ],
+    "notes": "",
+    "midSemSyllabus": "",
+    "compreSyllabus": ""
+  },
+  "importantLinks": {
+    "elearnPortalUrl": "https://elearn.bits-pilani.ac.in",
+    "elearnPortalNote": "Students must visit the eLearn portal regularly and stay updated with the latest announcements and deadlines.",
+    "contactSessionsNote": "Students should attend the online lectures as per the schedule provided on the eLearn portal."
+  },
+  "evaluationGuidelines": "<p>EC-1 consists of either two Assignments or three Quizzes. Students will attempt them through the course pages on the eLearn portal. Announcements will be made on the portal in a timely manner.</p><p>For Closed Book tests: No books or reference material of any kind will be permitted.</p><p>For Open Book exams: “open book” means text/ reference books (publisher copy only) and does not include any other learning material. No other learning material will be permitted during the open book examinations. For Detailed Guidelines refer to the attached document. (EC3 Guidelines)</p><p>If a student is unable to appear for the Regular Test/Exam due to genuine exigencies, the student should follow the procedure to apply for the Make-Up Test/Exam, which will be made available on the eLearn portal. The Make-Up Test/Exam will be conducted only at selected exam centres on the dates to be announced later.</p><p>It shall be the responsibility of the individual student to be regular in maintaining the self-study schedule as given in the course handout, attend the online lectures, and take all the prescribed evaluation components such as Assignments/Quizzes, Mid-Semester Tests and Comprehensive Exams according to the evaluation scheme provided in the handout.</p>"
+}

@@ -231,10 +231,14 @@ model HandoutVersion {
   id           String   @id @default(cuid())
   handoutId    String
   versionNo    Int
-  contentJson  Json     // TipTap JSON
-  contentHtml  String   @db.Text
-  partBJson    Json?
-  evaluativeJson Json?
+  contentJson  Json     // TipTap JSON (legacy — pre-Prompt-11 freeform content)
+  contentHtml  String   @db.Text // legacy
+  partBJson    Json?    // legacy
+  evaluativeJson Json?  // legacy
+  // Structured BITS handout content conforming to BitsHandoutSchemaV1
+  // (@hmp/db handout-schema.ts). Nullable: pre-Prompt-11 rows keep their
+  // legacy contentHtml/contentJson and leave this null. New source of truth.
+  data         Json?
   authorId     String
   notes        String?
   createdAt    DateTime @default(now())

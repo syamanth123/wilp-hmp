@@ -1,7 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 
 declare global {
-   
   var __hmpPrisma: PrismaClient | undefined;
 }
 
@@ -17,3 +16,10 @@ if (process.env.NODE_ENV !== 'production') {
 
 export * from '@prisma/client';
 export * from './notification-templates';
+export {
+  BitsHandoutSchemaV1,
+  BitsHandoutSchema,
+  LATEST_SCHEMA_VERSION,
+  type BitsHandoutV1,
+  type BitsHandout,
+} from './handout-schema';
