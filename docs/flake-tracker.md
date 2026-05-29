@@ -1,0 +1,37 @@
+# CI Flake Tracker
+
+Structured running log of intermittently-failing E2E specs. Pair with `docs/dev-handoff-audit.md` §6 "Risk 4 — `m4-allocate-assign` intermittent first-run failure" for the prose-form discussion; **this file is the structured evidence** — one row per CI run, easy to spot rate changes.
+
+Convention: add a row for every CI run that produces an e2e result, whether clean or not. The whole point is the running denominator — a clean run is a data point too.
+
+Trigger threshold: **investigate any spec that flakes in `>1 of every 5 CI runs`** (see audit Risk 4). At-threshold (exactly 1/5) is a passive observation; above-threshold is an investigation signal.
+
+---
+
+## m4-allocate-assign — IC → HOG allocate → PC confirm
+
+The IC-create → HOG-allocate → PC-confirm workflow E2E. First flaked in PR #13 production-mode CI; investigation deferred pending rate evidence (see audit Risk 4 for the hypothesis space).
+
+| PR                                               | CI run                                                                          | m4 result | Notes                                                                                |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- | :-------: | ------------------------------------------------------------------------------------ |
+| #12 (11a)                                        | [26506190507](https://github.com/syamanth123/wilp-hmp/actions/runs/26506190507) |   clean   | baseline                                                                             |
+| #13 (11b)                                        | [26625535444](https://github.com/syamanth123/wilp-hmp/actions/runs/26625535444) | **flaky** | failed once, retry-passed (first observation; production-mode CI, not just dev-mode) |
+| #14 (docs)                                       | [26627384318](https://github.com/syamanth123/wilp-hmp/actions/runs/26627384318) |   clean   |                                                                                      |
+| #15 run 1 (11c, isomorphic-dompurify build fail) | [26630003238](https://github.com/syamanth123/wilp-hmp/actions/runs/26630003238) |    n/a    | build failed before e2e ran                                                          |
+| #15 run 2 (11c, sanitize-html fix)               | [26630734268](https://github.com/syamanth123/wilp-hmp/actions/runs/26630734268) |   clean   |                                                                                      |
+| #15 run 3 (11c, audit-doc data point)            | [26631181360](https://github.com/syamanth123/wilp-hmp/actions/runs/26631181360) |   clean   |                                                                                      |
+
+**Rate (clean-or-flake only, excluding "n/a"):** 1 flake in 5 runs = **20% — AT the threshold, not above**. Passive observation continues.
+
+---
+
+## How to update
+
+After every CI run on a feature branch, add a row above with:
+
+- **PR**: `#N (Prompt label)` or `#N (descriptive name)`
+- **CI run**: link to the GitHub Actions run
+- **m4 result**: `clean` | `flaky` (failed-then-retried-passed; job still green) | `failed` (failed even after retries — investigate immediately) | `n/a` (e2e didn't run, e.g. build failed earlier)
+- **Notes**: anything specific about the run that's worth knowing later
+
+If a NEW spec starts flaking, add a new section above with its own table. Treat each spec independently.

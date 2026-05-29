@@ -1,5 +1,10 @@
 import sanitizeHtml from 'sanitize-html';
 import type { BitsHandoutV1 } from './handout-schema';
+import {
+  BITS_RICH_TEXT_ALLOWED_TAGS,
+  BITS_RICH_TEXT_ALLOWED_ATTR,
+  BITS_RICH_TEXT_ALLOWED_SCHEMES,
+} from './rich-text-allowlist';
 
 /**
  * Render options for `renderBitsHandout`.
@@ -28,12 +33,23 @@ export interface RenderOptions {
 // Uses `sanitize-html` (pure JS, no jsdom) — picked over isomorphic-dompurify
 // after CI surfaced a Next.js bundling incompatibility (jsdom's
 // default-stylesheet.css ENOENT during "Collecting page data"). Same
-// allowlist concept; different library; identical behavioral contract. ===
+// allowlist concept; different library; identical behavioral contract.
+//
+// The allowed tags / attributes / schemes are imported from a SHARED constant
+// (`./rich-text-allowlist`) used by both this renderer AND the structured
+// editor's TipTap config (Prompt 11d). Mechanical drift between editor
+// capability and renderer-stripped output is impossible. ===
+
+// Build a mutable copy of the allowed-attribute map (sanitize-html types it
+// as Record<string, string[]>; the shared constant is Readonly).
+const allowedAttributesMutable: Record<string, string[]> = Object.fromEntries(
+  Object.entries(BITS_RICH_TEXT_ALLOWED_ATTR).map(([tag, attrs]) => [tag, [...attrs]]),
+);
 
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
-  allowedTags: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'a', 'span', 'code'],
-  allowedAttributes: { a: ['href'] },
-  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedTags: [...BITS_RICH_TEXT_ALLOWED_TAGS],
+  allowedAttributes: allowedAttributesMutable,
+  allowedSchemes: [...BITS_RICH_TEXT_ALLOWED_SCHEMES],
   allowedSchemesAppliedToAttributes: ['href'],
   // Drop disallowed tags entirely (including <script>, <iframe>, <style>);
   // don't escape their contents into the output.
