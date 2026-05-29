@@ -274,6 +274,19 @@ Why it's risky:
 
 **Resolution:** moved the helper to [ref-no.ts](../apps/web/src/app/ic/requests/new/ref-no.ts) with an optimistic retry-on-P2002 loop (bounded at 5 attempts, jittered backoff). The refNo allocation + audit insert now share a single `prisma.$transaction` in [actions.ts](../apps/web/src/app/ic/requests/new/actions.ts). Detection narrowly matches `err.code === 'P2002' && meta.target` includes `'refNo'` so unrelated constraints propagate. Covered by [ref-no.test.ts](../apps/web/src/app/ic/requests/new/__tests__/ref-no.test.ts) (5 cases including exhaustion and FK-error pass-through) and [concurrent.test.ts](../apps/web/src/app/ic/requests/new/__tests__/concurrent.test.ts) (10 simultaneous real-DB creates → 10 unique sequential refNos, no gaps).
 
+### Risk 4 — `m4-allocate-assign` intermittent first-run failure (unverified hypothesis)
+
+[`apps/web/e2e/m4-allocate-assign.spec.ts`](../apps/web/e2e/m4-allocate-assign.spec.ts) — the IC create → HOG allocate → PC confirm workflow E2E — exhibits intermittent first-run failure in **both** Windows local dev mode AND CI production mode (`next start`). Currently absorbed by the Playwright `retries: 2` config in [`playwright.config.ts`](../apps/web/playwright.config.ts); the test always passes on retry and the job stays green, so the flake is operationally invisible.
+
+Why it's worth naming as an unresolved risk:
+
+- The original `retries: 2` + config-comment diagnosis attributed the flake to **Windows dev-mode RSC streaming hiccups under load** (per-route first-compile, hydration races). That diagnosis was consistent with the evidence at the time. The new data point — the same spec flaking in CI's **production build** (`next start`, pre-compiled bundles, no on-demand compilation) — is inconsistent with a dev-mode-only cause. So either the original diagnosis was incomplete, there's a separate production-mode race we haven't identified, or there's a real-but-rare race in the allocation transition itself that the test surfaces under certain timing conditions.
+- Absorbing-via-retry is silencing a signal. The project has been disciplined throughout about not silencing signals; this entry exists so future-us reading the audit knows the flake isn't fully understood.
+
+**Trigger threshold for focused investigation:** if the flake appears in **>1 of every 5 CI runs**, that's the signal it's not random and warrants a focused look at the IC-create / HOG-allocate transition path (suspected race candidates: the optimistic refNo retry loop interacting with the workflow `transition()` effects, or a missing `await revalidatePath` propagation). If the next 2–3 CI runs are clean, the rate is acceptable for now and this stays an open observation.
+
+First observed flaking in CI: PR #13 (Prompt 11b), run [26625535444](https://github.com/syamanth123/wilp-hmp/actions/runs/26625535444). Track future occurrences here as they appear.
+
 ---
 
 ## Appendix — packages map

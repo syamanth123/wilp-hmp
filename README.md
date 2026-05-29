@@ -168,9 +168,11 @@ docs/
 ## Testing
 
 ```bash
-pnpm test    # vitest across all packages (37 tests today)
-pnpm e2e     # playwright against the dev server locally
+pnpm test    # vitest across all packages (185 unit tests today)
+pnpm e2e     # playwright against the dev server locally (18 main e2e specs + 10 workers e2e)
 ```
+
+**213 tests in CI on every push** — 185 unit + 28 e2e (18 main + 10 workers-on m9). Three categories probe-skip when their service is unavailable (Redis-gated `@hmp/queue` integration tests; MinIO-gated m6a/m6c export specs; Mailhog-gated m4d/m6c email-assertion specs) — CI provides the services so the full set runs.
 
 **CI runs both on every push.** The unit job runs `lint → typecheck → test → build` against a Postgres 16 service container. The e2e job runs `build → playwright install chromium → playwright test` — **against the production build (`next start`), not `next dev`**. Dev mode's per-route first-compile and RSC streaming hiccups caused too much flake; production builds are pre-compiled and stable. See commit `279d48c` for the change.
 
