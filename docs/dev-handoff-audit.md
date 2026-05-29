@@ -289,6 +289,8 @@ Why it's worth naming as an unresolved risk:
 
 First observed flaking in CI: PR #13 (Prompt 11b), run [26625535444](https://github.com/syamanth123/wilp-hmp/actions/runs/26625535444). Track future occurrences here as they appear.
 
+**Observed rate as of Prompt 11c:** 1 flake in 4 CI runs — PR #12 (11a) clean, **PR #13 (11b) flaked + retry-passed**, PR #14 (docs) clean, PR #15 (11c, second run after the sanitizer-swap fix) clean. 25%; at the threshold edge but trending clean (last two runs). If the next 1–2 CI runs stay clean, the rate falls below the >1/5 threshold and this stays a passive observation. A fresh flake brings the rate to 2/6 = 33% and warrants investigation.
+
 ---
 
 ## Appendix — packages map
