@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { prisma, RoleName } from '@hmp/db';
+import { prisma, RoleName, normalizeBitsCourseNumber } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import {
   parseCoursesCsv,
@@ -61,7 +61,10 @@ export async function commitImportAction(
   const csv = String(formData.get('csv') ?? '');
   const result = parseByKind(kind, csv);
   if (!result.ok) {
-    return { ok: false, error: `Validation failed (${result.errors.length} rows). Re-run preview.` };
+    return {
+      ok: false,
+      error: `Validation failed (${result.errors.length} rows). Re-run preview.`,
+    };
   }
 
   let imported = 0;
@@ -72,11 +75,39 @@ export async function commitImportAction(
       let count = 0;
 
       if (kind === 'courses') {
-        for (const row of result.rows as Array<{ code: string; title: string; credits: number; description: string }>) {
+        for (const [idx, row] of (
+          result.rows as Array<{
+            code: string;
+            title: string;
+            credits: number;
+            description: string;
+          }>
+        ).entries()) {
+          // Educational rejection — see Prompt 11b Decision 4.
+          let canonical: string;
+          try {
+            canonical = normalizeBitsCourseNumber(row.code);
+          } catch {
+            throw new Error(
+              `Row ${idx + 1}: '${row.code}' is not a valid BITS course number. ` +
+                'Expected format: "AE ZG510" (2-4 letter discipline, space, Z[CG], 3-4 digit code).',
+            );
+          }
           await tx.course.upsert({
-            where: { code: row.code },
-            update: { title: row.title, credits: row.credits, description: row.description || null },
-            create: { code: row.code, title: row.title, credits: row.credits, description: row.description || null },
+            where: { bitsCourseNumber: canonical },
+            update: {
+              code: canonical,
+              title: row.title,
+              credits: row.credits,
+              description: row.description || null,
+            },
+            create: {
+              bitsCourseNumber: canonical,
+              code: canonical,
+              title: row.title,
+              credits: row.credits,
+              description: row.description || null,
+            },
           });
           count += 1;
         }
@@ -121,14 +152,25 @@ export async function commitImportAction(
           count += 1;
         }
       } else if (kind === 'offerings') {
-        for (const row of result.rows as Array<{
-          programme_code: string;
-          semester_name: string;
-          course_code: string;
-          slot_info: string;
-        }>) {
+        for (const [idx, row] of (
+          result.rows as Array<{
+            programme_code: string;
+            semester_name: string;
+            course_code: string;
+            slot_info: string;
+          }>
+        ).entries()) {
+          let canonical: string;
+          try {
+            canonical = normalizeBitsCourseNumber(row.course_code);
+          } catch {
+            throw new Error(
+              `Row ${idx + 1}: course code '${row.course_code}' is not a valid BITS course number. ` +
+                'Expected format: "AE ZG510" (2-4 letter discipline, space, Z[CG], 3-4 digit code).',
+            );
+          }
           const prog = await tx.programme.findUnique({ where: { code: row.programme_code } });
-          const course = await tx.course.findUnique({ where: { code: row.course_code } });
+          const course = await tx.course.findUnique({ where: { bitsCourseNumber: canonical } });
           if (!prog || !course) continue;
           const sem = await tx.semester.findUnique({
             where: { programmeId_name: { programmeId: prog.id, name: row.semester_name } },
@@ -143,19 +185,30 @@ export async function commitImportAction(
         }
       } else {
         // slot_bookings
-        for (const row of result.rows as Array<{
-          programme_code: string;
-          semester_name: string;
-          course_code: string;
-          slot_type: 'class' | 'exam';
-          slot: string;
-          day_of_week: number;
-          start_time: string;
-          end_time: string;
-          room: string;
-        }>) {
+        for (const [idx, row] of (
+          result.rows as Array<{
+            programme_code: string;
+            semester_name: string;
+            course_code: string;
+            slot_type: 'class' | 'exam';
+            slot: string;
+            day_of_week: number;
+            start_time: string;
+            end_time: string;
+            room: string;
+          }>
+        ).entries()) {
+          let canonical: string;
+          try {
+            canonical = normalizeBitsCourseNumber(row.course_code);
+          } catch {
+            throw new Error(
+              `Row ${idx + 1}: course code '${row.course_code}' is not a valid BITS course number. ` +
+                'Expected format: "AE ZG510" (2-4 letter discipline, space, Z[CG], 3-4 digit code).',
+            );
+          }
           const prog = await tx.programme.findUnique({ where: { code: row.programme_code } });
-          const course = await tx.course.findUnique({ where: { code: row.course_code } });
+          const course = await tx.course.findUnique({ where: { bitsCourseNumber: canonical } });
           if (!prog || !course) continue;
           const sem = await tx.semester.findUnique({
             where: { programmeId_name: { programmeId: prog.id, name: row.semester_name } },

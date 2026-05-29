@@ -4,6 +4,7 @@ import {
   SME_NOTIFICATION_TEMPLATES,
   PUBLISH_NOTIFICATION_TEMPLATES,
 } from '../src/notification-templates';
+import { normalizeBitsCourseNumber } from '../src/course-code';
 
 const prisma = new PrismaClient();
 
@@ -199,10 +200,15 @@ async function main() {
     });
   }
 
-  // --- Academic Structure ---
+  // --- Academic Structure (Prompt 11b: BITS-realistic course codes) ---
+  // Programmes are unchanged (existing MTECH-SE / MTECH-DS) plus a placeholder
+  // MBA-WILP to host the MBA-coded courses. Programme-code reconciliation
+  // against the real BITS academic system is OUT OF SCOPE for 11b — the corpus
+  // carries course codes, not programme codes. See docs/dev-handoff-audit.md §1.
   const programmes = [
     { code: 'MTECH-SE', name: 'M.Tech Software Engineering' },
     { code: 'MTECH-DS', name: 'M.Tech Data Science' },
+    { code: 'MBA-WILP', name: 'MBA (WILP)' },
   ];
   for (const p of programmes) {
     const prog = await prisma.programme.upsert({
@@ -224,33 +230,133 @@ async function main() {
     });
   }
 
-  const courses = [
-    { code: 'SE-ZG501', title: 'Software Architectures', credits: 4 },
-    { code: 'SE-ZG502', title: 'Object Oriented Analysis & Design', credits: 4 },
-    { code: 'SE-ZG513', title: 'Software Project Management', credits: 4 },
-    { code: 'DS-ZG501', title: 'Foundations of Data Science', credits: 4 },
-    { code: 'DS-ZG502', title: 'Machine Learning', credits: 5 },
-    { code: 'DS-ZG513', title: 'Data Visualization', credits: 3 },
+  // Deactivate any pre-Prompt-11b rows still holding invented codes
+  // (SE-ZG501, DS-ZG501, ...). The migration backfilled their bitsCourseNumber
+  // from the legacy `code`, so they don't match the canonical regex. Soft-flag
+  // so existing CourseOffering rows survive (FK-safe), but they no longer
+  // surface in IC dropdowns. Idempotent: a re-run flips nothing.
+  const LEGACY_INVENTED_CODES = [
+    'SE-ZG501',
+    'SE-ZG502',
+    'SE-ZG513',
+    'DS-ZG501',
+    'DS-ZG502',
+    'DS-ZG513',
   ];
-  for (const c of courses) {
+  const deactivated = await prisma.course.updateMany({
+    where: { bitsCourseNumber: { in: LEGACY_INVENTED_CODES }, active: true },
+    data: { active: false },
+  });
+  if (deactivated.count > 0) {
+    console.log(`[seed] Deactivated ${deactivated.count} legacy pre-Prompt-11b Course rows.`);
+  }
+
+  // --- Course catalog (real BITS WILP codes from the 11b corpus survey) ---
+  // Titles transcribed from the corpus handouts; ALLCAPS titles title-cased
+  // for readability (one-way editorial transformation — same precedent as the
+  // 11a subTopics decision; see docs/dev-handoff-audit.md §1).
+  // CSI ZC447's three alternateCodes (ES/IS/SS) showcase BITS cross-listing
+  // a single course across departments — 33% of corpus files have ≥2 codes.
+  const bitsCourses: Array<{
+    canonical: string;
+    title: string;
+    credits: number | null;
+    alts: string[];
+    programmeCode: string | null; // null = catalog-only (no current-semester offering)
+    slot?: string;
+  }> = [
+    {
+      canonical: 'SE ZG501',
+      title: 'Software Quality Assurance and Testing',
+      credits: 4,
+      alts: [],
+      programmeCode: 'MTECH-SE',
+      slot: 'Sat-1800',
+    },
+    {
+      canonical: 'SE ZG503',
+      title: 'Full Stack Application Development',
+      credits: 4,
+      alts: [],
+      programmeCode: 'MTECH-SE',
+      slot: 'Sun-1000',
+    },
+    {
+      canonical: 'SE ZG504',
+      title: 'API Based Products',
+      credits: 4,
+      alts: [],
+      programmeCode: 'MTECH-SE',
+      slot: 'Sat-2000',
+    },
+    {
+      canonical: 'CC ZG501',
+      title: 'Introduction to Parallel and Distributed Programming',
+      credits: 4,
+      alts: [],
+      programmeCode: 'MTECH-DS',
+      slot: 'Sat-1800',
+    },
+    {
+      canonical: 'MATH ZC222',
+      title: 'Discrete Structures for Computer Science',
+      credits: 4,
+      alts: [],
+      programmeCode: 'MTECH-DS',
+      slot: 'Sun-1000',
+    },
+    {
+      canonical: 'MBA ZC417',
+      title: 'Business Statistics',
+      credits: 4,
+      alts: ['PDBA ZC417', 'PDFT ZC417'],
+      programmeCode: 'MBA-WILP',
+      slot: 'Sat-1400',
+    },
+    {
+      canonical: 'AE ZC442',
+      title: 'Advanced Driver Assistance Systems',
+      credits: 4,
+      alts: ['AEL ZC442'],
+      programmeCode: null,
+    },
+    {
+      canonical: 'CSI ZC447',
+      title: 'Data Storage Technology and Networks',
+      credits: 4,
+      alts: ['ES ZC447', 'IS ZC447', 'SS ZC447'],
+      programmeCode: null,
+    },
+  ];
+
+  for (const c of bitsCourses) {
+    const canonical = normalizeBitsCourseNumber(c.canonical);
+    const alts = c.alts.map(normalizeBitsCourseNumber);
     await prisma.course.upsert({
-      where: { code: c.code },
-      update: { title: c.title, credits: c.credits },
-      create: c,
+      where: { bitsCourseNumber: canonical },
+      update: {
+        code: canonical,
+        title: c.title,
+        credits: c.credits,
+        alternateCodes: alts,
+        active: true,
+      },
+      create: {
+        bitsCourseNumber: canonical,
+        code: canonical,
+        title: c.title,
+        credits: c.credits,
+        alternateCodes: alts,
+      },
     });
   }
 
-  // --- Course Offerings (so IC can immediately create a request in M3) ---
-  const offerings = [
-    { programmeCode: 'MTECH-SE', courseCode: 'SE-ZG501', slot: 'Sat-1800' },
-    { programmeCode: 'MTECH-SE', courseCode: 'SE-ZG502', slot: 'Sun-1000' },
-    { programmeCode: 'MTECH-SE', courseCode: 'SE-ZG513', slot: 'Sat-2000' },
-    { programmeCode: 'MTECH-DS', courseCode: 'DS-ZG501', slot: 'Sat-1800' },
-    { programmeCode: 'MTECH-DS', courseCode: 'DS-ZG502', slot: 'Sun-1000' },
-  ];
-  for (const o of offerings) {
-    const prog = await prisma.programme.findUnique({ where: { code: o.programmeCode } });
-    const course = await prisma.course.findUnique({ where: { code: o.courseCode } });
+  // --- Course Offerings (for the catalog-attached subset) ---
+  for (const c of bitsCourses) {
+    if (!c.programmeCode || !c.slot) continue;
+    const canonical = normalizeBitsCourseNumber(c.canonical);
+    const prog = await prisma.programme.findUnique({ where: { code: c.programmeCode } });
+    const course = await prisma.course.findUnique({ where: { bitsCourseNumber: canonical } });
     if (!prog || !course) continue;
     const sem = await prisma.semester.findUnique({
       where: { programmeId_name: { programmeId: prog.id, name: 'Sem-I 2025-26' } },
@@ -258,8 +364,8 @@ async function main() {
     if (!sem) continue;
     await prisma.courseOffering.upsert({
       where: { courseId_semesterId: { courseId: course.id, semesterId: sem.id } },
-      update: { slotInfo: o.slot },
-      create: { courseId: course.id, semesterId: sem.id, slotInfo: o.slot },
+      update: { slotInfo: c.slot },
+      create: { courseId: course.id, semesterId: sem.id, slotInfo: c.slot },
     });
   }
 

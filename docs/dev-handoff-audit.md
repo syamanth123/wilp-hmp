@@ -58,6 +58,10 @@ Channels: `IN_PORTAL` writes a row with status `SENT` immediately (no transport)
 
 The principle: don't fabricate a value to satisfy the schema, and don't relax the schema to chase a number. If a representative real handout legitimately omits a field, the field becomes `.optional()`; the gap between "the proxy sweep can't find a section" and "the handout lacks it" is an extraction problem for the 11f parser, not a reason to loosen the schema (see §5 "Known parser challenges for Prompt 11f").
 
+**BITS course code (canonical / alternates / legacy).** Added Prompt 11b. The canonical identifier is `Course.bitsCourseNumber` (one ASCII space between a 2-4 letter discipline prefix and the `Z[CG]nnn` cluster — e.g. `"AE ZG631"`). Validated and normalized via [`normalizeBitsCourseNumber`](../packages/db/src/course-code.ts) (handles the four real-world transcription irregularities found in the 11b corpus survey — joined, run-split, mid-digit-split, lowercase). The strict post-normalization Zod gate is [`bitsCourseNumberSchema`](../packages/db/src/course-code.ts); cross-listed and theory+lab-paired courses carry equivalent codes in `alternateCodes: String[]` (33% of sampled corpus files have ≥2 codes — `MBA ZC417/PDBA ZC417/PDFT ZC417`, `AE ZC442/AEL ZC442`, `CSI ZC447/ES ZC447/IS ZC447/SS ZC447`). The legacy free-form `Course.code` field is kept `@unique` and double-written equal to `bitsCourseNumber` for back-compat with the CSV importer and admin Course-create action; **to be dropped in a follow-up cleanup PR** once every caller migrates. Discipline (`"MBA"`, `"SE"`, etc.) is **derived**, not stored — [`getDiscipline(course)`](../packages/db/src/course-code.ts) returns the canonical prefix; no sync column to fall out of date. The CSV importer and admin `createCourseAction` both **reject** invalid codes with an educational error naming the canonical example — see Prompt 11b Decision 4.
+
+**Field transformation: title casing.** Some corpus titles arrive ALLCAPS (`MANAGERIAL ECONOMICS`, `POWER PLANT ENGINEERING`, `MICROPROCESSORS AND MICROCONTROLLERS`). The seed and the 11f importer Title-Case them for readability — **one-way editorial transformation**, same pattern as the 11a `subTopics` join/split contract. Acronyms within a title (e.g. an OEM name or a registered course name in caps) are preserved verbatim. The renderer (Prompt 11c) outputs whatever is in the database — no reversal needed because the canonical display form lives in the column.
+
 **Notification recipient categories (event vs task).** When adding a notification, decide which category it is — the actor-inclusion rule differs:
 
 - **Event notifications** ("X happened") — exclude the actor; they caused the event and don't need to be told. Examples: `notifyComment`, `notifyManuallyPublished`, `notifySme*`.
@@ -209,6 +213,7 @@ Prompt 11a defined the schema; **Prompt 11f** builds the `.docx → BitsHandoutV
 3. **Section-label synonyms.** The same section is titled differently across departments — the importer needs a synonym map:
    - Experiential Learning ≡ Laboratory ≡ Modular Content (sources: `ES ZC424`, `DE ZC415`).
    - Text Book(s) ≡ Reading Material ≡ Course Material — MBA/management handouts (`MBA ZG531/537/545/548`, `SE ZG587`, `CC ZG506`) label the prescribed-reading section without the literal words "Text Book".
+4. **HHSM-style table-layout variance.** A handful of handouts (notably the `HHSM ZG*` family) lay the Part A header table out so that `Course Title` appears in the cell adjacent to where the regex expects `Course No(s)` — captured value comes back as the title (e.g. `"BIOSTATISTICS & EPIDEMIOLOGY"`) instead of the code. The fix is the same as #1: walk table cells with column awareness, don't pattern-match labels in flattened text. Surfaced by the 11b course-code sweep (`packages/db/src/__tests__/course-codes-corpus.test.ts`).
 
 The sweep is a **proxy** for "would a faithful parser find the required fields", kept only until 11f exists. When the real parser lands, replace the section-presence regex with `BitsHandoutSchemaV1.safeParse(parse(docx))` and raise the threshold (the proxy's ~88% should become ≥95% once tables/runs/synonyms are handled).
 
@@ -224,6 +229,13 @@ The sweep is a **proxy** for "would a faithful parser find the required fields",
 - a "Sr No / Lab Details / Access" table → lab _modalities and access_ (Virtual Lab via Electude/MATLAB accessed through own system, Remote Lab at the Hyderabad campus, Assignment/Quiz), mapped to **`labInfrastructure[]`**, with `components: []`.
 
 That mapping is a **defensible but interpretive reading**, hand-transcribed for 11a; the canonical, corpus-wide experiential mapping (including whether a handout's "Lab Details" rows are infrastructure vs discrete experiments) is **parser-design work for 11f**. The fixture intentionally preserves this real structure as the example of why 11f needs per-section structure-aware mapping rather than a one-size flatten — it is not a bug, it is a documented placeholder for the downstream parser.
+
+**Course-code corpus sweep (why 80% is defensible).** Prompt 11b added a second corpus sweep ([course-codes-corpus.test.ts](../packages/db/src/__tests__/course-codes-corpus.test.ts)) that asserts ≥1 normalizable BITS course number per file. Measured against the 384-handout corpus: **85.00% pass (255/300 scanned, 84 image-heavy skipped)**, committed threshold **80%**. Same shape and rationale as the 11a section sweep — the threshold is the **proxy parser's ceiling**, not the normalizer's correctness; the normalizer accepts 100% of codes the proxy can extract. The 15% failure breakdown:
+
+- **38 zero-candidate files** — Course No(s) label captured but no BITS code survived run-splitting in the flatten step (e.g. `AIML ZG ZG5 65`, `CC ZG50 4`, `D E ZG5 45`, `HHSM ZG61 7`) or the label itself never landed (EE family, table-heavy).
+- **7 all-rejected files** — a candidate emerged, but run-splitting dropped or duplicated the prefix's first character before the normalizer saw it (`DE ZG611` → `E ZG 611`; `ES ZG514` → `SZG514`; `AIML ZC416` → `AIMLC ZC416` with a 5-letter prefix the regex rejects).
+
+37 distinct discipline prefixes were normalized across the corpus (top: `MBA` 63, `SS` 43, `SE` 32, `CC` 19, `ES` 18, `CSI` 16) — the seed's 7 represented prefixes are a small slice of a much wider real catalog. **Prompt 11f's deliverable: raise this threshold to ≥95% once mammoth-based structure-aware extraction handles tables, text-boxes, and adjacent-run joining.**
 
 ---
 
