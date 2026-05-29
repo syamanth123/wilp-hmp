@@ -1,4 +1,4 @@
-import DOMPurify from 'isomorphic-dompurify';
+import sanitizeHtml from 'sanitize-html';
 import type { BitsHandoutV1 } from './handout-schema';
 
 /**
@@ -24,31 +24,24 @@ export interface RenderOptions {
 }
 
 // === Sanitization (applies to every rich-text field — see Prompt 11c
-// "two things to confirm" #1: same allowlist across all four fields) ===
+// "two things to confirm" #1: same allowlist across all four fields).
+// Uses `sanitize-html` (pure JS, no jsdom) — picked over isomorphic-dompurify
+// after CI surfaced a Next.js bundling incompatibility (jsdom's
+// default-stylesheet.css ENOENT during "Collecting page data"). Same
+// allowlist concept; different library; identical behavioral contract. ===
 
-const ALLOWED_TAGS = [
-  'p',
-  'br',
-  'strong',
-  'b',
-  'em',
-  'i',
-  'u',
-  'ul',
-  'ol',
-  'li',
-  'a',
-  'span',
-  'code',
-];
-const ALLOWED_ATTR = ['href'];
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'a', 'span', 'code'],
+  allowedAttributes: { a: ['href'] },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesAppliedToAttributes: ['href'],
+  // Drop disallowed tags entirely (including <script>, <iframe>, <style>);
+  // don't escape their contents into the output.
+  disallowedTagsMode: 'discard',
+};
 
 function sanitize(html: string): string {
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR,
-    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:)/i,
-  });
+  return sanitizeHtml(html, SANITIZE_OPTIONS);
 }
 
 function esc(s: string): string {
