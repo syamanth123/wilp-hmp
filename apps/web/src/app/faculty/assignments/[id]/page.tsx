@@ -1,5 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
-import { HandoutStatus, RoleName, SmeNominationStatus, prisma } from '@hmp/db';
+import { HandoutStatus, RoleName, SmeNominationStatus, prisma, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { StatusBadge } from '@/components/status-badge';
@@ -135,7 +135,7 @@ export default async function FacultyAssignmentDetail({ params }: { params: { id
               />
             </CardContent>
           </Card>
-          <Card className="lg:col-span-1 lg:sticky lg:top-20 lg:self-start">
+          <Card className="lg:sticky lg:top-20 lg:col-span-1 lg:self-start">
             <CardHeader>
               <CardTitle>AI quality check</CardTitle>
               <CardDescription>
@@ -156,7 +156,13 @@ export default async function FacultyAssignmentDetail({ params }: { params: { id
             <CardDescription>Read-only — under review or already approved.</CardDescription>
           </CardHeader>
           <CardContent>
-            <HandoutViewer html={currentVersion?.contentHtml} />
+            <HandoutViewer
+              html={
+                currentVersion
+                  ? resolveHandoutHtml(currentVersion, { omitInstitutionalHeader: true })
+                  : null
+              }
+            />
           </CardContent>
         </Card>
       )}

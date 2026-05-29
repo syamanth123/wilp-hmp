@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { prisma, HandoutStatus, LmsPublishMode } from '@hmp/db';
+import { prisma, HandoutStatus, LmsPublishMode, resolveHandoutHtml } from '@hmp/db';
 import { getPresignedDownloadUrl } from '@hmp/integrations';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
@@ -167,7 +167,11 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <CardDescription>Latest version.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <HandoutViewer html={handout.currentVersion.contentHtml} />
+            <HandoutViewer
+              html={resolveHandoutHtml(handout.currentVersion, {
+                omitInstitutionalHeader: true,
+              })}
+            />
             <VersionList handoutId={handout.id} />
             {versions.length >= 2 && (
               <VersionDiff

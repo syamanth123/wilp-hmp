@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { prisma, HandoutStatus, RoleName } from '@hmp/db';
+import { prisma, HandoutStatus, RoleName, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
@@ -126,8 +126,8 @@ export default async function PCRequestDetail({ params }: { params: { id: string
           <CardHeader>
             <CardTitle>SME nominations</CardTitle>
             <CardDescription>
-              Invite a Subject Matter Expert to advise on this handout. Their input is advisory
-              and does not block the workflow.
+              Invite a Subject Matter Expert to advise on this handout. Their input is advisory and
+              does not block the workflow.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -148,7 +148,11 @@ export default async function PCRequestDetail({ params }: { params: { id: string
             <CardDescription>Latest version submitted by faculty.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <HandoutViewer html={handout.currentVersion.contentHtml} />
+            <HandoutViewer
+              html={resolveHandoutHtml(handout.currentVersion, {
+                omitInstitutionalHeader: true,
+              })}
+            />
             <VersionList handoutId={handout.id} />
             {versions.length >= 2 && (
               <VersionDiff

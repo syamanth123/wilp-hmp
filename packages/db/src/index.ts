@@ -24,3 +24,5 @@ export {
   type BitsHandout,
 } from './handout-schema';
 export { normalizeBitsCourseNumber, bitsCourseNumberSchema, getDiscipline } from './course-code';
+export { renderBitsHandout, type RenderOptions } from './handout-renderer';
+export { resolveHandoutHtml } from './handout-display';
