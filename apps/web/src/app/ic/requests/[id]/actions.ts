@@ -62,6 +62,10 @@ export async function publishAction(formData: FormData) {
     versionNo: request.handout.currentVersion.versionNo,
     contentHtml: request.handout.currentVersion.contentHtml,
     contentJson: request.handout.currentVersion.contentJson,
+    // 11c: pass structured BITS data through so the Mode B export ZIP renders
+    // it via the BITS renderer when present. Null/undefined for legacy rows;
+    // Mode B falls back to contentHtml automatically (resolveHandoutHtml).
+    data: request.handout.currentVersion.data,
     courseCode: request.offering.course.code,
     courseTitle: request.offering.course.title,
     programmeCode: request.offering.semester.programme.code,

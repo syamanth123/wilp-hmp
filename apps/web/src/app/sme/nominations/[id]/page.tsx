@@ -1,13 +1,6 @@
 import { notFound } from 'next/navigation';
-import { prisma, RoleName } from '@hmp/db';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Badge,
-} from '@hmp/ui';
+import { prisma, RoleName, resolveHandoutHtml } from '@hmp/db';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Badge } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { StatusBadge } from '@/components/status-badge';
 import { HandoutViewer } from '@/components/handout-viewer';
@@ -54,7 +47,7 @@ export default async function SmeNominationDetail({ params }: { params: { id: st
           handout: {
             select: {
               id: true,
-              currentVersion: { select: { versionNo: true, contentHtml: true } },
+              currentVersion: { select: { versionNo: true, contentHtml: true, data: true } },
             },
           },
         },
@@ -69,7 +62,11 @@ export default async function SmeNominationDetail({ params }: { params: { id: st
   if (nomination.smeUserId !== me.id && !isAdmin) notFound();
 
   const handout = nomination.request.handout;
-  const handoutHtml = handout?.currentVersion?.contentHtml ?? null;
+  // 11c: prefer the structured BITS renderer when version.data is present;
+  // fall back to legacy contentHtml. Single source of truth in @hmp/db.
+  const handoutHtml = handout?.currentVersion
+    ? resolveHandoutHtml(handout.currentVersion, { omitInstitutionalHeader: true })
+    : null;
 
   // Cheap pre-check to gate the Mark-complete button server-side. The helper
   // re-checks this in-transaction, so the UI hint can be optimistic.
@@ -86,14 +83,12 @@ export default async function SmeNominationDetail({ params }: { params: { id: st
           <div>
             <CardTitle className="font-mono text-base">{nomination.request.refNo}</CardTitle>
             <CardDescription>
-              {nomination.request.offering.course.code} —{' '}
-              {nomination.request.offering.course.title}
+              {nomination.request.offering.course.code} — {nomination.request.offering.course.title}
             </CardDescription>
             <p className="text-muted-foreground mt-1 text-xs">
               {nomination.request.offering.semester.programme.code} ·{' '}
               {nomination.request.offering.semester.name} · nominated by{' '}
-              {nomination.nominatedBy.name} on{' '}
-              {new Date(nomination.createdAt).toLocaleDateString()}
+              {nomination.nominatedBy.name} on {new Date(nomination.createdAt).toLocaleDateString()}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -114,7 +109,7 @@ export default async function SmeNominationDetail({ params }: { params: { id: st
               <h4 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
                 Notes
               </h4>
-              <p className="text-sm whitespace-pre-wrap">{nomination.notes}</p>
+              <p className="whitespace-pre-wrap text-sm">{nomination.notes}</p>
             </div>
           )}
         </CardContent>
@@ -187,15 +182,11 @@ export default async function SmeNominationDetail({ params }: { params: { id: st
             <dd>{new Date(nomination.createdAt).toLocaleString()}</dd>
             <dt className="text-muted-foreground">Responded</dt>
             <dd>
-              {nomination.respondedAt
-                ? new Date(nomination.respondedAt).toLocaleString()
-                : '—'}
+              {nomination.respondedAt ? new Date(nomination.respondedAt).toLocaleString() : '—'}
             </dd>
             <dt className="text-muted-foreground">Completed</dt>
             <dd>
-              {nomination.completedAt
-                ? new Date(nomination.completedAt).toLocaleString()
-                : '—'}
+              {nomination.completedAt ? new Date(nomination.completedAt).toLocaleString() : '—'}
             </dd>
           </dl>
         </CardContent>

@@ -13,6 +13,7 @@
 // LmsPublishLog and drives the workflow.
 
 import AdmZip from 'adm-zip';
+import { resolveHandoutHtml } from '@hmp/db';
 import { getS3Client, uploadAndPresign } from './storage';
 
 /**
@@ -29,6 +30,12 @@ export interface PublishInput {
   versionNo: number;
   contentHtml: string;
   contentJson: unknown;
+  // Structured BITS handout data (Prompt 11a schema). When present, Mode B's
+  // export ZIP renders this via the BITS renderer (Prompt 11c); otherwise it
+  // falls back to `contentHtml` for legacy rows. Optional + back-compat:
+  // existing callers can omit it. Mode A's HTTP body still uses contentHtml
+  // (changes in 11d's wake when faculty start submitting structured data).
+  data?: unknown;
   courseCode: string;
   courseTitle: string;
   programmeCode: string;
@@ -212,10 +219,18 @@ Steps:
 
 export function buildExportZip(input: PublishInput): Buffer {
   const zip = new AdmZip();
+  // 11c: prefer the structured BITS renderer when `data` is present; fall back
+  // to legacy `contentHtml` otherwise. resolveHandoutHtml is the single source
+  // of truth for this decision (same helper used by all 5 in-app read paths).
+  const inner =
+    resolveHandoutHtml(
+      { data: input.data ?? null, contentHtml: input.contentHtml },
+      { cssScope: 'inline' },
+    ) ?? input.contentHtml;
   const html =
     `<!doctype html>\n<html lang="en">\n<head><meta charset="utf-8">` +
     `<title>${input.refNo} — ${input.courseCode}</title></head>\n<body>\n` +
-    `${input.contentHtml}\n</body>\n</html>\n`;
+    `${inner}\n</body>\n</html>\n`;
   const metadata = {
     refNo: input.refNo,
     courseCode: input.courseCode,

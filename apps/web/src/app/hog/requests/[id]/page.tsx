@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { prisma, HandoutStatus, FacultyType } from '@hmp/db';
+import { prisma, HandoutStatus, FacultyType, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
@@ -116,7 +116,11 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
             <CardDescription>Latest version for final review.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <HandoutViewer html={handout.currentVersion.contentHtml} />
+            <HandoutViewer
+              html={resolveHandoutHtml(handout.currentVersion, {
+                omitInstitutionalHeader: true,
+              })}
+            />
             <VersionList handoutId={handout.id} />
             {versions.length >= 2 && (
               <VersionDiff
