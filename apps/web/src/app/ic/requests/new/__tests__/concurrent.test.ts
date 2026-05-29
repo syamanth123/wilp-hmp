@@ -11,6 +11,9 @@ const hasDb = Boolean(process.env.DATABASE_URL);
 const TEST_YEAR = 9999;
 const TEST_PREFIX = `HMP-${TEST_YEAR}-`;
 const TEST_SEED_TAG = '__refno_concurrent_test__';
+// Canonical-form fake code that survives the post-Prompt-11b schema. Passes
+// normalizeBitsCourseNumber (TST is a 3-letter prefix; ZC + 3 digits).
+const TEST_BITS_COURSE = 'TST ZC000';
 
 describe.skipIf(!hasDb)('createRequestWithRefNo — concurrent', () => {
   let offeringId: string;
@@ -36,9 +39,14 @@ describe.skipIf(!hasDb)('createRequestWithRefNo — concurrent', () => {
       },
     });
     const course = await prisma.course.upsert({
-      where: { code: `${TEST_SEED_TAG}-course` },
+      where: { bitsCourseNumber: TEST_BITS_COURSE },
       update: {},
-      create: { code: `${TEST_SEED_TAG}-course`, title: 'Concurrent Test Course', credits: 3 },
+      create: {
+        bitsCourseNumber: TEST_BITS_COURSE,
+        code: TEST_BITS_COURSE,
+        title: 'Concurrent Test Course',
+        credits: 3,
+      },
     });
     const offering = await prisma.courseOffering.upsert({
       where: { courseId_semesterId: { courseId: course.id, semesterId: semester.id } },
@@ -65,16 +73,16 @@ describe.skipIf(!hasDb)('createRequestWithRefNo — concurrent', () => {
       where: { refNo: { startsWith: TEST_PREFIX } },
     });
     await prisma.courseOffering
-      .deleteMany({ where: { course: { code: `${TEST_SEED_TAG}-course` } } })
+      .deleteMany({ where: { course: { bitsCourseNumber: TEST_BITS_COURSE } } })
       .catch(() => {});
-    await prisma.course.deleteMany({ where: { code: `${TEST_SEED_TAG}-course` } }).catch(() => {});
-    await prisma.semester
-      .deleteMany({ where: { name: 'Concurrent-Test-Sem' } })
+    await prisma.course
+      .deleteMany({ where: { bitsCourseNumber: TEST_BITS_COURSE } })
       .catch(() => {});
-    await prisma.programme
-      .deleteMany({ where: { code: `${TEST_SEED_TAG}-prog` } })
+    await prisma.semester.deleteMany({ where: { name: 'Concurrent-Test-Sem' } }).catch(() => {});
+    await prisma.programme.deleteMany({ where: { code: `${TEST_SEED_TAG}-prog` } }).catch(() => {});
+    await prisma.user
+      .deleteMany({ where: { email: `${TEST_SEED_TAG}@hmp.local` } })
       .catch(() => {});
-    await prisma.user.deleteMany({ where: { email: `${TEST_SEED_TAG}@hmp.local` } }).catch(() => {});
     await prisma.$disconnect();
   });
 

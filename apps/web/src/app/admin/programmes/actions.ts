@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { prisma, RoleName } from '@hmp/db';
+import { prisma, RoleName, normalizeBitsCourseNumber } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 
@@ -55,15 +55,40 @@ export async function createCourseAction(formData: FormData) {
     credits: formData.get('credits'),
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
-  const exists = await prisma.course.findUnique({ where: { code: parsed.data.code } });
+  // Educational rejection — same contract as the CSV importer (Prompt 11b
+  // Decision 4). The schema accepts any 2-20 char string; the BITS-format
+  // gate is normalizeBitsCourseNumber().
+  let canonical: string;
+  try {
+    canonical = normalizeBitsCourseNumber(parsed.data.code);
+  } catch {
+    return {
+      error:
+        `'${parsed.data.code}' is not a valid BITS course number. ` +
+        'Expected format: "AE ZG510" (2-4 letter discipline, space, Z[CG], 3-4 digit code).',
+    };
+  }
+  const exists = await prisma.course.findUnique({ where: { bitsCourseNumber: canonical } });
   if (exists) return { error: 'Course code already exists' };
-  const created = await prisma.course.create({ data: parsed.data });
+  const created = await prisma.course.create({
+    data: {
+      bitsCourseNumber: canonical,
+      code: canonical,
+      title: parsed.data.title,
+      credits: parsed.data.credits,
+    },
+  });
   await audit({
     actorId: actor.id,
     action: 'course.create',
     entity: 'Course',
     entityId: created.id,
-    after: parsed.data,
+    after: {
+      bitsCourseNumber: canonical,
+      code: canonical,
+      title: parsed.data.title,
+      credits: parsed.data.credits,
+    },
   });
   revalidatePath('/admin/programmes');
   return { ok: true };

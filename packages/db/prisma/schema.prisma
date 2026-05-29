@@ -124,15 +124,31 @@ model Semester {
 }
 
 model Course {
-  id          String           @id @default(cuid())
-  code        String           @unique
-  title       String
-  credits     Int              @default(3)
-  description String?
-  active      Boolean          @default(true)
-  offerings   CourseOffering[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id                String           @id @default(cuid())
+  // Canonical BITS course identifier — one space between the discipline prefix
+  // and the Z[CG]nnn cluster (e.g. "AE ZG631"). Validated/normalized via
+  // @hmp/db's normalizeBitsCourseNumber(). Survey-driven (Prompt 11b): 92% of
+  // corpus codes match this exact form; the rest are transcription quirks
+  // (joined, run-split) collapsed to canonical on insert.
+  bitsCourseNumber  String           @unique
+  // Equivalent codes for cross-listed / theory+lab-paired courses. 33% of
+  // sampled corpus files carry ≥2 codes (AE+AEL pairs, MBA+PDBA+PDFT,
+  // CSI+ES+IS+SS cross-listings). Stored canonical-form too.
+  alternateCodes    String[]         @default([])
+  // Legacy free-form code, kept @unique for back-compat with the CSV importer
+  // and admin Course-create action during the transition. Populated equal to
+  // bitsCourseNumber by every write path. To be dropped in a later cleanup PR
+  // once all callers migrate.
+  code              String           @unique
+  title             String
+  // Optional (matches the 11a optional-field discipline — real handouts often
+  // leave the Credit Units cell blank; AEL ZG631 is the documented example).
+  credits           Int?
+  description       String?
+  active            Boolean          @default(true)
+  offerings         CourseOffering[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 }
 
 model CourseOffering {
