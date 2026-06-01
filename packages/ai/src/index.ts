@@ -11,6 +11,12 @@ export type {
   HandoutDraftResult,
   DraftSource,
 } from './handout-generator';
+export { generateStructuredHandoutDraft } from './structured-handout-generator';
+export type {
+  GenerateStructuredHandoutDraftInput,
+  StructuredHandoutDraftResult,
+  StructuredDraftSource,
+} from './structured-handout-generator';
 export {
   QualityReportSchema,
   BloomsBucketSchema,
