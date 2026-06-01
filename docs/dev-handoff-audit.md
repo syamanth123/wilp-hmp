@@ -100,6 +100,8 @@ When adding a notify/action, pick the category and the queueing decision is forc
 
 **Tests that need a real external service are probe-skipped locally, run in CI.** Some integrations can't be faithfully mocked: BullMQ needs real Redis (ioredis-mock implements neither Lua scripts nor the blocking commands BullMQ relies on); Mode B export needs MinIO; email-delivery assertions need Mailhog. The pattern: split each suite into **pure-logic tests** (no service — always run) and **integration tests** that probe the service at startup and `skipIf` it's unreachable. CI provides the service so the integration half actually runs; a Docker-less dev box runs the pure half and skips the rest. Don't burn time trying to mock these — reach for the probe-skip. Precedents: MinIO (m6a/m6c), Mailhog (m4d/m6c email), Redis (`@hmp/queue` integration tests).
 
+**Vitest mock hoisting.** When mocking modules imported by the file under test (Prisma, the AI client's `chatJson`, etc.), the mock values closed over by the `vi.mock()` factory must be declared with `vi.hoisted()`. Vitest hoists `vi.mock()` calls above all `import` statements, so a plain `const mockX = vi.fn()` at the top of the test file isn't yet initialized when the factory runs — referencing it throws `ReferenceError: Cannot access 'mockX' before initialization`. Pattern: `const { prismaMock, chatJsonMock } = vi.hoisted(() => ({ prismaMock: { ... }, chatJsonMock: vi.fn() }))` BEFORE the `vi.mock()` calls; the factory then references the hoisted names safely. Real imports go after the mocks. Precedents: [`packages/ai/src/structured-handout-generator.test.ts`](../packages/ai/src/structured-handout-generator.test.ts), [`apps/web/src/workers/__tests__/processors.test.ts`](../apps/web/src/workers/__tests__/processors.test.ts).
+
 ### How audit rows are written
 
 Two paths:
@@ -307,6 +309,20 @@ First observed flaking in CI: PR #13 (Prompt 11b), run [26625535444](https://git
 **Observed rate as of Prompt 11c:** 1 flake in 4 CI runs — PR #12 (11a) clean, **PR #13 (11b) flaked + retry-passed**, PR #14 (docs) clean, PR #15 (11c, second run after the sanitizer-swap fix) clean. 25%; at the threshold edge but trending clean (last two runs). If the next 1–2 CI runs stay clean, the rate falls below the >1/5 threshold and this stays a passive observation. A fresh flake brings the rate to 2/6 = 33% and warrants investigation.
 
 **Observed rate as of Prompt 11d-a (CI gap):** PR #16 could not be CI-validated — see "CI gap (post-PR-#15)" below. No new m4 data point. Rate stays 1/5 = 20% until the account hold is resolved and CI runs again.
+
+### Risk 5 — `m10-structured-editor` first-run flake (one observation)
+
+[`apps/web/e2e/m10-structured-editor.spec.ts`](../apps/web/e2e/m10-structured-editor.spec.ts) — extended in Prompt 11d-b (PR #17) to a comprehensive flow exercising chip-list add/remove, references typeahead from Part A T/R codes, multi-EC evaluation with the 100% UI-only rule disabling/enabling Save, experiential nested repeats, the structured AI dialog stub path, save → preview parity, and reload-persistence. During 11d-b's local verification under `--repeat-each=5`, the first attempt was **4/5** and a clean retry of the same command produced **5/5** — cumulative **9/10 = 90%**.
+
+Classed alongside Risk 4 as **environmental, not a regression**: the flaking iteration is non-deterministic across attempts; no failure has been reproduced when re-running the spec immediately afterward.
+
+**Watch list** — if it flakes again in a subsequent PR's verification (local or CI once unblocked), the suspects to investigate first:
+
+- AI dialog mount timing: the spec opens the dialog and immediately asserts on the stub banner. The dialog's `useEffect`-triggered auto-run on `open` may race with the assertion under load.
+- `onValidityChange` callback firing on initial render: `EvaluationScheme` notifies the root editor of the initial `evalValid` value via a `useEffect` after first paint; if the spec asserts the Save button's disabled state before that fires, it could see a stale rendered state.
+- Production-build hydration: the spec runs against `next start`. If chunks for the structured editor's lazy-loaded TipTap or chip components arrive out of order, the first interaction can race.
+
+Tracked in [docs/flake-tracker.md](./flake-tracker.md) alongside m4. Trigger threshold the same as Risk 4: investigate if the rate climbs above **>1 of every 5 runs**.
 
 ### CI gap (post-PR-#15)
 
