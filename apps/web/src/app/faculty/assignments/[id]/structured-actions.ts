@@ -8,7 +8,7 @@ import { transition, WorkflowError } from '@hmp/workflow';
 import { appendStructuredVersion } from '@/lib/handout-versioning';
 import { audit } from '@/lib/audit';
 import { notifyTransition } from '@/lib/notifications';
-import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
+import { runQualityReport, AiUnconfiguredError, generateStructuredHandoutDraft } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
 import { blankHandoutForRequest } from './structured-editor/state';
 
@@ -249,4 +249,127 @@ export async function convertToStructuredAction(formData: FormData) {
   });
   revalidate(request.id);
   return { ok: true };
+}
+
+/**
+ * Prompt 11d-b — generate a structured `BitsHandoutV1` AI draft for the
+ * faculty's current assignment. Mirrors `generateAiDraftAction` (legacy
+ * TipTap path) but the payload is structured data the faculty applies into
+ * the form state instead of HTML for the legacy editor.
+ *
+ * Failure modes surfaced verbatim:
+ *  - AI provider unconfigured → returns a stub draft (caller renders a
+ *    neutral banner; this is a normal dev state, not an error).
+ *  - AI returns malformed JSON or Zod-invalid output → `chatJson` throws
+ *    inside `generateStructuredHandoutDraft`; this action catches and
+ *    returns the error message verbatim so the dialog can show the path +
+ *    Zod message to faculty.
+ */
+export async function generateStructuredAiDraftAction(formData: FormData) {
+  const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  const parse = z
+    .object({
+      requestId: z.string().cuid(),
+      forceRefresh: z.boolean().optional().default(false),
+    })
+    .safeParse({
+      requestId: formData.get('requestId'),
+      forceRefresh: formData.get('forceRefresh') === 'true',
+    });
+  if (!parse.success) return { error: 'Invalid input' };
+
+  const request = await loadMyAssignment(parse.data.requestId, me.id);
+  if (!request) return { error: 'Assignment not found' };
+  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!EDITABLE_STATUSES.includes(request.status)) {
+    return { error: `Cannot generate from status ${request.status}` };
+  }
+
+  try {
+    const result = await generateStructuredHandoutDraft({
+      handoutId: request.handout.id,
+      forceRefresh: parse.data.forceRefresh,
+    });
+    await audit({
+      actorId: me.id,
+      action: 'ai.draft.generated.structured',
+      entity: 'AIDraftLog',
+      entityId: result.draftId,
+      requestId: request.id,
+      after: { model: result.model, source: result.source },
+    });
+    return {
+      ok: true,
+      draftId: result.draftId,
+      data: result.data,
+      source: result.source,
+      model: result.model,
+    };
+  } catch (err) {
+    if (err instanceof AiUnconfiguredError) {
+      return { error: 'AI provider not configured. Ask admin to set AI_PROVIDER + API key.' };
+    }
+    return { error: err instanceof Error ? err.message : 'Structured draft generation failed' };
+  }
+}
+
+/**
+ * Apply a previously-generated structured draft to the handout — persists as
+ * a NEW HandoutVersion via `appendStructuredVersion`. The legacy
+ * `applyAiDraftAction` (which writes from `payload.tiptapJson`) is left
+ * untouched; this action dispatches on the new `payload.data` shape and
+ * uses the structured persistence path.
+ */
+export async function applyStructuredAiDraftAction(formData: FormData) {
+  const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  const parse = z.object({ requestId: z.string().cuid(), draftId: z.string().cuid() }).safeParse({
+    requestId: formData.get('requestId'),
+    draftId: formData.get('draftId'),
+  });
+  if (!parse.success) return { error: 'Invalid input' };
+
+  const request = await loadMyAssignment(parse.data.requestId, me.id);
+  if (!request) return { error: 'Assignment not found' };
+  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!EDITABLE_STATUSES.includes(request.status)) {
+    return { error: `Cannot apply structured draft from status ${request.status}` };
+  }
+
+  const draft = await prisma.aIDraftLog.findUnique({ where: { id: parse.data.draftId } });
+  if (!draft || draft.handoutId !== request.handout.id) {
+    return { error: 'Draft not found' };
+  }
+  const payload = draft.payload as { data?: unknown } | null;
+  if (!payload?.data) {
+    return { error: 'Draft has no structured data — was this a legacy TipTap draft?' };
+  }
+  const parsedData = BitsHandoutSchemaV1.safeParse(payload.data);
+  if (!parsedData.success) {
+    const first = parsedData.error.issues[0];
+    return {
+      error: `Draft data is malformed: ${first?.path.join('.') ?? '(root)'}: ${first?.message ?? 'invalid'}`,
+    };
+  }
+
+  const handoutId = request.handout.id;
+  const version = await prisma.$transaction(async (tx) => {
+    return appendStructuredVersion(
+      tx,
+      handoutId,
+      me.id,
+      parsedData.data,
+      `AI-generated structured draft (${draft.source} · ${draft.model})`,
+    );
+  });
+  await audit({
+    actorId: me.id,
+    action: 'ai.draft.applied.structured',
+    entity: 'HandoutVersion',
+    entityId: version.id,
+    requestId: request.id,
+    after: { versionNo: version.versionNo, draftId: draft.id, source: draft.source },
+  });
+
+  revalidate(request.id);
+  return { ok: true, versionNo: version.versionNo };
 }

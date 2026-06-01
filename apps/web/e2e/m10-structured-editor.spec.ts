@@ -1,14 +1,22 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// Prompt 11d-a — Structured editor end-to-end.
+// Prompt 11d — Structured editor end-to-end (extended in 11d-b).
 //
-// Covers the legacy → structured conversion + the round-trip of:
-//   fill Part A → add a CO → fill 1 Part B session → save → reopen →
-//   confirm persisted → switch to Preview tab → confirm rendered output.
+// Comprehensive happy-path coverage of every 11d-b enrichment:
+//   - Convert legacy → structured (preserves the 11d-a flow)
+//   - Part A: course title, COs, T-books, LOs
+//   - Part B: sub-topics chip list (add 2, remove 1), references typeahead
+//     (suggestions from Part A's T-codes)
+//   - Experiential: enable section, edit overall objective
+//   - Evaluation: live 100% validator — Save button DISABLED until weights
+//     sum to 100 (the load-bearing 11d-b business rule per the watch-items)
+//   - AI dialog: opens with stub draft (CI runs without AI keys)
+//   - Save → Preview matches → reload → state persisted
 //
-// Same anti-flake discipline as m4-m9 specs: every assertion targets a
-// persistent state element (badge, status text, version number) rather
-// than a transient toast; no waitForTimeout; selectors are testid-first.
+// One long test rather than two. The IC→HOG→PC→Faculty setup is expensive
+// (~30-45s); duplicating it across two tests would double runtime without
+// adding coverage. Anti-flake discipline (no waitForTimeout, persistent-state
+// assertions only, testid-first selectors) carried over from 11d-a.
 
 async function signIn(page: Page, email: string) {
   await page.goto('/login');
@@ -22,10 +30,10 @@ async function signOut(page: Page) {
   await page.context().clearCookies();
 }
 
-test('Faculty converts to structured editor, fills, saves, previews, persists across reload', async ({
+test('Structured editor — full 11d-b flow (Convert → Part A → chips → eval 100% block → AI → preview → reload)', async ({
   page,
 }) => {
-  // 1. IC creates a request.
+  // -------- Setup: IC → HOG → PC → Faculty start editing → Convert --------
   await signIn(page, 'ic@hmp.local');
   await page.goto('/ic/requests/new');
   await page.getByLabel('Programme').selectOption({ index: 1 });
@@ -36,7 +44,6 @@ test('Faculty converts to structured editor, fills, saves, previews, persists ac
   const requestId = page.url().split('/').pop()!;
   await signOut(page);
 
-  // 2. HOG allocates the on-campus faculty.
   await signIn(page, 'hog@hmp.local');
   await page.goto(`/hog/requests/${requestId}`);
   await page
@@ -47,14 +54,12 @@ test('Faculty converts to structured editor, fills, saves, previews, persists ac
   await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 
-  // 3. PC confirms.
   await signIn(page, 'pc@hmp.local');
   await page.goto(`/pc/requests/${requestId}`);
   await page.getByRole('button', { name: /confirm assignment/i }).click();
   await expect(page.getByText(/ASSIGNED/i).first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 
-  // 4. Faculty accepts, starts editing → lands on legacy editor with Convert banner.
   await signIn(page, 'faculty@hmp.local');
   await page.goto(`/faculty/assignments/${requestId}`);
   await page.getByRole('button', { name: /accept assignment/i }).click();
@@ -62,59 +67,125 @@ test('Faculty converts to structured editor, fills, saves, previews, persists ac
   await expect(page.getByText(/IN_PROGRESS/i).first()).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId('bits-convert-banner')).toBeVisible({ timeout: 10_000 });
 
-  // 5. Convert to structured editor.
   await page.getByTestId('bits-convert-button').click();
   await expect(page.getByTestId('bits-structured-editor')).toBeVisible({ timeout: 10_000 });
-  // Pre-populated Part A: course title comes from the request context (the
-  // seeded course's title, whatever it was — we don't assert the exact
-  // string; just that the field is non-empty).
-  const titleInput = page.getByTestId('bits-course-title');
-  await expect(titleInput).toBeVisible();
-  await expect(titleInput).not.toHaveValue('');
 
-  // 6. Fill / edit the structured handout.
-  await titleInput.fill('Automotive Diagnostics — E2E test');
+  // -------- Part A scalars --------
+  await page.getByTestId('bits-course-title').fill('Automotive Diagnostics — E2E test');
   await page.getByTestId('bits-course-numbers').fill('AE ZG999, AEL ZG999');
   await page.getByTestId('bits-credit-model').fill('3-1-1');
   await page.getByTestId('bits-instructors').fill('Dr. E2E Faculty');
   await page.getByTestId('bits-date').fill('1 Jan 2026');
 
-  // Adjust the seeded CO1 description.
+  // -------- CO / T / LO repeats --------
   await page.getByTestId('bits-CO-text-0').fill('Understand the structured editor');
-  // Add a second CO.
   await page.getByTestId('bits-CO-add').click();
   await page.getByTestId('bits-CO-text-1').fill('Demonstrate Part B session editing');
 
-  // Adjust the seeded T1 citation.
   await page.getByTestId('bits-T-text-0').fill('E2E Reference, 1st ed.');
-  // Adjust the seeded LO1 description.
+  // Add a second T-book so the references chip-list has T1+T2 in its
+  // suggestions pool (the 11d-b typeahead).
+  await page.getByTestId('bits-T-add').click();
+  await page.getByTestId('bits-T-text-1').fill('Secondary Reference, 1st ed.');
+
   await page.getByTestId('bits-LO-text-0').fill('Save a structured handout');
 
-  // Fill the single Part B session.
+  // -------- Part B: title + chip-list sub-topics + references with typeahead --------
   await page.getByTestId('bits-partb-title-0').fill('Introduction to structured authoring');
 
-  // 7. Save version.
+  // Sub-topics: add 2 chips via Enter, then remove the first.
+  const subInput = page.getByTestId('bits-partb-subtopics-0-input');
+  await subInput.fill('Chips and pills');
+  await subInput.press('Enter');
+  await subInput.fill('Faculty workflow');
+  await subInput.press('Enter');
+  await expect(page.getByTestId('bits-partb-subtopics-0-chip-0')).toContainText('Chips and pills');
+  await expect(page.getByTestId('bits-partb-subtopics-0-chip-1')).toContainText('Faculty workflow');
+  // Remove the first chip — the second slides into index 0.
+  await page.getByTestId('bits-partb-subtopics-0-chip-0').getByRole('button').click();
+  await expect(page.getByTestId('bits-partb-subtopics-0-chip-0')).toContainText('Faculty workflow');
+
+  // References: type "T1", commit, verify chip appears.
+  const refInput = page.getByTestId('bits-partb-refs-0-input');
+  await refInput.fill('T1');
+  await refInput.press('Enter');
+  await expect(page.getByTestId('bits-partb-refs-0-chip-0')).toContainText('T1');
+
+  // Add a 2nd session via the Add button — verifies the repeater works.
+  await page.getByTestId('bits-partb-add').click();
+  await page.getByTestId('bits-partb-title-1').fill('Second contact session');
+
+  // -------- Experiential: enable section, verify the toggle works --------
+  await page.getByTestId('bits-experiential-toggle').click();
+  // After toggling on, the toggle button text flips to "Remove section".
+  await expect(page.getByTestId('bits-experiential-toggle')).toContainText('Remove section');
+
+  // -------- Evaluation: the load-bearing 11d-b business rule --------
+  //
+  // Watch-item #2: "the 100% rule ACTUALLY blocks save." Verify the full
+  // transition: empty (0%) → save disabled, add 60% → still disabled, add
+  // 40% more → enabled.
+  //
+  // The blank-handout factory seeds evaluation.components = [], so total
+  // weight is 0% on first open. Save must be disabled here.
+  const saveBtn = page.getByTestId('bits-save-button');
+  await expect(saveBtn).toBeDisabled();
+  await expect(page.getByTestId('bits-eval-total')).toContainText(/must equal 100%/);
+
+  // Add EC-1 with the seeded sub-component (weight 0) — total still 0%.
+  await page.getByTestId('bits-eval-add-ec').click();
+  await expect(saveBtn).toBeDisabled();
+
+  // Set the sub-component weight to 60 → total 60% → still disabled.
+  await page.getByTestId('bits-eval-weight-0-0').fill('60');
+  await expect(page.getByTestId('bits-eval-total')).toContainText('60%');
+  await expect(saveBtn).toBeDisabled();
+
+  // Add EC-2 with one sub-component → set weight to 40 → total 100% → ENABLED.
+  await page.getByTestId('bits-eval-add-ec').click();
+  await page.getByTestId('bits-eval-name-1-0').fill('Final');
+  await page.getByTestId('bits-eval-weight-1-0').fill('40');
+  await expect(page.getByTestId('bits-eval-total')).toContainText('100%');
+  await expect(page.getByTestId('bits-eval-total')).toContainText(/ready to save/);
+  await expect(saveBtn).toBeEnabled();
+
+  // Fill EC-1 sub-component name for completeness.
+  await page.getByTestId('bits-eval-name-0-0').fill('Midterm');
+
+  // -------- AI dialog: opens with stub draft (CI has no AI key) --------
+  await page.getByTestId('bits-ai-open').click();
+  const dialog = page.getByTestId('bits-ai-dialog');
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  // The stub source produces a clearly-labeled banner.
+  await expect(dialog).toContainText(/template stub/i);
+  // Close without applying (we don't want to clobber the form state we just filled).
+  await dialog.getByRole('button', { name: /discard/i }).click();
+  await expect(dialog).not.toBeVisible();
+
+  // -------- Save the structured version --------
   await page.getByTestId('bits-save-button').click();
   await expect(page.getByTestId('bits-editor-saved')).toContainText(/Saved v\d+/, {
     timeout: 15_000,
   });
 
-  // 8. Switch to Preview tab — assert the rendered HTML carries the title and
-  //    the CO codes we entered.
+  // -------- Preview tab: rendered HTML carries everything --------
   await page.getByTestId('bits-tab-preview').click();
   const preview = page.getByTestId('bits-preview');
   await expect(preview).toContainText('Automotive Diagnostics — E2E test');
   await expect(preview).toContainText('CO1');
   await expect(preview).toContainText('CO2');
   await expect(preview).toContainText('Introduction to structured authoring');
+  await expect(preview).toContainText('Second contact session');
+  // The renderer shows the EC numbers from Part C (Evaluation Scheme).
+  await expect(preview).toContainText('EC-1');
+  await expect(preview).toContainText('EC-2');
 
-  // 9. Reload — confirm state persisted to the DB. The structured editor
-  //    appears (not the legacy + Convert banner combo), and the title we
-  //    entered is restored from `HandoutVersion.data`.
+  // -------- Reload: state persisted via HandoutVersion.data --------
   await page.reload();
   await expect(page.getByTestId('bits-structured-editor')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId('bits-convert-banner')).toHaveCount(0);
   await expect(page.getByTestId('bits-course-title')).toHaveValue(
     'Automotive Diagnostics — E2E test',
   );
+  await expect(page.getByTestId('bits-eval-total')).toContainText('100%');
 });

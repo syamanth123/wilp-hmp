@@ -7,12 +7,13 @@ import { saveStructuredDraftAction, submitStructuredForReviewAction } from '../s
 import { InstitutionalHeader } from './sections/InstitutionalHeader';
 import { PartAMetadata } from './sections/PartAMetadata';
 import { CodedListSection } from './sections/CodedListSection';
-import { PartBSessionsMinimal } from './sections/PartBSessionsMinimal';
-import { ExperientialMinimal } from './sections/ExperientialMinimal';
-import { EvaluationSchemeMinimal } from './sections/EvaluationSchemeMinimal';
+import { PartBSessions } from './sections/PartBSessions';
+import { Experiential } from './sections/Experiential';
+import { EvaluationScheme } from './sections/EvaluationScheme';
 import { ImportantLinks } from './sections/ImportantLinks';
 import { RichTextSubEditor } from './RichTextSubEditor';
 import { PreviewPane } from './PreviewPane';
+import { StructuredAiDraftDialog } from './StructuredAiDraftDialog';
 
 interface Props {
   requestId: string;
@@ -42,6 +43,18 @@ export function StructuredEditor({ requestId, initialData, isRework }: Props) {
   const [pending, startTransition] = useTransition();
   const snapshotRef = useRef(JSON.stringify(initialData));
   const isDirty = JSON.stringify(data) !== snapshotRef.current;
+  // Prompt 11d-b: EvaluationScheme reports its UI-only validity (sub-component
+  // weights sum to 100). Save/Submit are disabled until valid. The schema
+  // (Zod) doesn't enforce sum-to-100; this is a BITS convention enforced at
+  // the editor layer — see docs/dev-handoff-audit.md §1.
+  const [evalValid, setEvalValid] = useState(true);
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  // Codes from Part A that PartBSessions exposes to the references chip-list
+  // as typeahead suggestions.
+  const availableReferences = [
+    ...data.partA.textBooks.map((b) => b.code),
+    ...data.partA.referenceBooks.map((b) => b.code),
+  ];
 
   useEffect(() => {
     if (!isDirty) return;
@@ -124,20 +137,31 @@ export function StructuredEditor({ requestId, initialData, isRework }: Props) {
         >
           Preview
         </button>
-        {isDirty && (
-          <span
-            className="badge-gold ml-auto"
-            style={{
-              padding: '4px 10px',
-              borderRadius: '999px',
-              fontSize: '11px',
-              fontWeight: 600,
-            }}
-            aria-live="polite"
+        <div className="ml-auto flex items-center gap-2">
+          {isDirty && (
+            <span
+              className="badge-gold"
+              style={{
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontSize: '11px',
+                fontWeight: 600,
+              }}
+              aria-live="polite"
+            >
+              Unsaved changes
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setAiDialogOpen(true)}
+            title="Generate a starting handout from course title and context."
+            className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-slate-50"
+            data-testid="bits-ai-open"
           >
-            Unsaved changes
-          </span>
-        )}
+            AI Draft
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -256,17 +280,19 @@ export function StructuredEditor({ requestId, initialData, isRework }: Props) {
             }
             makeNew={(code) => ({ code, description: '' })}
           />
-          <PartBSessionsMinimal
+          <PartBSessions
             value={data.partB.sessions}
             onChange={(sessions) => setData({ ...data, partB: { sessions } })}
+            availableReferences={availableReferences}
           />
-          <ExperientialMinimal
+          <Experiential
             value={data.experientialLearning}
             onChange={(experientialLearning) => setData({ ...data, experientialLearning })}
           />
-          <EvaluationSchemeMinimal
+          <EvaluationScheme
             value={data.evaluation}
             onChange={(evaluation) => setData({ ...data, evaluation })}
+            onValidityChange={setEvalValid}
           />
           <ImportantLinks
             value={data.importantLinks}
@@ -296,13 +322,28 @@ export function StructuredEditor({ requestId, initialData, isRework }: Props) {
             className="bg-background rounded-md border p-2 text-sm"
           />
         </div>
-        <Button variant="outline" onClick={save} disabled={pending} data-testid="bits-save-button">
+        <Button
+          variant="outline"
+          onClick={save}
+          // Disable rule has TWO parts (Prompt 11d-b): not pending AND the
+          // evaluation section's UI-only sum-to-100 rule satisfied. The
+          // second part is a BITS convention enforced at this layer; the
+          // schema accepts any 0-100 weight per sub-component.
+          disabled={pending || !evalValid}
+          data-testid="bits-save-button"
+        >
           {pending ? 'Saving…' : 'Save version'}
         </Button>
-        <Button onClick={submit} disabled={pending} data-testid="bits-submit-button">
+        <Button onClick={submit} disabled={pending || !evalValid} data-testid="bits-submit-button">
           {pending ? 'Submitting…' : isRework ? 'Resubmit for review' : 'Submit for review'}
         </Button>
       </div>
+      <StructuredAiDraftDialog
+        requestId={requestId}
+        open={aiDialogOpen}
+        onClose={() => setAiDialogOpen(false)}
+        onLoadIntoEditor={(next) => setData(next)}
+      />
     </div>
   );
 }

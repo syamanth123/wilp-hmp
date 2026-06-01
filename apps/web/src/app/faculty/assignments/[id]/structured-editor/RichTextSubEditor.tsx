@@ -25,6 +25,10 @@ export function RichTextSubEditor({ value, onChange, placeholder, minHeightPx = 
   const editor = useEditor({
     extensions: BITS_TIPTAP_EXTENSIONS,
     content: value || '<p></p>',
+    // Suppresses TipTap's "SSR detected" console warning. The editor is in a
+    // 'use client' boundary anyway, so deferring the initial render to the
+    // effect pass costs nothing and silences the noise.
+    immediatelyRender: false,
     editorProps: {
       attributes: {
         class: 'prose prose-sm max-w-none rounded-md border bg-background p-3 focus:outline-none',
