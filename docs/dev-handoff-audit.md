@@ -295,6 +295,28 @@ First observed flaking in CI: PR #13 (Prompt 11b), run [26625535444](https://git
 
 **Observed rate as of Prompt 11c:** 1 flake in 4 CI runs — PR #12 (11a) clean, **PR #13 (11b) flaked + retry-passed**, PR #14 (docs) clean, PR #15 (11c, second run after the sanitizer-swap fix) clean. 25%; at the threshold edge but trending clean (last two runs). If the next 1–2 CI runs stay clean, the rate falls below the >1/5 threshold and this stays a passive observation. A fresh flake brings the rate to 2/6 = 33% and warrants investigation.
 
+**Observed rate as of Prompt 11d-a (CI gap):** PR #16 could not be CI-validated — see "CI gap (post-PR-#15)" below. No new m4 data point. Rate stays 1/5 = 20% until the account hold is resolved and CI runs again.
+
+### CI gap (post-PR-#15)
+
+Starting **2026-06-01**, GitHub Actions runs on this repo's branches began failing at the runner-allocation step with `startup_failure` (no logs; runner never came up). Root cause: **account-level Actions hold** stemming from an unpaid balance accrued during prior private-repo CI usage. Standard mitigations attempted:
+
+- Repo flipped from private → public to access the unlimited free-tier Actions minutes for public repos → **didn't help**; the hold is account-level, not repo-level. The failure mode changed (`startup_failure` → `failure` with `steps: []` and ~4s runtime) but no actual workflow steps execute.
+- GitHub Student Developer Pack — held by the user but **does not** lift an existing account-level overage hold (Pack credits apply to future usage, not back-charges).
+- `gh run rerun` — not permitted for `startup_failure`-class runs.
+
+**Consequence for PR #16 (Prompt 11d-a):** merged onto `main` as `30951db` **based on local evidence only**: typecheck + lint clean across `@hmp/db` / `@hmp/web` / `@hmp/integrations`; **96 `@hmp/db` unit tests + 79 `@hmp/web` unit tests passed**; **m10 E2E spec passed 5/5 under `--repeat-each=5`** on Windows dev-mode (production-build CI would typically be cleaner). This is a documented deviation from the project's "CI green before merge" rhythm, explicitly ratified by the user given the external nature of the block.
+
+**Consequence for the m4 flake tracker** (`docs/flake-tracker.md`): the running rate calculation stops accumulating new data points until CI runs again. The 1/5 = 20% figure freezes at PR #15. When the account hold is resolved, the next CI run resumes the tracker.
+
+**Resolution paths** (any of these unblocks CI):
+
+- Pay the outstanding balance to clear the hold.
+- Switch development to a different GitHub account with its own free-tier quota (creates a history-fork; old account retains PRs #1-#16 as historical record).
+- Self-hosted runner on a maintainer machine — may work for the `ci` job (no service containers needed beyond what runs locally) but not for the `e2e` job (needs Docker for MinIO/Mailhog/Redis services). May or may not be blocked by the hold (typically self-hosted runners bypass the billing block; not yet tested).
+
+Future PRs should resume the standard rhythm (branch → PR → CI green → merge) the moment CI is unblocked. Until then, any merge based on local evidence should add a row here documenting the gap, naming the local verification artifacts (typecheck / lint / test counts / e2e results).
+
 ---
 
 ## Appendix — packages map
