@@ -1,5 +1,12 @@
 import { notFound, redirect } from 'next/navigation';
-import { HandoutStatus, RoleName, SmeNominationStatus, prisma, resolveHandoutHtml } from '@hmp/db';
+import {
+  HandoutStatus,
+  RoleName,
+  SmeNominationStatus,
+  prisma,
+  resolveHandoutHtml,
+  BitsHandoutSchemaV1,
+} from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { StatusBadge } from '@/components/status-badge';
@@ -16,6 +23,8 @@ import { AcceptPanel } from './accept-panel';
 import { StartEditingPanel } from './start-editing-panel';
 import { EditorPanel } from './editor-panel';
 import { QualityPanel } from './quality-panel';
+import { StructuredEditor } from './structured-editor/StructuredEditor';
+import { ConvertBanner } from './structured-editor/ConvertBanner';
 
 const ADVISORY_NOMINATION_STATUSES: SmeNominationStatus[] = [
   SmeNominationStatus.ACCEPTED,
@@ -114,7 +123,7 @@ export default async function FacultyAssignmentDetail({ params }: { params: { id
         </Card>
       )}
 
-      {EDITABLE.has(status) && handout && (
+      {EDITABLE.has(status) && handout && currentVersion && (
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2">
             <CardHeader>
@@ -127,12 +136,35 @@ export default async function FacultyAssignmentDetail({ params }: { params: { id
                 Each save creates a new version. Submit when ready for PC review.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <EditorPanel
-                requestId={request.id}
-                initialJson={currentVersion?.contentJson ?? null}
-                isRework={status === HandoutStatus.REWORK_REQUESTED}
-              />
+            <CardContent className="space-y-3">
+              {(() => {
+                // Prompt 11d routing: a HandoutVersion with structured `data`
+                // shows the new StructuredEditor; a legacy version (data null)
+                // shows the ConvertBanner above the existing TipTap editor.
+                const parsed =
+                  currentVersion.data != null
+                    ? BitsHandoutSchemaV1.safeParse(currentVersion.data)
+                    : null;
+                if (parsed?.success) {
+                  return (
+                    <StructuredEditor
+                      requestId={request.id}
+                      initialData={parsed.data}
+                      isRework={status === HandoutStatus.REWORK_REQUESTED}
+                    />
+                  );
+                }
+                return (
+                  <>
+                    <ConvertBanner requestId={request.id} />
+                    <EditorPanel
+                      requestId={request.id}
+                      initialJson={currentVersion.contentJson ?? null}
+                      isRework={status === HandoutStatus.REWORK_REQUESTED}
+                    />
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
           <Card className="lg:sticky lg:top-20 lg:col-span-1 lg:self-start">

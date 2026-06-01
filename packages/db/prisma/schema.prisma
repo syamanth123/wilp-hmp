@@ -247,7 +247,7 @@ model HandoutVersion {
   id           String   @id @default(cuid())
   handoutId    String
   versionNo    Int
-  contentJson  Json     // TipTap JSON (legacy — pre-Prompt-11 freeform content)
+  contentJson  Json?    // TipTap JSON (legacy — pre-Prompt-11 freeform content). Nullable post-11d: structured handouts don't write this column (data is canonical).
   contentHtml  String   @db.Text // legacy
   partBJson    Json?    // legacy
   evaluativeJson Json?  // legacy

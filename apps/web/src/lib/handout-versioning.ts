@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from '@hmp/db';
+import { prisma, Prisma, type BitsHandoutV1, renderBitsHandout } from '@hmp/db';
 import { generateHTML } from '@tiptap/html';
 import { TIPTAP_EXTENSIONS } from './tiptap-extensions';
 
@@ -122,6 +122,52 @@ export async function appendVersion(
       handoutId,
       versionNo: nextNo,
       contentJson,
+      contentHtml,
+      authorId,
+      notes: notes ?? null,
+    },
+  });
+  await tx.handout.update({
+    where: { id: handoutId },
+    data: { currentVersionId: version.id },
+  });
+  return version;
+}
+
+/**
+ * Append a STRUCTURED HandoutVersion (Prompt 11d). Persists `data` as the
+ * canonical JSON column and writes `contentHtml` rendered via the BITS
+ * renderer (11c) so legacy consumers reading contentHtml continue to work.
+ *
+ * Derived-column invariant (see docs/dev-handoff-audit.md §1): every write
+ * to `HandoutVersion.data` via this helper re-renders contentHtml in the
+ * same transaction. Direct DB updates to `data` without re-rendering create
+ * staleness — if a future data migration touches `data`, it MUST also
+ * re-render contentHtml.
+ *
+ * `contentJson` is set to JsonNull on structured versions (the TipTap path
+ * is unused for structured handouts; `data` is the source of truth).
+ */
+export async function appendStructuredVersion(
+  tx: Prisma.TransactionClient,
+  handoutId: string,
+  authorId: string,
+  data: BitsHandoutV1,
+  notes?: string | null,
+) {
+  const last = await tx.handoutVersion.findFirst({
+    where: { handoutId },
+    orderBy: { versionNo: 'desc' },
+    select: { versionNo: true },
+  });
+  const nextNo = (last?.versionNo ?? 0) + 1;
+  const contentHtml = renderBitsHandout(data);
+  const version = await tx.handoutVersion.create({
+    data: {
+      handoutId,
+      versionNo: nextNo,
+      data: data as unknown as Prisma.InputJsonValue,
+      contentJson: Prisma.JsonNull,
       contentHtml,
       authorId,
       notes: notes ?? null,
