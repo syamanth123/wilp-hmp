@@ -56,7 +56,8 @@ export type CorpusExtractionMethod =
   | 'FAILED'
   | 'SKIPPED_MODULE'
   | 'SKIPPED_SIZE'
-  | 'SKIPPED_FORMAT';
+  | 'SKIPPED_FORMAT'
+  | 'SKIPPED_NARRATIVE_PROSE';
 
 export interface ParseInput {
   filePath: string;
@@ -148,6 +149,38 @@ export async function parseDocxToHandout(input: ParseInput): Promise<ParseResult
     return { ...t1, extractionMethod: 'MAMMOTH_STRUCTURED' };
   }
 
+  // ---- Early-return: narrative-prose template (11f-b1) ----
+  // If Tier 1 failed AND the document has the colon-prose Part A signature,
+  // it's the narrative-prose template (Survey B finding, 5 corpus files).
+  // Mapping is parser-design work for a future prompt; for now, return
+  // SKIPPED_NARRATIVE_PROSE with a course-number best-effort.
+  if (detectNarrativeProse(tree)) {
+    const filenameProbe = courseNumberFromFilename(input.filePath);
+    let proseProbe: string | null = null;
+    let proseAlts: string[] = [];
+    for (const node of tree) {
+      if (node.kind !== 'paragraph') continue;
+      const m = node.text.match(/^course no\.?\s*:\s*(.+?)$/i);
+      if (m && m[1]) {
+        proseProbe = tryNormalize(m[1].trim());
+        proseAlts = parseAlternateCodes(m[1].trim());
+        break;
+      }
+    }
+    return {
+      data: null,
+      warnings: [
+        'Narrative-prose template detected — Part A as colon-separated lines, ' +
+          'text books as un-tabled prose. Different parser path needed; ' +
+          'addressed in a future prompt.',
+      ],
+      errors: [],
+      bitsCourseNumber: proseProbe ?? filenameProbe,
+      alternateCodes: proseAlts,
+      extractionMethod: 'SKIPPED_NARRATIVE_PROSE',
+    };
+  }
+
   // ---- Tier 2: text-fallback ----
   // Run only if Tier 1 didn't produce data. Tier 2 errors join Tier 1's.
   const rawText = await safeExtractRawText(input.filePath);
@@ -233,11 +266,33 @@ function parseTableRows(tableHtml: string): string[][] {
     const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
     let cm: RegExpExecArray | null;
     while ((cm = cellRegex.exec(m[1]!)) !== null) {
-      cells.push(stripTagsAndDecode(cm[1]!).trim());
+      cells.push(stripTagsAndDecodeWithBullets(cm[1]!).trim());
     }
     if (cells.length > 0) rows.push(cells);
   }
   return rows;
+}
+
+/**
+ * 11f-b1: cell-text extraction that preserves `<li>` boundaries as `"; "`
+ * separators. Real-corpus Part B sub-topic cells are rendered by mammoth as
+ * `<ul><li>X</li><li>Y</li></ul>`; the original stripTagsAndDecode would
+ * produce `"XY"` (no separator), losing the bullet structure. Inserting
+ * `"; "` between bullets keeps the schema's join contract ("; " is the
+ * canonical sub-topic separator, audit §5).
+ */
+function stripTagsAndDecodeWithBullets(html: string): string {
+  return html
+    .replace(/<\/li\s*>/gi, '; ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/;\s*$/, '')
+    .replace(/\s+/g, ' ');
 }
 
 function stripTagsAndDecode(html: string): string {
@@ -262,11 +317,18 @@ function detectModuleTemplate(tree: Node[]): boolean {
   // "Module No | Module Title | Objectives". We accept either signal as
   // sufficient — the false-positive risk is low (standard templates use
   // "Course Objectives", not "Course Modules").
+  //
+  // 11f-b1 relaxation: match "Course Modules" anywhere in a paragraph's
+  // trimmed text, not just `/^course modules$/i`. EE_ZG513 in the real
+  // corpus had whitespace/formatting that produced a paragraph the strict
+  // regex missed — the relaxed match catches it without introducing
+  // false-positives (no standard-template file uses "Course Modules" as a
+  // section label).
   for (const node of tree) {
-    if (node.kind === 'paragraph' && /^course modules$/i.test(node.text)) return true;
+    if (node.kind === 'paragraph' && /\bcourse modules\b/i.test(node.text)) return true;
     if (node.kind === 'table') {
       for (const row of node.rows) {
-        if (row.some((c) => /^course modules$/i.test(c))) return true;
+        if (row.some((c) => /\bcourse modules\b/i.test(c))) return true;
         // Also catch the "Module No | Module Title | Objectives" header row
         if (
           row.length >= 3 &&
@@ -278,6 +340,31 @@ function detectModuleTemplate(tree: Node[]): boolean {
         }
       }
     }
+  }
+  return false;
+}
+
+/**
+ * 11f-b1 — detect the narrative-prose template (Survey B finding). Five
+ * corpus files (EE ZG613/623, POM ZG512/522, ST ZG612) use a layout where
+ * Part A is rendered as colon-separated prose lines rather than a labeled
+ * header table:
+ *
+ *   Course No. : EE ZG613
+ *   Course Title : Environmental Systems Modelling
+ *   Instructor in charge : Murari R R Varma
+ *
+ * with text books and reference books as un-tabled prose lists. The shape
+ * is too different from the standard CO/LO template for the current parser
+ * to recover; we return SKIPPED_NARRATIVE_PROSE with a diagnostic.
+ *
+ * Detection signal: text body contains the prose pattern AND no Part A
+ * header table was found (the caller has already established the latter).
+ */
+function detectNarrativeProse(tree: Node[]): boolean {
+  for (const node of tree) {
+    if (node.kind !== 'paragraph') continue;
+    if (/^course no\.?\s*:\s*[A-Z]{2,4}\s*Z[CG]\d{3,4}\b/i.test(node.text)) return true;
   }
   return false;
 }
@@ -372,6 +459,14 @@ function extractStructured(tree: Node[]): {
   }
   const partAFields = extractPartAHeader(partAHeader.rows, state);
 
+  // 11f-b1 fix: real-corpus mammoth output renders Course Description as
+  // `<p><strong>Course Description: </strong>The prose...</p>` — outside
+  // the Part A header table entirely. After table extraction, fall back to
+  // a paragraph-prefix scan if courseDescription is still missing.
+  if (!partAFields.courseDescription) {
+    partAFields.courseDescription = findCourseDescriptionFromParagraph(tree);
+  }
+
   if (!partAFields.bitsCourseNumber) {
     state.errors.push(
       'Could not extract a valid BITS course number from Part A header (neither Course No(s) nor Course Title cell normalized).',
@@ -379,17 +474,58 @@ function extractStructured(tree: Node[]): {
   }
 
   // Find labeled tables (CO, LO, T-book, R-book, Part B, Evaluation).
-  const coRows = findTableAfterLabel(tree, /course objectives?$/i, /^code$/i, /^course objective/i);
-  const loRows = findTableAfterLabel(tree, /learning outcomes?$/i, /^code$/i, /^learning outcome/i);
-  const tRows = findTableAfterLabel(tree, /text ?books?\b/i, /^code$/i, /^(reference|citation)$/i);
-  const rRows = findTableAfterLabel(
+  //
+  // 11f-b1 correctness fixes (audit §1 fixture-vs-real convention): the
+  // real-corpus mammoth HTML shape differs from synthetic fixtures in
+  // three ways the original 11f-a parser missed:
+  //
+  //   - CO table's header row is "No | Course Objective" (not "Code | ...")
+  //     — relax the first-cell regex to match either.
+  //   - T-book and R-book tables have NO header row at all — they start
+  //     directly with `T1 | citation` rows. Pass `null` for header regexes
+  //     to indicate "take the next table after the label, regardless of
+  //     its first row" + a flag that the first row IS data (not a header).
+  //   - LO label has the suffix " : Students will be able to" attached —
+  //     use a relaxed `.startsWith` match instead of `$`-anchored.
+  //
+  // The original failure mode (Survey C): all 286 imports hit placeholder
+  // warnings for CO/LO/T-books because findTableAfterLabel's header check
+  // was too strict for real-corpus tables.
+  // 11f-b1: all four code-tables (CO/LO/T/R) use the adaptive firstRowIsData
+  // mode. If the first row of the next table looks like a header (col0 matches
+  // /^(code|no|s\.no)$/), it's treated as a header and skipped; otherwise the
+  // synthetic-header trick keeps the first data row from being trimmed. This
+  // handles both synthetic-fixture shape (header row) AND real-corpus shape
+  // (no header row) uniformly.
+  const coRows = findTableAfterLabel(tree, /^course objectives?\b/i, null, null, {
+    firstRowIsData: true,
+  });
+  const loRows = findTableAfterLabel(
     tree,
-    /reference ?books?\b/i,
-    /^code$/i,
-    /^(reference|citation)$/i,
+    // No `$` — real corpus has " Learning Outcomes: Students will be able to"
+    /^learning outcomes?\b/i,
+    null,
+    null,
+    { firstRowIsData: true },
   );
-  const partBRows = findTableWithHeader(tree, /^(contact session|session)$/i, /^topic title$/i);
-  const evalRows = findTableWithHeader(tree, /^ec ?no\.?$/i, /^name$/i);
+  const tRows = findTableAfterLabel(tree, /^text ?books?\b/i, null, null, {
+    firstRowIsData: true,
+  });
+  const rRows = findTableAfterLabel(tree, /^reference ?books?\b/i, null, null, {
+    firstRowIsData: true,
+  });
+  // 11f-b1: real-corpus Part B header is "Contact Session | List of Topic
+  // Title | Sub-Topics | Reference" — accept both "Topic Title" and
+  // "List of Topic Title" header variants.
+  const partBRows = findTableWithHeader(
+    tree,
+    /^(contact session|session)\b/i,
+    /^(list of )?topic title/i,
+  );
+  // 11f-b1: real-corpus Evaluation header is "Evaluation Component | Name |
+  // Type | Weight | Duration | Day, Date, Session, Time" — accept both the
+  // synthetic-fixture form "EC No." and the real-corpus form.
+  const evalRows = findTableWithHeader(tree, /^(ec ?no\.?|evaluation component)$/i, /^name/i);
 
   // Modular Content detection — drop with warning per the 11f-a synonym-map decision.
   if (hasParagraphMatching(tree, /^modular content structure$/i)) {
@@ -398,10 +534,10 @@ function extractStructured(tree: Node[]): {
     );
   }
 
-  const courseObjectives = parseCodeDescriptionTable(coRows);
-  const learningOutcomes = parseCodeDescriptionTable(loRows);
-  const textBooks = parseCodeCitationTable(tRows);
-  const referenceBooks = parseCodeCitationTable(rRows);
+  const courseObjectives = parseCodeDescriptionTable(coRows, 'CO');
+  const learningOutcomes = parseCodeDescriptionTable(loRows, 'LO');
+  const textBooks = parseCodeCitationTable(tRows, 'T');
+  const referenceBooks = parseCodeCitationTable(rRows, 'R');
   const partBSessions = parsePartBTable(partBRows);
   const evalComponents = parseEvaluationTable(evalRows);
 
@@ -570,8 +706,8 @@ function extractPartAHeader(rows: string[][], state: ExtractionState): PartAFiel
         .split(/[,;]/)
         .map((s) => s.trim())
         .filter(Boolean);
-    else if (/^date$/i.test(label)) out.date = value;
-    else if (/^course description$/i.test(label)) out.courseDescription = value;
+    else if (/^date\b/i.test(label)) out.date = value;
+    else if (/^course description\b/i.test(label)) out.courseDescription = value;
   }
 
   // HHSM value-swap detection: if the Course No(s) cell doesn't normalize but
@@ -615,8 +751,9 @@ function tryNormalize(s: string | null): string | null {
 function findTableAfterLabel(
   tree: Node[],
   labelRegex: RegExp,
-  headerCol0?: RegExp,
-  headerCol1?: RegExp,
+  headerCol0: RegExp | null,
+  headerCol1: RegExp | null,
+  options: { firstRowIsData?: boolean } = {},
 ): string[][] {
   for (let i = 0; i < tree.length; i++) {
     const node = tree[i]!;
@@ -625,16 +762,35 @@ function findTableAfterLabel(
       for (let j = i + 1; j < Math.min(i + 4, tree.length); j++) {
         const next = tree[j]!;
         if (next.kind === 'table') {
+          // No header constraints: take the next table as-is.
+          //
+          // 11f-b1 fix: when `firstRowIsData: true` is set, real-corpus
+          // tables often have no header row at all (e.g., T-book table
+          // starts directly with `T1 | citation`). The downstream parser
+          // (parseCodeCitationTable) does `.slice(1)` to skip the header,
+          // so we prepend a synthetic header — UNLESS the first row already
+          // LOOKS like a header (col0 matches "Code" / "No"), in which case
+          // we trust the caller / synthetic fixture and leave it alone.
+          if (!headerCol0 && !headerCol1) {
+            if (options.firstRowIsData && !rowLooksLikeHeader(next.rows[0])) {
+              return [['__header__', '__header__'], ...next.rows];
+            }
+            return next.rows;
+          }
           if (matchesHeader(next.rows, headerCol0, headerCol1)) {
             return next.rows;
           }
-          // If no header constraint, take the next table.
-          if (!headerCol0 && !headerCol1) return next.rows;
         }
       }
     }
   }
   return [];
+}
+
+function rowLooksLikeHeader(row: string[] | undefined): boolean {
+  if (!row || row.length === 0) return false;
+  const c0 = (row[0] ?? '').trim();
+  return /^(code|no\.?|s\.?\s?no\.?)$/i.test(c0);
 }
 
 function findTableWithHeader(tree: Node[], col0: RegExp, col1: RegExp): string[][] {
@@ -645,7 +801,7 @@ function findTableWithHeader(tree: Node[], col0: RegExp, col1: RegExp): string[]
   return [];
 }
 
-function matchesHeader(rows: string[][], col0?: RegExp, col1?: RegExp): boolean {
+function matchesHeader(rows: string[][], col0?: RegExp | null, col1?: RegExp | null): boolean {
   if (rows.length === 0) return false;
   const first = rows[0]!;
   if (col0 && !col0.test(first[0] ?? '')) return false;
@@ -657,26 +813,62 @@ function hasParagraphMatching(tree: Node[], regex: RegExp): boolean {
   return tree.some((n) => n.kind === 'paragraph' && regex.test(n.text));
 }
 
+/**
+ * 11f-b1 fix: scan for a paragraph starting with "Course Description:" and
+ * return everything after the colon as the description text. Real corpus
+ * mammoth output renders this as `<p><strong>Course Description:</strong>
+ * The prose...</p>` — `<strong>` is stripped by parseHtmlToTree leaving the
+ * paragraph text as `"Course Description: The prose..."`.
+ */
+function findCourseDescriptionFromParagraph(tree: Node[]): string | null {
+  for (const node of tree) {
+    if (node.kind !== 'paragraph') continue;
+    const m = node.text.match(/^course description\s*:\s*(.+)$/i);
+    if (m && m[1] && m[1].trim().length >= 20) {
+      return m[1].trim();
+    }
+  }
+  return null;
+}
+
 // ---- Per-section parsers ----
 
-function parseCodeDescriptionTable(rows: string[][]): Array<{ code: string; description: string }> {
-  // Drop the header row.
+/**
+ * 11f-b1: Filter rows to only those whose code matches the schema's regex
+ * (`/^CO\d+$/`, `/^LO\d+$/`, etc.). Real corpus tables sometimes interleave
+ * non-coded rows (totals, blank rows, multi-line description continuations)
+ * that the schema rejects. Returning only schema-valid rows keeps the import
+ * succeeding; the dropped rows are silent — they're typically benign artifacts
+ * (e.g., a row whose first cell is "Self-study Hours" instead of "CO1").
+ */
+function parseCodeDescriptionTable(
+  rows: string[][],
+  codePrefix: 'CO' | 'LO',
+): Array<{ code: string; description: string }> {
+  const codeRegex = new RegExp(`^${codePrefix}\\s*\\d+$`, 'i');
   return rows.slice(1).flatMap((r) => {
     if (r.length < 2) return [];
-    const code = r[0]!.trim();
-    const description = r[1]!.trim();
-    if (!code || !description) return [];
-    return [{ code, description }];
+    const code = (r[0] ?? '').trim().replace(/\s+/g, '');
+    const description = (r[1] ?? '').trim();
+    if (!description) return [];
+    if (!codeRegex.test(code)) return [];
+    // Normalize the code to the canonical form (e.g., "CO 1" → "CO1").
+    return [{ code: code.toUpperCase(), description }];
   });
 }
 
-function parseCodeCitationTable(rows: string[][]): Array<{ code: string; citation: string }> {
+function parseCodeCitationTable(
+  rows: string[][],
+  codePrefix: 'T' | 'R',
+): Array<{ code: string; citation: string }> {
+  const codeRegex = new RegExp(`^${codePrefix}\\s*\\d+$`, 'i');
   return rows.slice(1).flatMap((r) => {
     if (r.length < 2) return [];
-    const code = r[0]!.trim();
-    const citation = r[1]!.trim();
-    if (!code || !citation) return [];
-    return [{ code, citation }];
+    const code = (r[0] ?? '').trim().replace(/\s+/g, '');
+    const citation = (r[1] ?? '').trim();
+    if (!citation) return [];
+    if (!codeRegex.test(code)) return [];
+    return [{ code: code.toUpperCase(), citation }];
   });
 }
 
@@ -713,18 +905,39 @@ function parsePartBTable(rows: string[][]): Array<{
 
 function parseEvaluationTable(rows: string[][]): BitsHandoutV1['evaluation']['components'] {
   // Expected columns: EC No | Name | Type | Weight | Duration. Group sub-
-  // components under their EC number — handouts often list multiple sub-
-  // components under a single EC, but our synthetic fixtures and the surveyed
-  // corpus mostly use one row per EC. Group by ecNumber to be safe.
+  // components under their EC number. Real corpus uses rowspan on the EC
+  // cell when an EC has multiple sub-components — mammoth's HTML output
+  // produces rows with one fewer cell after the rowspan'd row. We detect
+  // this by checking whether the first cell looks like an EC code (e.g.,
+  // "EC-1", "EC - 1", "EC 1") and inherit the previous EC code otherwise.
   const groups = new Map<string, BitsHandoutV1['evaluation']['components'][number]>();
+  let currentEc: string | null = null;
+  const ecCodeRegex = /^EC\s*[-–]?\s*\d+$/i;
   for (const r of rows.slice(1)) {
-    if (r.length < 4) continue;
-    const ecNumber = (r[0] ?? '').trim();
-    const name = (r[1] ?? '').trim();
-    const type = (r[2] ?? '').trim();
-    const weightRaw = (r[3] ?? '').trim();
-    const duration = (r[4] ?? '').trim();
-    if (!ecNumber || !name) continue;
+    if (r.length < 3) continue;
+    const firstCell = (r[0] ?? '').trim();
+    let ecNumber: string;
+    let cellOffset: number;
+    if (ecCodeRegex.test(firstCell)) {
+      // Normalize to canonical "EC-N" form (collapse spaces and dashes).
+      ecNumber = firstCell.toUpperCase().replace(/\s+/g, '').replace(/–/g, '-');
+      // Ensure single-dash form if input was "EC1" without dash.
+      if (!ecNumber.includes('-')) ecNumber = ecNumber.replace(/^EC/, 'EC-');
+      currentEc = ecNumber;
+      cellOffset = 0;
+    } else if (currentEc) {
+      // Rowspan'd EC cell — inherit from previous row. Shift indices by -1.
+      ecNumber = currentEc;
+      cellOffset = -1;
+    } else {
+      // No EC context established yet; skip the row.
+      continue;
+    }
+    const name = (r[1 + cellOffset] ?? '').trim();
+    const type = (r[2 + cellOffset] ?? '').trim();
+    const weightRaw = (r[3 + cellOffset] ?? '').trim().replace(/%/g, '');
+    const duration = (r[4 + cellOffset] ?? '').trim();
+    if (!name) continue;
     const weight = Number.parseFloat(weightRaw);
     if (!Number.isFinite(weight)) continue;
     let g = groups.get(ecNumber);

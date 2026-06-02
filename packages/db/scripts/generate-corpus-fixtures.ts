@@ -310,6 +310,137 @@ function buildMalformedDocx(): Document {
   });
 }
 
+/**
+ * F6 — Real-corpus shape (11f-b1, audit §1 fixture-vs-real convention).
+ *
+ * Mimics the AEL ZG631 golden corpus file's actual structure as observed
+ * via mammoth's HTML output. Three differences from the cleaner F1:
+ *
+ *   1. CO table's header row is "No | Course Objective" (not
+ *      "Code | Course Objective"). Real corpus uses "No" prefix; 11f-a's
+ *      original findTableAfterLabel rejected this header pattern.
+ *   2. Text Book(s) and Reference Book(s) tables have NO header row —
+ *      they start directly with `T1 | citation` rows. Real corpus
+ *      structure; 11f-a's parser missed it because parseCodeCitationTable
+ *      always sliced off the first row as a header.
+ *   3. Learning Outcomes label has the suffix
+ *      "Learning Outcomes: Students will be able to". The trailing prose
+ *      meant 11f-a's `$`-anchored regex rejected it.
+ *
+ * If 11f-b1's parser changes are correct, this fixture parses to
+ * MAMMOTH_STRUCTURED with FULL CO/LO/T-book content extracted (no
+ * placeholder warnings).
+ */
+function buildRealCorpusShapeDocx(): Document {
+  return new Document({
+    creator: 'HMP Corpus Fixture Generator',
+    title: 'F6 real-corpus-shape',
+    sections: [
+      {
+        children: [
+          p('Birla Institute of Technology & Science, Pilani'),
+          p('Work Integrated Learning Programmes Division'),
+          p('First Semester 2025-2026'),
+          p('Digital Learning Handout'),
+          p('Part A: Content Design'),
+          labeledTable([
+            row('Course Title', 'Real-Corpus Shape Test'),
+            row('Course No(s)', 'TC ZG999'),
+            row('Credit Units', ''),
+            row('Credit Model', '3-1-1'),
+            row('Instructors', 'Dr. Real Faculty'),
+            row('Version No:', ''),
+            row('Date:', '6 Jan 2026'),
+          ]),
+          // Course Description as a paragraph WITH a colon prefix —
+          // mammoth's <p><strong>Course Description:</strong>prose</p>
+          // gets flattened to "Course Description: <prose>" by the parser.
+          p(
+            'Course Description: This fixture mirrors the real-corpus structure observed in the AEL ZG631 golden file, which differs from F1 in three specific ways that 11f-a missed.',
+          ),
+          // CO table — header row uses "No", NOT "Code" (real-corpus shape).
+          p('Course Objectives'),
+          labeledTable([
+            row('No', 'Course Objective'),
+            row('CO1', 'To verify the parser handles "No"-style headers'),
+            row('CO2', 'To verify CO codes are extracted (not placeholders)'),
+          ]),
+          // T-book table — NO header row, data rows only.
+          p('Text Book(s):'),
+          labeledTable([
+            row('T1', 'Real Corpus Authority, Vol 1, 2025'),
+            row('T2', 'Real Corpus Authority, Vol 2, 2025'),
+          ]),
+          // R-book table — NO header row, data rows only.
+          p('Reference Book(s) & other resources:'),
+          labeledTable([row('R1', 'Cited Reference Material, 2024')]),
+          // LO label has the trailing prose suffix that 11f-a's regex missed.
+          p('Learning Outcomes: Students will be able to'),
+          labeledTable([
+            row('LO1', 'Identify the real-corpus T-book layout'),
+            row('LO2', 'Recognise the suffix-labelled LO section'),
+          ]),
+          p('Part B: Contact Session Plan'),
+          labeledTable([
+            row('Contact Session', 'Topic Title', 'Sub-Topics', 'Reference'),
+            row('1', 'Intro', 'A; B', 'T1'),
+            row('2', 'Follow-up', 'C; D', 'T2'),
+          ]),
+          p('Evaluation Scheme'),
+          labeledTable([
+            row('EC No.', 'Name', 'Type', 'Weight', 'Duration'),
+            row('EC-1', 'Quiz', 'Online', '20', '30m'),
+            row('EC-2', 'Mid-Sem', 'Closed', '30', '90m'),
+            row('EC-3', 'Compre', 'Open', '50', '180m'),
+          ]),
+          p('elearn.bits-pilani.ac.in'),
+        ],
+      },
+    ],
+  });
+}
+
+/**
+ * F7 — Narrative-prose template (11f-b1, Survey B finding).
+ *
+ * Mimics EE ZG613 / POM ZG512 / ST ZG612: Part A as colon-separated prose
+ * lines (NOT a table), text books / reference books as un-tabled prose
+ * lists. Parser should detect the prose pattern and return
+ * SKIPPED_NARRATIVE_PROSE with the course number extracted.
+ */
+function buildNarrativeProseDocx(): Document {
+  return new Document({
+    creator: 'HMP Corpus Fixture Generator',
+    title: 'F7 narrative-prose',
+    sections: [
+      {
+        children: [
+          p('Birla Institute of Technology & Science, Pilani'),
+          p('Work Integrated Learning Programmes Division'),
+          p('First Semester 2025-2026'),
+          p('COURSE HANDOUT'),
+          p(
+            'In addition to Part I (General Handout for all courses appended to the Timetable), this portion gives further specific details regarding the course.',
+          ),
+          // Part A as colon-separated prose, NOT a table.
+          p('Course No. : NP ZG999'),
+          p('Course Title : Narrative Prose Template Test'),
+          p('Instructor in charge : Dr. Prose Faculty'),
+          p(''),
+          p(
+            'Course Description: A handout in the narrative-prose format used by 5 corpus files (EE ZG613/623, POM ZG512/522, ST ZG612). Parser should detect and skip.',
+          ),
+          p('Scope and Objective of the Course: Demonstrate the narrative-prose layout.'),
+          p('Text Books:'),
+          p('Smith, A. (2024). Narrative-Prose Handouts, 1st Ed. Press.'),
+          p('Reference Books:'),
+          p('Jones, B. (2023). Companion volume. Press.'),
+        ],
+      },
+    ],
+  });
+}
+
 // ---- Run ----
 
 const FIXTURES: Array<{ name: string; build: () => Document; description: string }> = [
@@ -337,6 +468,18 @@ const FIXTURES: Array<{ name: string; build: () => Document; description: string
     name: 'f5-malformed.docx',
     build: buildMalformedDocx,
     description: 'Missing required sections → FAILED',
+  },
+  {
+    name: 'f6-real-corpus-shape.docx',
+    build: buildRealCorpusShapeDocx,
+    description:
+      'Real-corpus shape (No-header CO, no-header T/R, LO-with-suffix) → MAMMOTH_STRUCTURED with full content',
+  },
+  {
+    name: 'f7-narrative-prose.docx',
+    build: buildNarrativeProseDocx,
+    description:
+      'Narrative-prose template (colon-separated Part A, un-tabled books) → SKIPPED_NARRATIVE_PROSE',
   },
 ];
 
