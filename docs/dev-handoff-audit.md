@@ -102,6 +102,22 @@ When adding a notify/action, pick the category and the queueing decision is forc
 
 **Vitest mock hoisting.** When mocking modules imported by the file under test (Prisma, the AI client's `chatJson`, etc.), the mock values closed over by the `vi.mock()` factory must be declared with `vi.hoisted()`. Vitest hoists `vi.mock()` calls above all `import` statements, so a plain `const mockX = vi.fn()` at the top of the test file isn't yet initialized when the factory runs — referencing it throws `ReferenceError: Cannot access 'mockX' before initialization`. Pattern: `const { prismaMock, chatJsonMock } = vi.hoisted(() => ({ prismaMock: { ... }, chatJsonMock: vi.fn() }))` BEFORE the `vi.mock()` calls; the factory then references the hoisted names safely. Real imports go after the mocks. Precedents: [`packages/ai/src/structured-handout-generator.test.ts`](../packages/ai/src/structured-handout-generator.test.ts), [`apps/web/src/workers/__tests__/processors.test.ts`](../apps/web/src/workers/__tests__/processors.test.ts).
 
+### Auto-fetch cascade for new handouts (Prompt 11e)
+
+When faculty clicks "Start editing", `startEditingAction` walks a three-tier cascade to pre-populate the structured editor's initial version. Implementation in [`apps/web/src/lib/handout-auto-fetch.ts`](../apps/web/src/lib/handout-auto-fetch.ts) (pure resolver + DB wrapper + Tier 2 stub).
+
+**Tier order:**
+
+1. **Prior version** — the most-recent `HandoutVersion` whose handout is `PUBLISHED` or `ARCHIVED` and whose course matches the current course by symmetric overlap on `bitsCourseNumber + alternateCodes` (Postgres array `&&`, expressed via Prisma's `hasSome`). Drafts in progress (`IN_PROGRESS`, `SUBMITTED`, `UNDER_REVIEW`, etc.) are intentionally excluded so faculty A can't see faculty B's WIP just because they share a course code. The cascade-loaded data goes through `stripIdentifiersForCarryForward` before write: `partA.date` → today, `partA.instructors` → current faculty, `metadata.semester` → current semester, `metadata.formNumber` → `''`, `partA.courseNumbers` → current course's `[bitsCourseNumber, ...alternateCodes]`. **Content is preserved** (objectives, books, sessions, evaluation including weights and the 100% total) — faculty must review and confirm. The banner reminds them: if grading policy changed institutionally, the inherited weights are the place to update.
+2. **Corpus import** — stub returning `null` until Prompt 11f ships the `HandoutImport` table. Tier 2's eventual real query mirrors Tier 1's symmetric overlap, restricted to imports marked "approved for re-use" (the flag 11f introduces). The cascade falls through to Tier 3 in 11e's world.
+3. **Empty template** — `blankHandoutForRequest(ctx)` from the structured editor's state module. Same Zod-valid placeholder data the legacy `convertToStructuredAction` produces.
+
+**Product shift to flag:** before 11e, a fresh handout's v1 was a TipTap document from the `Template` table, and faculty had to click "Convert to structured" before seeing the structured editor. Post-11e, every new handout's v1 is structured `BitsHandoutV1` data and the structured editor opens directly. The legacy `Template` table + `ConvertBanner` + `convertToStructuredAction` are still wired for any pre-11e legacy versions still in production (they remain reachable when `currentVersion.data` is `null`), but no new handout flows through that path.
+
+**Symmetric cross-listing match.** A prior course matches the current course when **any** code in current's `[bitsCourseNumber, ...alternateCodes]` set appears in prior's `[bitsCourseNumber, ...alternateCodes]` set. The query uses one merged `handout: { status: { in: [...] }, request: { offering: { course: { OR: [...] } } } }` clause — NOT two `handout:` keys (the second would silently overwrite the first and drop the status filter, leaking drafts-in-progress into the cascade). Regression-guarded by [`apps/web/src/lib/handout-auto-fetch.test.ts`](../apps/web/src/lib/handout-auto-fetch.test.ts)'s "builds a single merged handout clause" test.
+
+**Banner state via URL search params, not a persisted marker.** After `startEditingAction`, the server `redirect()`s to `/faculty/assignments/[id]?autoFetched=<tier>&detail=<urlencoded>`. The page server component reads `searchParams` and passes the parsed `{ tier, detail }` to `<StructuredEditor>`, which renders `<AutoFetchBanner>` above the tab bar. Dismissing the banner (or clicking "Start from empty template instead") calls `router.replace(pathname)`, dropping the params — the banner doesn't show again on subsequent visits. **Banner-shows-once** is intentional UX: faculty acknowledged the source on first view; no need to keep reminding them. No schema change, no notes-field overload.
+
 ### How audit rows are written
 
 Two paths:
@@ -316,13 +332,13 @@ First observed flaking in CI: PR #13 (Prompt 11b), run [26625535444](https://git
 
 Classed alongside Risk 4 as **environmental, not a regression**: the flaking iteration is non-deterministic across attempts; no failure has been reproduced when re-running the spec immediately afterward.
 
-**Watch list** — if it flakes again in a subsequent PR's verification (local or CI once unblocked), the suspects to investigate first:
+**Observed pattern across two PRs.** PR 11d-b: first attempt 4/5; second attempt 5/5. PR 11e: same shape — first attempt 4/5 with the failed iteration timing out at `page.getByRole('button', { name: /confirm assignment/i }).click()` (the PC-confirm step, which is the HOG→PC handoff that constitutes the m4 Risk 4 surface); second attempt 5/5. The m10 spec runs the full IC→HOG→PC→Faculty setup before reaching the editor assertions, so a failure in that prelude registers against m10 as well as against the (already-known-flaky) HOG→PC transition. **The two observations strongly suggest Risk 5 is Risk 4 re-surfacing through m10's longer prelude, not a distinct editor-side flake.** If a future failure lands in the editor body (e.g. after `bits-structured-editor` is visible — chip-list assertions, evaluation transition, AI dialog), the original watch-list below applies:
 
 - AI dialog mount timing: the spec opens the dialog and immediately asserts on the stub banner. The dialog's `useEffect`-triggered auto-run on `open` may race with the assertion under load.
 - `onValidityChange` callback firing on initial render: `EvaluationScheme` notifies the root editor of the initial `evalValid` value via a `useEffect` after first paint; if the spec asserts the Save button's disabled state before that fires, it could see a stale rendered state.
 - Production-build hydration: the spec runs against `next start`. If chunks for the structured editor's lazy-loaded TipTap or chip components arrive out of order, the first interaction can race.
 
-Tracked in [docs/flake-tracker.md](./flake-tracker.md) alongside m4. Trigger threshold the same as Risk 4: investigate if the rate climbs above **>1 of every 5 runs**.
+Tracked in [docs/flake-tracker.md](./flake-tracker.md) alongside m4. Trigger threshold the same as Risk 4: investigate if the rate climbs above **>1 of every 5 runs**. The merged Risk 4/5 first-attempt rate as of 11e is **2/10 = 20%** — at the threshold edge, monitoring continues, no investigation triggered yet.
 
 ### CI gap (post-PR-#15)
 

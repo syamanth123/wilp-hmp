@@ -14,11 +14,23 @@ import { ImportantLinks } from './sections/ImportantLinks';
 import { RichTextSubEditor } from './RichTextSubEditor';
 import { PreviewPane } from './PreviewPane';
 import { StructuredAiDraftDialog } from './StructuredAiDraftDialog';
+import { AutoFetchBanner } from './AutoFetchBanner';
 
 interface Props {
   requestId: string;
   initialData: BitsHandoutV1;
   isRework: boolean;
+  /**
+   * Auto-fetch source info from the URL search params (`?autoFetched=…`).
+   * Set on the immediate post-`startEditingAction` redirect (Prompt 11e);
+   * cleared when faculty dismisses the banner or resets to empty. Optional
+   * because returning to the page after the params are stripped (or
+   * arriving via any non-startEditing path) renders no banner.
+   */
+  autoFetch?: {
+    tier: 'prior-version' | 'import' | 'empty';
+    detail: string;
+  };
 }
 
 /**
@@ -33,7 +45,7 @@ interface Props {
  * No auto-save (matches the legacy TipTap editor). beforeunload warning
  * when dirty.
  */
-export function StructuredEditor({ requestId, initialData, isRework }: Props) {
+export function StructuredEditor({ requestId, initialData, isRework, autoFetch }: Props) {
   const [data, setData] = useState<BitsHandoutV1>(initialData);
   const [tab, setTab] = useState<'editor' | 'preview'>('editor');
   const [notes, setNotes] = useState('');
@@ -112,6 +124,9 @@ export function StructuredEditor({ requestId, initialData, isRework }: Props) {
 
   return (
     <div className="space-y-4" data-testid="bits-structured-editor">
+      {autoFetch && (
+        <AutoFetchBanner requestId={requestId} tier={autoFetch.tier} detail={autoFetch.detail} />
+      )}
       <div className="flex items-center gap-2 border-b">
         <button
           type="button"

@@ -2,7 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { prisma, RoleName, HandoutStatus, BitsHandoutSchemaV1, type BitsHandoutV1 } from '@hmp/db';
+import {
+  prisma,
+  RoleName,
+  HandoutStatus,
+  BitsHandoutSchemaV1,
+  renderBitsHandout,
+  type Prisma,
+  type BitsHandoutV1,
+} from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition, WorkflowError } from '@hmp/workflow';
 import { appendStructuredVersion } from '@/lib/handout-versioning';
@@ -183,6 +191,70 @@ export async function submitStructuredForReviewAction(formData: FormData) {
     }
   }
 
+  revalidate(request.id);
+  return { ok: true };
+}
+
+/**
+ * Reset the auto-fetched version 1 back to an empty template (Prompt 11e).
+ * Faculty clicks "Start from empty template instead" in AutoFetchBanner when
+ * the cascade-resolved pre-population isn't what they want.
+ *
+ * Overwrites the current version 1's `data` in place (not a new version) —
+ * this is a "still in the auto-fetch acknowledgment phase" UX, not a normal
+ * save. Only valid when the current version is version 1 (no faculty edits
+ * yet); otherwise returns an error.
+ */
+export async function resetToEmptyTemplateAction(formData: FormData) {
+  const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  const parse = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
+  if (!parse.success) return { error: 'Invalid input' };
+
+  const request = await prisma.handoutRequest.findUnique({
+    where: { id: parse.data.requestId },
+    include: {
+      offering: { include: { course: true, semester: true } },
+      handout: { include: { currentVersion: true } },
+      assignments: { where: { facultyId: me.id, active: true }, take: 1 },
+    },
+  });
+  if (!request || request.assignments.length === 0) return { error: 'Assignment not found' };
+  if (!request.handout?.currentVersion) return { error: 'Editing has not started yet' };
+  if (!EDITABLE_STATUSES.includes(request.status)) {
+    return { error: `Cannot reset from status ${request.status}` };
+  }
+  if (request.handout.currentVersion.versionNo !== 1) {
+    return { error: 'Reset is only available on the initial version (before first save)' };
+  }
+
+  const data = blankHandoutForRequest({
+    courseTitle: request.offering.course.title,
+    courseNumbers: [
+      request.offering.course.bitsCourseNumber,
+      ...request.offering.course.alternateCodes,
+    ],
+    instructorName: me.name,
+    semesterName: request.offering.semester.name,
+  });
+  // Preserve the derived-column invariant: re-render contentHtml in the
+  // same write as data. (Not a transaction because this is a single update.)
+  const contentHtml = renderBitsHandout(data);
+
+  await prisma.handoutVersion.update({
+    where: { id: request.handout.currentVersion.id },
+    data: {
+      data: data as unknown as Prisma.InputJsonValue,
+      contentHtml,
+      notes: 'Reset to empty template (auto-fetch declined).',
+    },
+  });
+  await audit({
+    actorId: me.id,
+    action: 'handout.autofetch.reset_to_empty',
+    entity: 'HandoutVersion',
+    entityId: request.handout.currentVersion.id,
+    requestId: request.id,
+  });
   revalidate(request.id);
   return { ok: true };
 }

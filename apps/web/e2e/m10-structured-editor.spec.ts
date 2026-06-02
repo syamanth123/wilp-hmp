@@ -1,9 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// Prompt 11d — Structured editor end-to-end (extended in 11d-b).
+// Prompt 11d — Structured editor end-to-end (extended in 11d-b, 11e).
 //
-// Comprehensive happy-path coverage of every 11d-b enrichment:
-//   - Convert legacy → structured (preserves the 11d-a flow)
+// Comprehensive happy-path coverage:
+//   - 11e auto-fetch: "Start editing" lands on the structured editor with the
+//     AutoFetchBanner (tier=empty for this fresh-DB test path), dismiss
+//     strips the search param so the banner doesn't reappear
 //   - Part A: course title, COs, T-books, LOs
 //   - Part B: sub-topics chip list (add 2, remove 1), references typeahead
 //     (suggestions from Part A's T-codes)
@@ -12,6 +14,12 @@ import { test, expect, type Page } from '@playwright/test';
 //     sum to 100 (the load-bearing 11d-b business rule per the watch-items)
 //   - AI dialog: opens with stub draft (CI runs without AI keys)
 //   - Save → Preview matches → reload → state persisted
+//
+// The legacy ConvertBanner path (data:null → click Convert → structured) is
+// no longer exercised here — 11e routes new handouts directly to the
+// structured editor, so the convert flow only fires for pre-11e legacy
+// versions still in the database. Convert-flow regression coverage lives in
+// the convertToStructuredAction unit tests.
 //
 // One long test rather than two. The IC→HOG→PC→Faculty setup is expensive
 // (~30-45s); duplicating it across two tests would double runtime without
@@ -30,7 +38,7 @@ async function signOut(page: Page) {
   await page.context().clearCookies();
 }
 
-test('Structured editor — full 11d-b flow (Convert → Part A → chips → eval 100% block → AI → preview → reload)', async ({
+test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A → chips → eval 100% block → AI → preview → reload)', async ({
   page,
 }) => {
   // -------- Setup: IC → HOG → PC → Faculty start editing → Convert --------
@@ -65,10 +73,19 @@ test('Structured editor — full 11d-b flow (Convert → Part A → chips → ev
   await page.getByRole('button', { name: /accept assignment/i }).click();
   await page.getByRole('button', { name: /start editing/i }).click();
   await expect(page.getByText(/IN_PROGRESS/i).first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId('bits-convert-banner')).toBeVisible({ timeout: 10_000 });
-
-  await page.getByTestId('bits-convert-button').click();
+  // 11e auto-fetch: the redirect after startEditingAction adds
+  // `?autoFetched=empty` to the URL; the banner renders above the structured
+  // editor. In a fresh-DB test path there's no prior version for this course,
+  // so the cascade falls through to Tier 3 (empty template).
   await expect(page.getByTestId('bits-structured-editor')).toBeVisible({ timeout: 10_000 });
+  const banner = page.getByTestId('bits-autofetch-banner');
+  await expect(banner).toBeVisible();
+  await expect(banner).toHaveAttribute('data-tier', 'empty');
+  await expect(banner).toContainText(/Empty template/i);
+  // Dismiss the banner → router.replace strips the search params → banner
+  // doesn't reappear on subsequent renders (verified again after Save below).
+  await page.getByTestId('bits-autofetch-dismiss').click();
+  await expect(banner).toHaveCount(0);
 
   // -------- Part A scalars --------
   await page.getByTestId('bits-course-title').fill('Automotive Diagnostics — E2E test');
@@ -183,6 +200,9 @@ test('Structured editor — full 11d-b flow (Convert → Part A → chips → ev
   // -------- Reload: state persisted via HandoutVersion.data --------
   await page.reload();
   await expect(page.getByTestId('bits-structured-editor')).toBeVisible({ timeout: 10_000 });
+  // 11e: banner is gone after dismissal AND remains gone on reload (URL
+  // search params were stripped by router.replace).
+  await expect(page.getByTestId('bits-autofetch-banner')).toHaveCount(0);
   await expect(page.getByTestId('bits-convert-banner')).toHaveCount(0);
   await expect(page.getByTestId('bits-course-title')).toHaveValue(
     'Automotive Diagnostics — E2E test',

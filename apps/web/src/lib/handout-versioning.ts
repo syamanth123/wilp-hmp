@@ -103,6 +103,46 @@ export async function createInitialVersion(
   return version;
 }
 
+/**
+ * Initial-version creator for the Prompt 11e auto-fetch flow. Writes
+ * `BitsHandoutV1` into `data` and the BITS-rendered HTML into `contentHtml`,
+ * same shape as `appendStructuredVersion` but with a hard-coded versionNo of
+ * 1 and a free notes slot for the cascade tier (e.g. "Auto-fetch (prior
+ * version): Sem-II 2024-25 handout for SE ZG501"). The notes string is
+ * informational only — the banner reads its source detail from the URL
+ * search param set by `startEditingAction`, not from this column.
+ *
+ * Replaces `createInitialVersion` (the legacy TipTap template path) as the
+ * default for new handouts. The legacy path is left in place for any code
+ * still calling it directly; in practice 11e makes the only caller go
+ * through here.
+ */
+export async function createInitialStructuredVersion(
+  tx: Prisma.TransactionClient,
+  handoutId: string,
+  authorId: string,
+  data: BitsHandoutV1,
+  sourceLabel: string,
+) {
+  const contentHtml = renderBitsHandout(data);
+  const version = await tx.handoutVersion.create({
+    data: {
+      handoutId,
+      versionNo: 1,
+      data: data as unknown as Prisma.InputJsonValue,
+      contentJson: Prisma.JsonNull,
+      contentHtml,
+      authorId,
+      notes: sourceLabel,
+    },
+  });
+  await tx.handout.update({
+    where: { id: handoutId },
+    data: { currentVersionId: version.id },
+  });
+  return version;
+}
+
 export async function appendVersion(
   tx: Prisma.TransactionClient,
   handoutId: string,

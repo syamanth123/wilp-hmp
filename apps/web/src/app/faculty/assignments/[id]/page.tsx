@@ -47,7 +47,29 @@ const READ_ONLY = new Set<HandoutStatus>([
   HandoutStatus.ARCHIVED,
 ]);
 
-export default async function FacultyAssignmentDetail({ params }: { params: { id: string } }) {
+type AutoFetchedTier = 'prior-version' | 'import' | 'empty';
+const AUTO_FETCHED_TIERS: ReadonlyArray<AutoFetchedTier> = ['prior-version', 'import', 'empty'];
+
+function parseAutoFetchSearchParams(
+  searchParams: Record<string, string | string[] | undefined> | undefined,
+): { tier: AutoFetchedTier; detail: string } | undefined {
+  if (!searchParams) return undefined;
+  const tierRaw = searchParams.autoFetched;
+  const detailRaw = searchParams.detail;
+  const tier = Array.isArray(tierRaw) ? tierRaw[0] : tierRaw;
+  const detail = Array.isArray(detailRaw) ? detailRaw[0] : detailRaw;
+  if (!tier || !detail) return undefined;
+  if (!AUTO_FETCHED_TIERS.includes(tier as AutoFetchedTier)) return undefined;
+  return { tier: tier as AutoFetchedTier, detail };
+}
+
+export default async function FacultyAssignmentDetail({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const loaded = await loadHandoutForFaculty(params.id, me.id);
   if (!loaded) {
@@ -151,6 +173,7 @@ export default async function FacultyAssignmentDetail({ params }: { params: { id
                       requestId={request.id}
                       initialData={parsed.data}
                       isRework={status === HandoutStatus.REWORK_REQUESTED}
+                      autoFetch={parseAutoFetchSearchParams(searchParams)}
                     />
                   );
                 }

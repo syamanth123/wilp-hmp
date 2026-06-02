@@ -1,11 +1,17 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { prisma, RoleName, HandoutStatus, type Prisma } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition, WorkflowError } from '@hmp/workflow';
-import { appendVersion, createInitialVersion } from '@/lib/handout-versioning';
+import { appendVersion, createInitialStructuredVersion } from '@/lib/handout-versioning';
+import {
+  loadAndResolveAutoFetchSource,
+  type RequestLite,
+  type ResolvedSource,
+} from '@/lib/handout-auto-fetch';
 import { audit } from '@/lib/audit';
 import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
@@ -91,13 +97,47 @@ export async function startEditingAction(formData: FormData) {
     return { error: 'Accept the assignment first' };
   }
 
+  // Auto-fetch context (Prompt 11e): re-load with the joins the cascade
+  // resolver needs (course identity + semester name). loadMyAssignment is
+  // shared with other actions and stays narrow; this widening is local.
+  const fullRequest = await prisma.handoutRequest.findUnique({
+    where: { id: request.id },
+    include: {
+      offering: {
+        include: {
+          course: true,
+          semester: true,
+        },
+      },
+    },
+  });
+  if (!fullRequest) return { error: 'Assignment not found' };
+
+  const cascadeContext: RequestLite = {
+    id: fullRequest.id,
+    course: {
+      id: fullRequest.offering.course.id,
+      bitsCourseNumber: fullRequest.offering.course.bitsCourseNumber,
+      alternateCodes: fullRequest.offering.course.alternateCodes,
+      title: fullRequest.offering.course.title,
+    },
+    semesterName: fullRequest.offering.semester.name,
+    facultyName: me.name,
+  };
+
+  let resolved: ResolvedSource | null = null;
   try {
     await transition({
       requestId: request.id,
       event: 'EDIT_STARTED',
       actor: { id: me.id, roles: me.roles },
       effects: async (tx, ctx) => {
-        await createInitialVersion(tx, ctx.handoutId, me.id);
+        resolved = await loadAndResolveAutoFetchSource(tx, cascadeContext);
+        const sourceLabel =
+          resolved.tier === 'empty'
+            ? 'Initial version (empty template).'
+            : `Initial version (${resolved.tier === 'prior-version' ? 'auto-fetched prior version' : 'auto-fetched import'}): ${resolved.sourceDetail}`;
+        await createInitialStructuredVersion(tx, ctx.handoutId, me.id, resolved.data, sourceLabel);
       },
     });
   } catch (err) {
@@ -107,8 +147,23 @@ export async function startEditingAction(formData: FormData) {
 
   // EDIT_STARTED intentionally not fanned out — faculty acting on own work.
 
+  await audit({
+    actorId: me.id,
+    action: 'handout.editing.started',
+    entity: 'HandoutRequest',
+    entityId: request.id,
+    requestId: request.id,
+    after: { autoFetchTier: resolved!.tier },
+  });
+
   revalidate(request.id);
-  return { ok: true };
+
+  // Redirect with search params so the AutoFetchBanner appears on the next
+  // page render. The banner clears when faculty dismisses it (router.replace
+  // to the no-params URL) or navigates away. Persisting the source detail
+  // elsewhere is intentionally avoided — banner-shows-once is the UX.
+  const detail = encodeURIComponent(resolved!.sourceDetail);
+  redirect(`/faculty/assignments/${request.id}?autoFetched=${resolved!.tier}&detail=${detail}`);
 }
 
 const EDITABLE_STATUSES: HandoutStatus[] = [
