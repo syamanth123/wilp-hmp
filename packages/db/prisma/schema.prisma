@@ -53,6 +53,7 @@ model User {
   versionsAuthored  HandoutVersion[]    @relation("VersionAuthor")
   smeNominationsAsSme       SmeNomination[] @relation("SmeNominationsAsSme")
   smeNominationsAsNominator SmeNomination[] @relation("SmeNominationsAsNominator")
+  corpusImportsApproved     HandoutImport[] @relation("CorpusApprovedBy")
 
   @@index([email])
 }
@@ -274,6 +275,62 @@ model Template {
   handouts  Handout[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Corpus import (Prompt 11f-a). Each row represents one .docx file ingested
+// from the BITS handout corpus. The parser (`packages/db/src/corpus-import/
+// parser.ts`) decides how the file was extracted; `extractionMethod` records
+// the path taken so the admin UI can filter / re-parse / report.
+enum CorpusExtractionMethod {
+  // Mammoth structured pass succeeded — tables walked, data populated.
+  MAMMOTH_STRUCTURED
+  // Mammoth failed; text-fallback (flatten + regex) recovered enough.
+  TEXT_FALLBACK
+  // Parser ran, returned `data: null`. Specific error in parseErrors.
+  FAILED
+  // EE-style "Course Modules" template detected — deferred to 11f-b.
+  SKIPPED_MODULE
+  // >3MB; image-heavy outlier; skipped per the 11a precedent.
+  SKIPPED_SIZE
+  // Legacy .doc binary or .pdf; mammoth can't parse.
+  SKIPPED_FORMAT
+}
+
+model HandoutImport {
+  id                  String   @id @default(cuid())
+  // Canonical absolute path of the source file. @unique is the upsert key for
+  // idempotency: re-running runCorpusImport on the same file with the same
+  // (sourceFileBytes, sourceModifiedAt) is a no-op; a changed file forces
+  // re-parse.
+  sourceFile          String   @unique
+  sourceFileBytes     Int
+  sourceModifiedAt    DateTime
+  // Extracted course code(s) when parsable. Null when the parser couldn't
+  // identify the course (FAILED / SKIPPED_*). @index for the auto-fetch
+  // Tier 2 lookup (Prompt 11f-b will read this).
+  bitsCourseNumber    String?
+  alternateCodes      String[] @default([])
+  // BitsHandoutV1 JSON when parse succeeded. Null on FAILED or any SKIPPED_*.
+  data                Json?
+  // Non-fatal extraction issues (e.g., "Modular Content section ignored;
+  // will be addressed in a later prompt").
+  parseWarnings       String[] @default([])
+  // Fatal parse failures (data is null). Specific reason per file.
+  parseErrors         String[] @default([])
+  extractionMethod    CorpusExtractionMethod
+  // 11f-b approval workflow. Tier 2 in handout-auto-fetch.ts will filter on
+  // `approvedForReuse: true AND data IS NOT NULL` so admin review gates
+  // surfacing. Stays default false in 11f-a; the approval UI lands in 11f-b.
+  approvedForReuse    Boolean  @default(false)
+  approvedById        String?
+  approvedAt          DateTime?
+  approvedBy          User?    @relation("CorpusApprovedBy", fields: [approvedById], references: [id])
+  importedAt          DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([bitsCourseNumber])
+  @@index([approvedForReuse])
+  @@index([extractionMethod])
 }
 
 model FacultyAssignment {

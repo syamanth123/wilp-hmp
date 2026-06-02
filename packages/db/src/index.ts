@@ -32,3 +32,12 @@ export {
   BITS_RICH_TEXT_ALLOWED_SCHEMES,
   type BitsRichTextAllowedTag,
 } from './rich-text-allowlist';
+// NOTE: corpus-import (Prompt 11f-a) symbols are deliberately NOT re-exported
+// from this top-level barrel. mammoth's Node-only `node:fs/promises` imports
+// would leak into Next.js's client bundle via the @hmp/db root import path.
+// Server-side consumers (admin actions) import directly from the subpath:
+//   import { runCorpusImport } from '@hmp/db/dist/corpus-import';
+// or, in source via the workspace, by relative path within node_modules:
+//   import { runCorpusImport } from '@hmp/db/src/corpus-import';
+// See `apps/web/src/app/admin/corpus-imports/actions.ts` for the concrete usage.
+export { type CorpusExtractionMethod } from './corpus-import/parser';
