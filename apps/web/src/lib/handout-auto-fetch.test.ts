@@ -172,19 +172,37 @@ describe('resolveAutoFetchSource — tier picking', () => {
     expect(result.tier).toBe('prior-version');
   });
 
-  it('import only (no prior) → tier "import"', () => {
+  it('import only (no prior) → tier "import" with course-code-based banner detail (11f-b2)', () => {
     const importCandidate: ImportCandidate = {
       importId: 'imp-2',
       data: richPrior('SE ZG501', 'archived'),
-      originalSemesterName: 'Sem-I 2022-23',
+      originalSemesterName: '(corpus import)',
       originalCourseBitsNumber: 'SE ZG501',
     };
     const result = resolveAutoFetchSource(seZG501Request, [], importCandidate);
     expect(result.tier).toBe('import');
-    expect(result.sourceDetail).toBe('Imported corpus handout: Sem-I 2022-23');
+    // 11f-b2: banner detail uses the originating course code, not the
+    // semester (HandoutImport doesn't carry a semester column).
+    expect(result.sourceDetail).toBe('Imported corpus handout: SE ZG501');
     if (result.tier === 'import') {
       expect(result.importId).toBe('imp-2');
     }
+  });
+
+  it('Module-format import → banner detail gets "(Module format — review CO/LO sections)" suffix', () => {
+    const importCandidate: ImportCandidate = {
+      importId: 'imp-3',
+      data: richPrior('EE ZG511', 'archived'),
+      // findImportForCourse signals Module source via the
+      // originalSemesterName containing "Module format".
+      originalSemesterName: '(corpus import — Module format)',
+      originalCourseBitsNumber: 'EE ZG511',
+    };
+    const result = resolveAutoFetchSource(seZG501Request, [], importCandidate);
+    expect(result.tier).toBe('import');
+    expect(result.sourceDetail).toBe(
+      'Imported corpus handout: EE ZG511 (Module format — review CO/LO sections)',
+    );
   });
 });
 
@@ -235,10 +253,16 @@ describe('stripIdentifiersForCarryForward', () => {
 
 function mockTx(findManyImpl: (...args: unknown[]) => Promise<unknown[]>) {
   const findMany = vi.fn(findManyImpl);
+  // 11f-b2: loadAndResolveAutoFetchSource now calls findImportForCourse
+  // (Tier 2), which queries handoutImport.findFirst. Default to null so the
+  // existing Tier 1 query-shape tests don't get confused; tests that
+  // exercise Tier 2 specifically wire findImportFirst per-test.
+  const findImportFirst = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
   const tx = {
     handoutVersion: { findMany },
+    handoutImport: { findFirst: findImportFirst },
   } as unknown as Prisma.TransactionClient;
-  return { tx, findMany };
+  return { tx, findMany, findImportFirst };
 }
 
 describe('loadAndResolveAutoFetchSource — query shape', () => {
@@ -338,5 +362,93 @@ describe('loadAndResolveAutoFetchSource — query shape', () => {
     const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
     expect(result.tier).toBe('prior-version');
     expect(result.sourceDetail).toBe('Prior version: Sem-I 2024-25 handout for SE ZG501');
+  });
+});
+
+// ============================================================================
+// Tier 2 (11f-b2) — findImportForCourse query-shape tests
+// ============================================================================
+
+describe('Tier 2 — findImportForCourse query against HandoutImport (11f-b2)', () => {
+  it('returns null when no priors AND no approved import matches', async () => {
+    const { tx, findImportFirst } = mockTx(async () => []);
+    findImportFirst.mockResolvedValueOnce(null);
+    const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
+    expect(result.tier).toBe('empty');
+  });
+
+  it('returns tier "import" when an approved import matches', async () => {
+    const validImport = richPrior('SE ZG501', 'corpus');
+    const { tx, findImportFirst } = mockTx(async () => []);
+    findImportFirst.mockResolvedValueOnce({
+      id: 'imp-test-1',
+      data: validImport,
+      bitsCourseNumber: 'SE ZG501',
+      parseWarnings: [],
+    });
+    const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
+    expect(result.tier).toBe('import');
+    expect(result.sourceDetail).toBe('Imported corpus handout: SE ZG501');
+  });
+
+  it('Tier 1 (prior version) WINS when both prior AND approved import exist for same course', async () => {
+    const validPrior = richPrior('SE ZG501', 'Sem-I 2024-25');
+    const validImport = richPrior('SE ZG501', 'corpus');
+    const { tx, findImportFirst } = mockTx(async () => [
+      {
+        id: 'v-prior',
+        data: validPrior,
+        createdAt: new Date('2025-06-01'),
+        handout: {
+          request: {
+            offering: {
+              course: { bitsCourseNumber: 'SE ZG501' },
+              semester: { name: 'Sem-I 2024-25' },
+            },
+          },
+        },
+      },
+    ]);
+    // Even though findImportFirst would return a match, Tier 1 should win.
+    findImportFirst.mockResolvedValueOnce({
+      id: 'imp-conflict',
+      data: validImport,
+      bitsCourseNumber: 'SE ZG501',
+      parseWarnings: [],
+    });
+    const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
+    expect(result.tier).toBe('prior-version');
+    expect(result.sourceDetail).toContain('Prior version');
+  });
+
+  it('Module-format import adds "(Module format — review CO/LO sections)" suffix to banner', async () => {
+    const validImport = richPrior('EE ZG511', 'corpus');
+    const { tx, findImportFirst } = mockTx(async () => []);
+    findImportFirst.mockResolvedValueOnce({
+      id: 'imp-mod',
+      data: validImport,
+      bitsCourseNumber: 'EE ZG511',
+      // The Module-template parser emits a "Module template source"
+      // parseWarning; findImportForCourse detects it and tags the
+      // ImportCandidate.originalSemesterName with "Module format".
+      parseWarnings: ['Module template source: per-module Objectives...'],
+    });
+    const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
+    expect(result.tier).toBe('import');
+    expect(result.sourceDetail).toBe(
+      'Imported corpus handout: EE ZG511 (Module format — review CO/LO sections)',
+    );
+  });
+
+  it('skips imports whose data fails Zod parsing (defensive against malformed rows)', async () => {
+    const { tx, findImportFirst } = mockTx(async () => []);
+    findImportFirst.mockResolvedValueOnce({
+      id: 'imp-broken',
+      data: { schemaVersion: 1, partA: { courseTitle: 'incomplete' } }, // missing required fields
+      bitsCourseNumber: 'SE ZG501',
+      parseWarnings: [],
+    });
+    const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
+    expect(result.tier).toBe('empty'); // Tier 2 returned null → fall through
   });
 });

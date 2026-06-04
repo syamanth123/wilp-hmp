@@ -349,9 +349,32 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
         >
           {pending ? 'Saving…' : 'Save version'}
         </Button>
-        <Button onClick={submit} disabled={pending || !evalValid} data-testid="bits-submit-button">
-          {pending ? 'Submitting…' : isRework ? 'Resubmit for review' : 'Submit for review'}
-        </Button>
+        {/*
+          11f-b2 submit-time CO/LO validation: schema (relaxed in 11f-b2)
+          accepts empty CO/LO arrays — that's how Module-template imports
+          surface without fake placeholder text — but submission requires
+          ≥1 of each. Save remains allowed with empty CO/LO (drafts OK).
+          The submitDisabledReason picks the most actionable message.
+        */}
+        {(() => {
+          const submitDisabledReason = !evalValid
+            ? 'Evaluation weights must sum to 100% before submitting'
+            : data.partA.courseObjectives.length === 0
+              ? 'Add at least one Course Objective and Learning Outcome before submitting'
+              : data.partA.learningOutcomes.length === 0
+                ? 'Add at least one Learning Outcome before submitting'
+                : null;
+          return (
+            <Button
+              onClick={submit}
+              disabled={pending || submitDisabledReason !== null}
+              title={submitDisabledReason ?? undefined}
+              data-testid="bits-submit-button"
+            >
+              {pending ? 'Submitting…' : isRework ? 'Resubmit for review' : 'Submit for review'}
+            </Button>
+          );
+        })()}
       </div>
       <StructuredAiDraftDialog
         requestId={requestId}

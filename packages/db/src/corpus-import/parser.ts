@@ -126,21 +126,26 @@ export async function parseDocxToHandout(input: ParseInput): Promise<ParseResult
 
   const tree = parseHtmlToTree(html);
 
-  // ---- Early-return: Module template ----
+  // ---- Module template: honest-empty extraction (Prompt 11f-b2) ----
+  // 11f-b1's SKIPPED_MODULE returned data:null; 11f-b2 produces a Zod-valid
+  // BitsHandoutV1 via the honest-empty discipline:
+  //   - Part A populated from the Module template's alternative labels
+  //     (Course ID No., Lead Instructor, Academic Term) — extractPartAHeader
+  //     already accepts these after 11f-b2's relaxation.
+  //   - partA.courseObjectives = [] and partA.learningOutcomes = [] with
+  //     parseWarnings explaining the source's lack of CO/LO. Schema
+  //     accepts this after the 11f-b2 min(1) relaxation. Submit-time
+  //     validation in submitStructuredForReviewAction blocks final
+  //     submission until faculty adds COs/LOs.
+  //   - Text Books / Reference Books / Evaluation parsed normally (Module
+  //     template uses standard shapes for these per Survey A).
+  //   - Part B sessions parsed from the "Self-Study & Contact Session Plan"
+  //     per-module tables (Topic No. | Topic Title | Reference).
+  // The 9 Module-template files surveyed (EE family + PE ZC321) become
+  // MAMMOTH_STRUCTURED via this path, with admin-visible parseWarnings
+  // naming the Module-format source.
   if (detectModuleTemplate(tree)) {
-    const probe = bestEffortCourseNumber(tree);
-    const filenameProbe = courseNumberFromFilename(input.filePath);
-    return {
-      data: null,
-      warnings: [
-        'Course Modules template detected — per-module Objectives do not map to ' +
-          'partA.courseObjectives in BitsHandoutSchemaV1. Will be addressed in Prompt 11f-b.',
-      ],
-      errors: [],
-      bitsCourseNumber: probe.bitsCourseNumber ?? filenameProbe,
-      alternateCodes: probe.alternateCodes,
-      extractionMethod: 'SKIPPED_MODULE',
-    };
+    return extractModuleTemplate(tree, input);
   }
 
   // ---- Tier 1: structured extraction ----
@@ -345,6 +350,237 @@ function detectModuleTemplate(tree: Node[]): boolean {
 }
 
 /**
+ * 11f-b2 — Module-template extraction (Survey A finding). Replaces 11f-b1's
+ * SKIPPED_MODULE early-return with an honest-empty path:
+ *
+ *   - Part A from Module labels (Course ID No., Lead Instructor, Academic
+ *     Term) — handled by `extractPartAHeader`'s relaxed label set.
+ *   - courseObjectives / learningOutcomes left empty (schema relaxed in
+ *     11f-b2; submit-time validation enforces presence before SUBMITTED).
+ *   - Text Books / Reference Books / Evaluation parsed via the shared
+ *     extractStructured path (Module template uses standard shapes for
+ *     these per Survey A's structural inspection).
+ *   - Part B sessions parsed from "Self-Study & Contact Session Plan" —
+ *     for each `Topic No. | Topic Title | Reference` table, each row
+ *     becomes one `partB.sessions[]` entry.
+ *
+ * The 9 Module-template files (EE family + PE ZC321) now become
+ * MAMMOTH_STRUCTURED with parseWarnings naming the Module source. Tier 2
+ * banner detail will suffix "(Module format — review CO/LO sections)" so
+ * faculty knows what to fill in.
+ */
+function extractModuleTemplate(tree: Node[], input: ParseInput): ParseResult {
+  const state: ExtractionState = { warnings: [], errors: [] };
+
+  // Part A header table — same finder as the standard template; relaxed
+  // labels in extractPartAHeader handle Module-style "Course ID No." etc.
+  const partAHeader = findPartAHeaderTable(tree);
+  if (!partAHeader) {
+    // Module template without a recognizable Part A header table: degrade
+    // gracefully to SKIPPED_MODULE-equivalent with the filename probe.
+    return {
+      data: null,
+      warnings: [
+        'Module template detected, but Part A header table was not recoverable. ' +
+          'Faculty must author Part A from scratch.',
+      ],
+      errors: [],
+      bitsCourseNumber: courseNumberFromFilename(input.filePath),
+      alternateCodes: [],
+      extractionMethod: 'FAILED',
+    };
+  }
+  const partAFields = extractPartAHeader(partAHeader.rows, state);
+  if (!partAFields.courseDescription) {
+    partAFields.courseDescription = findCourseDescriptionFromParagraph(tree);
+  }
+
+  // T-book / R-book extraction (standard shapes).
+  const tRows = findTableAfterLabel(tree, /^text ?books?\b/i, null, null, {
+    firstRowIsData: true,
+  });
+  const rRows = findTableAfterLabel(tree, /^reference ?books?\b/i, null, null, {
+    firstRowIsData: true,
+  });
+  const textBooks = parseCodeCitationTable(tRows, 'T');
+  const referenceBooks = parseCodeCitationTable(rRows, 'R');
+
+  // Part B sessions from per-module Self-Study Plan tables.
+  const partBSessions = parseModuleSelfStudyPlan(tree);
+
+  // Evaluation table (Module uses the same shape as standard per Survey A).
+  const evalRows = findTableWithHeader(tree, /^(ec ?no\.?|evaluation component|no\.?)$/i, /^name/i);
+  const evalComponents = parseEvaluationTable(evalRows);
+
+  // Build the result. Empty CO/LO arrays are allowed by the 11f-b2-relaxed
+  // schema; emit parseWarnings so admin + faculty see the gap.
+  state.warnings.push(
+    'Module template source: per-module Objectives extracted into Part B sub-topics; ' +
+      'course-level Course Objectives must be added by faculty before submission.',
+  );
+  state.warnings.push(
+    'Module template source: Learning Outcomes not present in source — must be authored ' +
+      'before submission.',
+  );
+
+  if (textBooks.length === 0) {
+    state.warnings.push('Text Books missing — placeholder T1 generated.');
+  }
+  if (partBSessions.length === 0) {
+    state.warnings.push(
+      'Part B sessions missing — Module Self-Study Plan extraction returned no sessions. ' +
+        'Faculty must author Part B manually.',
+    );
+  }
+  if (evalComponents.length === 0) {
+    state.warnings.push(
+      'Evaluation Scheme missing — empty components array (must equal 100% before save).',
+    );
+  }
+
+  const filenameProbe = courseNumberFromFilename(input.filePath);
+  const candidate = {
+    schemaVersion: 1 as const,
+    metadata: {
+      institutionHeader: 'Birla Institute of Technology & Science, Pilani',
+      divisionHeader: 'Work Integrated Learning Programmes Division',
+      semester: partAFields.semester ?? partAFields.date ?? 'First Semester 2025-2026',
+      documentTitle: 'Course Handout',
+      formNumber: '',
+    },
+    partA: {
+      courseTitle: partAFields.courseTitle || 'Untitled course',
+      courseNumbers: partAFields.bitsCourseNumber
+        ? [partAFields.bitsCourseNumber, ...partAFields.alternateCodes]
+        : filenameProbe
+          ? [filenameProbe]
+          : ['UNKNOWN'],
+      creditModel: { description: partAFields.creditModel ?? '' },
+      instructors: partAFields.instructors.length > 0 ? partAFields.instructors : [''],
+      date: partAFields.date ?? new Date().toLocaleDateString('en-GB'),
+      courseDescription: partAFields.courseDescription
+        ? `<p>${escapeHtml(partAFields.courseDescription)}</p>`
+        : '<p></p>',
+      // 11f-b2 honest-empty per Decision 2: arrays accepted empty by the
+      // relaxed schema; submit-time validation enforces presence.
+      courseObjectives: [],
+      textBooks:
+        textBooks.length > 0
+          ? textBooks
+          : [{ code: 'T1', citation: '(missing — placeholder generated by importer)' }],
+      referenceBooks,
+      learningOutcomes: [],
+    },
+    partB: {
+      sessions:
+        partBSessions.length > 0
+          ? partBSessions
+          : [
+              {
+                sessionNumber: '1',
+                topicTitle: '(missing — placeholder generated by importer)',
+                subTopics: '',
+                references: [],
+              },
+            ],
+    },
+    evaluation: {
+      legend: 'EC = Evaluation Component',
+      components: evalComponents,
+      notes: '',
+      midSemSyllabus: '',
+      compreSyllabus: '',
+    },
+    importantLinks: {
+      elearnPortalUrl: 'https://elearn.bits-pilani.ac.in',
+      elearnPortalNote: '',
+      contactSessionsNote: '',
+    },
+    evaluationGuidelines: '<p></p>',
+  };
+
+  const parsed = BitsHandoutSchemaV1.safeParse(candidate);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return {
+      data: null,
+      warnings: state.warnings,
+      errors: [
+        `Module template Zod parse failed: ${first?.path.join('.') ?? '(root)'}: ${first?.message ?? 'invalid'}`,
+      ],
+      bitsCourseNumber: partAFields.bitsCourseNumber ?? filenameProbe,
+      alternateCodes: partAFields.alternateCodes,
+      extractionMethod: 'FAILED',
+    };
+  }
+
+  return {
+    data: parsed.data,
+    warnings: state.warnings,
+    errors: [],
+    bitsCourseNumber: partAFields.bitsCourseNumber ?? filenameProbe,
+    alternateCodes: partAFields.alternateCodes,
+    extractionMethod: 'MAMMOTH_STRUCTURED',
+  };
+}
+
+/**
+ * Parse the Module template's "Self-Study & Contact Session Plan" into
+ * `partB.sessions[]`. Each per-module table has the shape:
+ *   Topic No. | Topic Title | Reference
+ *   1.1 | The environment |
+ *   1.2 | Composition |
+ * with a preceding `Session N` paragraph and `Module Title: X` paragraph.
+ *
+ * Strategy: walk the tree; when we see a table whose header matches the
+ * Topic-No structure, treat each row as one partB.sessions[] entry,
+ * using the preceding "Session N" paragraph as sessionNumber and the
+ * "Module Title:" paragraph (if any) as the topicTitle prefix.
+ */
+function parseModuleSelfStudyPlan(tree: Node[]): BitsHandoutV1['partB']['sessions'] {
+  const out: BitsHandoutV1['partB']['sessions'] = [];
+  let currentSessionNum = '';
+  let currentModuleTitle = '';
+  for (let i = 0; i < tree.length; i++) {
+    const node = tree[i]!;
+    if (node.kind === 'paragraph') {
+      const moduleTitle = node.text.match(/^module title\s*:\s*(.+)$/i);
+      if (moduleTitle) {
+        currentModuleTitle = (moduleTitle[1] ?? '').trim();
+        continue;
+      }
+      const sessionMatch = node.text.match(/^session\s+(\d+(?:\s*[-–]\s*\d+)?)/i);
+      if (sessionMatch) {
+        currentSessionNum = (sessionMatch[1] ?? '').replace(/\s+/g, '');
+        continue;
+      }
+    }
+    if (node.kind !== 'table') continue;
+    // Skip tables that aren't Topic No.-shaped.
+    const header = node.rows[0];
+    if (!header || header.length < 2) continue;
+    const headerCol0 = (header[0] ?? '').trim();
+    const headerCol1 = (header[1] ?? '').trim();
+    if (!/^topic no\.?$/i.test(headerCol0) || !/^topic title/i.test(headerCol1)) continue;
+    // Each row → one partB session.
+    for (const row of node.rows.slice(1)) {
+      if (row.length < 2) continue;
+      const topicNo = (row[0] ?? '').trim();
+      const topicTitle = (row[1] ?? '').trim();
+      const reference = (row[2] ?? '').trim();
+      if (!topicTitle) continue;
+      out.push({
+        sessionNumber: topicNo || currentSessionNum || String(out.length + 1),
+        topicTitle: currentModuleTitle ? `${currentModuleTitle} — ${topicTitle}` : topicTitle,
+        subTopics: '',
+        references: reference ? [reference] : [],
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * 11f-b1 — detect the narrative-prose template (Survey B finding). Five
  * corpus files (EE ZG613/623, POM ZG512/522, ST ZG612) use a layout where
  * Part A is rendered as colon-separated prose lines rather than a labeled
@@ -367,29 +603,6 @@ function detectNarrativeProse(tree: Node[]): boolean {
     if (/^course no\.?\s*:\s*[A-Z]{2,4}\s*Z[CG]\d{3,4}\b/i.test(node.text)) return true;
   }
   return false;
-}
-
-function bestEffortCourseNumber(tree: Node[]): {
-  bitsCourseNumber: string | null;
-  alternateCodes: string[];
-} {
-  // Same logic as Part A header extraction but tolerant of missing fields —
-  // used for the SKIPPED_MODULE diagnostic so admins can still filter.
-  for (const node of tree) {
-    if (node.kind !== 'table') continue;
-    for (const row of node.rows) {
-      if (row.length >= 2 && /^course no\(?s?\)?\.?$/i.test(row[0]!)) {
-        const cand = row[1]!;
-        try {
-          const canonical = normalizeBitsCourseNumber(cand);
-          return { bitsCourseNumber: canonical, alternateCodes: parseAlternateCodes(cand) };
-        } catch {
-          // Fall through — bestEffort is allowed to give up.
-        }
-      }
-    }
-  }
-  return { bitsCourseNumber: null, alternateCodes: [] };
 }
 
 /**
@@ -514,18 +727,28 @@ function extractStructured(tree: Node[]): {
   const rRows = findTableAfterLabel(tree, /^reference ?books?\b/i, null, null, {
     firstRowIsData: true,
   });
-  // 11f-b1: real-corpus Part B header is "Contact Session | List of Topic
-  // Title | Sub-Topics | Reference" — accept both "Topic Title" and
-  // "List of Topic Title" header variants.
+  // 11f-b2 Survey D-PartB: real-corpus Part B headers vary widely. Known
+  // variants (with file count predictions):
+  //   - "Contact Session | List of Topic Title | Sub-Topics | Reference"
+  //     (AEL ZG631 golden, MBA family)
+  //   - "Contact Hour | List of Topic s | Sub-Topics | Reference"
+  //     (AEL ZG554 — "Contact Hour" + plural with spacing)
+  //   - "Contact Session | Chapter Title | Topics | Reference"
+  //     (QM_ZG536-style — "Chapter Title" / "Topics" synonyms)
+  // Multi-table-per-session-range files (AE_ZG614-style) are accept-with-
+  // warning; detected after extraction returns no sessions.
   const partBRows = findTableWithHeader(
     tree,
-    /^(contact session|session)\b/i,
-    /^(list of )?topic title/i,
+    /^(contact session|contact hour|session)\b/i,
+    /^(list of )?(topic title|topic\b|chapter title|topics)/i,
   );
-  // 11f-b1: real-corpus Evaluation header is "Evaluation Component | Name |
-  // Type | Weight | Duration | Day, Date, Session, Time" — accept both the
-  // synthetic-fixture form "EC No." and the real-corpus form.
-  const evalRows = findTableWithHeader(tree, /^(ec ?no\.?|evaluation component)$/i, /^name/i);
+  // 11f-b2 Survey D-Eval: real-corpus Evaluation header is
+  // "No | Name | Type | Duration | Weight | Day, Date, Session, Time"
+  // (note "No" col0 — not "Evaluation Component" or "EC No.").
+  // Additionally, the column order Duration-before-Weight is the OPPOSITE
+  // of the synthetic-fixture order. parseEvaluationTable now reads column
+  // positions from the header row to handle both orderings.
+  const evalRows = findTableWithHeader(tree, /^(ec ?no\.?|evaluation component|no\.?)$/i, /^name/i);
 
   // Modular Content detection — drop with warning per the 11f-a synonym-map decision.
   if (hasParagraphMatching(tree, /^modular content structure$/i)) {
@@ -538,7 +761,17 @@ function extractStructured(tree: Node[]): {
   const learningOutcomes = parseCodeDescriptionTable(loRows, 'LO');
   const textBooks = parseCodeCitationTable(tRows, 'T');
   const referenceBooks = parseCodeCitationTable(rRows, 'R');
-  const partBSessions = parsePartBTable(partBRows);
+  // 11f-b2 Survey D-PartB: if findTableWithHeader missed because the table
+  // is preceded by a "Content Structure:" label paragraph (QM_ZG536-style)
+  // rather than appearing standalone, try the label-after-paragraph path
+  // as a secondary lookup. firstRowIsData adaptive logic handles both
+  // header-present and no-header tables.
+  const partBRowsFallback =
+    partBRows.length === 0
+      ? findTableAfterLabel(tree, /^content structure/i, null, null, { firstRowIsData: false })
+      : partBRows;
+
+  const partBSessions = parsePartBTable(partBRowsFallback);
   const evalComponents = parseEvaluationTable(evalRows);
 
   // Build the BitsHandoutV1. Many fields are `min(1)` arrays — supply
@@ -669,9 +902,12 @@ function findPartAHeaderTable(tree: Node[]): TNode | null {
   for (const node of tree) {
     if (node.kind !== 'table') continue;
     const labels = node.rows.map((r) => r[0] ?? '');
+    // 11f-b2 Module-template: "Course ID No." is the Module-template
+    // equivalent of "Course No(s)". Accept either form when locating the
+    // Part A header table.
     if (
       labels.some((l) => /^course title$/i.test(l)) &&
-      labels.some((l) => /^course no/i.test(l))
+      labels.some((l) => /^course (no|id no)/i.test(l))
     ) {
       return node;
     }
@@ -699,15 +935,23 @@ function extractPartAHeader(rows: string[][], state: ExtractionState): PartAFiel
     const label = row[0]!.trim();
     const value = row[1]!.trim();
     if (/^course title$/i.test(label)) rawCourseTitle = value;
-    else if (/^course no/i.test(label)) rawCourseNo = value;
+    // 11f-b2 Module-template Part A: "Course ID No." used instead of
+    // "Course No(s)". Match both with one regex.
+    else if (/^course (no|id no)/i.test(label)) rawCourseNo = value;
     else if (/^credit/i.test(label)) out.creditModel = value;
-    else if (/^instructor/i.test(label))
+    // 11f-b2: "Lead Instructor" is the Module-template equivalent of
+    // "Instructor(s)".
+    else if (/^(instructor|lead instructor)/i.test(label))
       out.instructors = value
         .split(/[,;]/)
         .map((s) => s.trim())
         .filter(Boolean);
-    else if (/^date\b/i.test(label)) out.date = value;
-    else if (/^course description\b/i.test(label)) out.courseDescription = value;
+    // 11f-b2: "Academic Term" stores the semester label in Module template
+    // (e.g., "First SEMESTER 2025-2026"). Use it as the date fallback if
+    // the standard "Date" cell isn't present.
+    else if (/^date\b/i.test(label) || /^academic term\b/i.test(label)) {
+      if (!out.date) out.date = value;
+    } else if (/^course description\b/i.test(label)) out.courseDescription = value;
   }
 
   // HHSM value-swap detection: if the Course No(s) cell doesn't normalize but
@@ -904,12 +1148,30 @@ function parsePartBTable(rows: string[][]): Array<{
 }
 
 function parseEvaluationTable(rows: string[][]): BitsHandoutV1['evaluation']['components'] {
-  // Expected columns: EC No | Name | Type | Weight | Duration. Group sub-
-  // components under their EC number. Real corpus uses rowspan on the EC
-  // cell when an EC has multiple sub-components — mammoth's HTML output
-  // produces rows with one fewer cell after the rowspan'd row. We detect
-  // this by checking whether the first cell looks like an EC code (e.g.,
-  // "EC-1", "EC - 1", "EC 1") and inherit the previous EC code otherwise.
+  // Expected columns: EC No | Name | Type | Weight | Duration | Day,...
+  // 11f-b2 Survey D-Eval: real corpus uses DIFFERENT column order vs the
+  // synthetic fixture — Duration BEFORE Weight in "No | Name | Type |
+  // Duration | Weight | Day,Date,Session,Time". We detect column positions
+  // from the header row instead of hard-coding indices.
+  //
+  // Real corpus also uses rowspan on the EC cell when an EC has multiple
+  // sub-components — mammoth's HTML output produces rows with one fewer
+  // cell after the rowspan'd row. Detect via first-cell EC-code pattern.
+  if (rows.length === 0) return [];
+  const headerCells = rows[0]!.map((c) => c.trim().toLowerCase());
+  const colIdx = {
+    name: headerCells.findIndex((c) => /^name/i.test(c)),
+    type: headerCells.findIndex((c) => /^type/i.test(c)),
+    weight: headerCells.findIndex((c) => /^weight/i.test(c)),
+    duration: headerCells.findIndex((c) => /^duration/i.test(c)),
+  };
+  // Fallback to canonical positions when header detection fails (e.g.
+  // a table with no header row at all).
+  if (colIdx.name < 0) colIdx.name = 1;
+  if (colIdx.type < 0) colIdx.type = 2;
+  if (colIdx.weight < 0) colIdx.weight = 3;
+  if (colIdx.duration < 0) colIdx.duration = 4;
+
   const groups = new Map<string, BitsHandoutV1['evaluation']['components'][number]>();
   let currentEc: string | null = null;
   const ecCodeRegex = /^EC\s*[-–]?\s*\d+$/i;
@@ -933,10 +1195,10 @@ function parseEvaluationTable(rows: string[][]): BitsHandoutV1['evaluation']['co
       // No EC context established yet; skip the row.
       continue;
     }
-    const name = (r[1 + cellOffset] ?? '').trim();
-    const type = (r[2 + cellOffset] ?? '').trim();
-    const weightRaw = (r[3 + cellOffset] ?? '').trim().replace(/%/g, '');
-    const duration = (r[4 + cellOffset] ?? '').trim();
+    const name = (r[colIdx.name + cellOffset] ?? '').trim();
+    const type = (r[colIdx.type + cellOffset] ?? '').trim();
+    const weightRaw = (r[colIdx.weight + cellOffset] ?? '').trim().replace(/%/g, '');
+    const duration = (r[colIdx.duration + cellOffset] ?? '').trim();
     if (!name) continue;
     const weight = Number.parseFloat(weightRaw);
     if (!Number.isFinite(weight)) continue;

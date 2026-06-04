@@ -92,6 +92,31 @@ describe('BitsHandoutSchemaV1 — valid baseline', () => {
   });
 });
 
+describe('BitsHandoutSchemaV1 — empty CO/LO arrays accepted (Prompt 11f-b2)', () => {
+  // 11f-b2 relaxed the `min(1)` constraint on courseObjectives and
+  // learningOutcomes. Rationale: surveyed Module-template corpus files
+  // (8-9 of 384) genuinely lack source COs/LOs. Schema-is-representational
+  // discipline (audit §5) says corpus reality wins over assumed constraints.
+  // Submit-time enforcement lives in submitStructuredForReviewAction +
+  // editor UI (same shape as the evaluation 100% rule).
+  it('accepts an empty courseObjectives array', () => {
+    const h = makeValidHandout();
+    h.partA.courseObjectives = [];
+    expect(BitsHandoutSchemaV1.safeParse(h).success).toBe(true);
+  });
+  it('accepts an empty learningOutcomes array', () => {
+    const h = makeValidHandout();
+    h.partA.learningOutcomes = [];
+    expect(BitsHandoutSchemaV1.safeParse(h).success).toBe(true);
+  });
+  it('accepts both empty simultaneously (Module-template import case)', () => {
+    const h = makeValidHandout();
+    h.partA.courseObjectives = [];
+    h.partA.learningOutcomes = [];
+    expect(BitsHandoutSchemaV1.safeParse(h).success).toBe(true);
+  });
+});
+
 describe('BitsHandoutSchemaV1 — coded-list regex enforcement', () => {
   it('rejects a malformed CO code (CO5a)', () => {
     const h = makeValidHandout();

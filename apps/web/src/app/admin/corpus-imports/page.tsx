@@ -16,7 +16,9 @@ import {
 import { requireRole, getSessionUser } from '@hmp/auth';
 import { RunImportForm } from './run-import-form';
 import { RowActions } from './row-actions';
+import { BulkApproveWidget } from './bulk-approve-widget';
 import { basename } from 'node:path';
+import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,11 +71,34 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
   });
   const byMethod = Object.fromEntries(byMethodRaw.map((r) => [r.extractionMethod, r._count]));
 
+  // 11f-b2: approved-count badge for admin progress signal.
+  const approvedCount = await prisma.handoutImport.count({ where: { approvedForReuse: true } });
+
   const rows = await prisma.handoutImport.findMany({
     where,
     orderBy: [{ extractionMethod: 'asc' }, { sourceFile: 'asc' }],
     take: 500,
   });
+
+  // 11f-b2 Course-row reconciliation: which course codes do NOT have a
+  // matching Course row in the DB? Show a "create it?" link on those.
+  const courseNumbersInPage = Array.from(
+    new Set(rows.map((r) => r.bitsCourseNumber).filter((c): c is string => !!c)),
+  );
+  const matchingCourses = courseNumbersInPage.length
+    ? await prisma.course.findMany({
+        where: {
+          OR: [
+            { bitsCourseNumber: { in: courseNumbersInPage } },
+            { alternateCodes: { hasSome: courseNumbersInPage } },
+          ],
+        },
+        select: { bitsCourseNumber: true, alternateCodes: true },
+      })
+    : [];
+  const knownCourseCodes = new Set(
+    matchingCourses.flatMap((c) => [c.bitsCourseNumber, ...c.alternateCodes]),
+  );
 
   const defaultCorpusPath = process.env.HMP_CORPUS_DIR ?? '';
 
@@ -83,23 +108,33 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
         <CardHeader>
           <CardTitle>Corpus imports</CardTitle>
           <CardDescription>
-            BITS handout corpus ingestion (Prompt 11f-a). Each row is one source `.docx` parsed by{' '}
-            <code>parseDocxToHandout</code>; rows are upserted by `sourceFile` so re-running the
-            import is idempotent. Approval workflow (gating Tier 2 auto-fetch surfacing) lands in
-            11f-b.
+            BITS handout corpus ingestion (Prompts 11f-a + 11f-b1 + 11f-b2). Each row is one source
+            `.docx` parsed by <code>parseDocxToHandout</code>; rows are upserted by `sourceFile` so
+            re-running the import is idempotent. Approved rows surface to faculty via auto- fetch
+            Tier 2 (Prompt 11f-b2).
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <RunImportForm defaultPath={defaultCorpusPath} />
+          <div className="border-t pt-3">
+            <BulkApproveWidget />
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Imported handouts ({total.toLocaleString()})</CardTitle>
+          <CardTitle>
+            Imported handouts ({total.toLocaleString()}) ·{' '}
+            <span className="text-emerald-700" data-testid="corpus-approved-count">
+              {approvedCount.toLocaleString()} approved
+            </span>{' '}
+            ({total > 0 ? Math.round((approvedCount / total) * 100) : 0}%)
+          </CardTitle>
           <CardDescription>
             Filter by extraction method, approval state, or course-code prefix via the URL search
-            params (e.g. <code>?method=FAILED</code>, <code>?prefix=EE</code>).
+            params (e.g. <code>?method=FAILED</code>, <code>?prefix=EE</code>,{' '}
+            <code>?approved=yes</code>).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -154,6 +189,20 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
                       {r.alternateCodes.length > 0 && (
                         <div className="text-muted-foreground">+{r.alternateCodes.join(', ')}</div>
                       )}
+                      {r.bitsCourseNumber && !knownCourseCodes.has(r.bitsCourseNumber) && (
+                        <Link
+                          href={`/admin/programmes?prefillCode=${encodeURIComponent(r.bitsCourseNumber)}${
+                            (r.data as { partA?: { courseTitle?: string } } | null)?.partA
+                              ?.courseTitle
+                              ? `&prefillTitle=${encodeURIComponent((r.data as { partA: { courseTitle: string } }).partA.courseTitle ?? '')}`
+                              : ''
+                          }`}
+                          className="mt-1 inline-block text-[11px] text-blue-700 underline"
+                          data-testid="corpus-row-create-course-link"
+                        >
+                          Course row not found — create it?
+                        </Link>
+                      )}
                     </TableCell>
                     <TableCell>
                       <MethodBadge method={r.extractionMethod} />
@@ -187,7 +236,7 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
                       {r.importedAt.toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <RowActions id={r.id} />
+                      <RowActions id={r.id} approvedForReuse={r.approvedForReuse} />
                     </TableCell>
                   </TableRow>
                 ))}

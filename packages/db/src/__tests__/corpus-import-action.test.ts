@@ -93,9 +93,12 @@ suite('runCorpusImport — integration', () => {
   integ('produces the expected breakdown across the 5 fixtures', async () => {
     const summary = await runCorpusImport(prisma, tempCorpus);
     expect(summary.scanned).toBe(5);
-    expect(summary.succeeded).toBe(3); // f1, f2, f4 produce data
+    // 11f-b2: f3 (Module template) now produces data via honest-empty
+    // mapping; succeeded count includes f1, f2, f3, f4 (was f1, f2, f4 in
+    // 11f-a/b1 when f3 was SKIPPED_MODULE).
+    expect(summary.succeeded).toBe(4);
     expect(summary.failed).toBe(1); // f5
-    expect(summary.skippedModule).toBe(1); // f3
+    expect(summary.skippedModule).toBe(0); // f3 no longer skipped
     expect(summary.skippedSize).toBe(0);
     expect(summary.skippedFormat).toBe(0);
     expect(summary.unchanged).toBe(0); // first run, nothing in DB
@@ -125,8 +128,11 @@ suite('runCorpusImport — integration', () => {
         true,
       );
 
-      expect(byBasename['f3-module-template.docx']!.extractionMethod).toBe('SKIPPED_MODULE');
-      expect(byBasename['f3-module-template.docx']!.data).toBeNull();
+      // 11f-b2: Module template now produces MAMMOTH_STRUCTURED with
+      // honest-empty CO/LO arrays (schema relaxed) + populated Part A
+      // + parseWarnings naming the source gap.
+      expect(byBasename['f3-module-template.docx']!.extractionMethod).toBe('MAMMOTH_STRUCTURED');
+      expect(byBasename['f3-module-template.docx']!.data).not.toBeNull();
       expect(byBasename['f3-module-template.docx']!.bitsCourseNumber).toBe('EE ZG999');
 
       expect(byBasename['f4-modular-content.docx']!.extractionMethod).toBe('MAMMOTH_STRUCTURED');

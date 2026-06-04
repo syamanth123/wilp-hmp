@@ -130,10 +130,18 @@ export function resolveAutoFetchSource(
     };
   }
   if (importCandidate) {
+    // 11f-b2: banner detail names the source course code; Module-format
+    // imports get a "(Module format — review CO/LO sections)" suffix so
+    // faculty knows the import has empty CO/LO arrays to fill in. The
+    // moduleFormat signal travels via originalSemesterName containing the
+    // "Module format" substring (set by findImportForCourse based on the
+    // import's parseWarnings).
+    const isModule = /module format/i.test(importCandidate.originalSemesterName);
+    const suffix = isModule ? ' (Module format — review CO/LO sections)' : '';
     return {
       tier: 'import',
       data: stripIdentifiersForCarryForward(importCandidate.data, request),
-      sourceDetail: `Imported corpus handout: ${importCandidate.originalSemesterName}`,
+      sourceDetail: `Imported corpus handout: ${importCandidate.originalCourseBitsNumber}${suffix}`,
       importId: importCandidate.importId,
     };
   }
@@ -151,19 +159,62 @@ export function resolveAutoFetchSource(
 }
 
 /**
- * Tier 2 stub. Until Prompt 11f ships the HandoutImport table, this returns
- * null and the cascade falls through to Tier 3 (empty template).
+ * Tier 2 — real query against HandoutImport (Prompt 11f-b2). Matches
+ * approved corpus imports symmetrically on course-code overlap (same
+ * shape as Tier 1's HandoutVersion query). Filter:
  *
- * TODO(11f): replace with a real lookup against HandoutImport. Query shape
- * mirrors Tier 1's symmetric match on bitsCourseNumber + alternateCodes,
- * restricted to imports flagged "approved for re-use" (the import-approval
- * flag 11f will introduce).
+ *   approvedForReuse = true
+ *   AND data IS NOT NULL
+ *   AND (bitsCourseNumber IN (currentCodes) OR alternateCodes && currentCodes)
+ *
+ * Order by importedAt desc — most recent import wins. Result is parsed
+ * through BitsHandoutSchemaV1 so a malformed `data` JSON gracefully falls
+ * back to null (Tier 3 → empty template) rather than throwing.
+ *
+ * The 11f-b2 schema change relaxed CO/LO arrays to allow empty, so the
+ * Zod parse here also succeeds on Module-template imports with honest-
+ * empty COs/LOs. The Tier 2 banner suffix "(Module format — review
+ * CO/LO sections)" is added by `resolveAutoFetchSource()` when the
+ * import's parseWarnings indicate Module source.
  */
 async function findImportForCourse(
-  _tx: Prisma.TransactionClient,
-  _currentCodes: string[],
+  tx: Prisma.TransactionClient,
+  currentCodes: string[],
 ): Promise<ImportCandidate | null> {
-  return null;
+  if (currentCodes.length === 0) return null;
+  const row = await tx.handoutImport.findFirst({
+    where: {
+      approvedForReuse: true,
+      data: { not: Prisma.JsonNull },
+      OR: [
+        { bitsCourseNumber: { in: currentCodes } },
+        { alternateCodes: { hasSome: currentCodes } },
+      ],
+    },
+    orderBy: { importedAt: 'desc' },
+    select: {
+      id: true,
+      data: true,
+      bitsCourseNumber: true,
+      parseWarnings: true,
+    },
+  });
+  if (!row || !row.data) return null;
+  const parsed = BitsHandoutSchemaV1.safeParse(row.data);
+  if (!parsed.success) return null;
+
+  // Module-format detection — used by the banner-detail suffix. The
+  // 11f-b2 Module-template parser emits a parseWarning containing
+  // "Module template source"; presence of that warning tells the banner
+  // to add the "(Module format — review CO/LO sections)" hint.
+  const isModuleFormat = row.parseWarnings.some((w) => /module template source/i.test(w));
+
+  return {
+    importId: row.id,
+    data: parsed.data,
+    originalSemesterName: isModuleFormat ? '(corpus import — Module format)' : '(corpus import)',
+    originalCourseBitsNumber: row.bitsCourseNumber ?? '?',
+  };
 }
 
 /**

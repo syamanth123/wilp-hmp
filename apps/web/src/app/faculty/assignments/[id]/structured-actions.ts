@@ -131,6 +131,28 @@ export async function submitStructuredForReviewAction(formData: FormData) {
     return { error: `Cannot submit from status ${request.status}` };
   }
 
+  // 11f-b2 submit-time CO/LO validation. The schema (relaxed in 11f-b2)
+  // accepts empty CO/LO arrays because Module-template corpus imports
+  // genuinely lack these sections in source. But for SUBMISSION TO REVIEW
+  // both arrays must have at least one entry — same shape as the
+  // evaluation 100% rule: UI/action-layer enforcement, schema permissive.
+  // Drafts (saveStructuredDraftAction) remain allowed with empty CO/LO so
+  // faculty editing a Module import can save WIP while filling them in.
+  if (dataParse.data.partA.courseObjectives.length === 0) {
+    return {
+      error:
+        'Course Objectives required: add at least one Course Objective in Part A before submitting. ' +
+        'Drafts can be saved with empty Course Objectives, but submission for review requires at least one.',
+    };
+  }
+  if (dataParse.data.partA.learningOutcomes.length === 0) {
+    return {
+      error:
+        'Learning Outcomes required: add at least one Learning Outcome in Part A before submitting. ' +
+        'Drafts can be saved with empty Learning Outcomes, but submission for review requires at least one.',
+    };
+  }
+
   try {
     await transition({
       requestId: request.id,
