@@ -294,6 +294,10 @@ enum CorpusExtractionMethod {
   SKIPPED_SIZE
   // Legacy .doc binary or .pdf; mammoth can't parse.
   SKIPPED_FORMAT
+  // 11f-b1 finding: 5 corpus files (EE ZG613/623, POM ZG512/522, ST ZG612)
+  // use a "narrative-prose" template (Part A as colon-separated prose lines,
+  // text books as un-tabled lists). Different parser path; out of scope here.
+  SKIPPED_NARRATIVE_PROSE
 }
 
 model HandoutImport {

@@ -27,6 +27,7 @@ const METHOD_TONE: Record<CorpusExtractionMethod, 'success' | 'neutral' | 'warni
   SKIPPED_MODULE: 'neutral',
   SKIPPED_SIZE: 'neutral',
   SKIPPED_FORMAT: 'neutral',
+  SKIPPED_NARRATIVE_PROSE: 'neutral',
 };
 
 const ALL_METHODS: CorpusExtractionMethod[] = [
@@ -36,6 +37,7 @@ const ALL_METHODS: CorpusExtractionMethod[] = [
   'SKIPPED_MODULE',
   'SKIPPED_SIZE',
   'SKIPPED_FORMAT',
+  'SKIPPED_NARRATIVE_PROSE',
 ];
 
 interface PageProps {

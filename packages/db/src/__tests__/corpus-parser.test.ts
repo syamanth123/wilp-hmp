@@ -15,11 +15,13 @@ const F2 = fixture('f2-hhsm-swap.docx');
 const F3 = fixture('f3-module-template.docx');
 const F4 = fixture('f4-modular-content.docx');
 const F5 = fixture('f5-malformed.docx');
+const F6 = fixture('f6-real-corpus-shape.docx');
+const F7 = fixture('f7-narrative-prose.docx');
 
 // Guard: if the fixtures haven't been generated (e.g. fresh checkout without
 // the post-install run), the whole suite probe-skips with a helpful message
 // rather than failing per-test.
-const ready = [F1, F2, F3, F4, F5].every(existsSync);
+const ready = [F1, F2, F3, F4, F5, F6, F7].every(existsSync);
 const itIfReady = ready ? it : it.skip;
 
 if (!ready) {
@@ -157,6 +159,80 @@ describe('corpus parser — Tier 3 FAILED (F5)', () => {
   itIfReady('text-fallback finds no normalizable course number', async () => {
     const r = await parseDocxFile(F5);
     expect(r.bitsCourseNumber).toBeNull();
+  });
+});
+
+describe('corpus parser — Tier 1 real-corpus shape (F6) — 11f-b1 correctness fix', () => {
+  // F6 mimics the AEL ZG631 golden shape that 11f-a's parser missed:
+  // - CO header "No | Course Objective" (not "Code | ...")
+  // - T/R tables with NO header row (data rows only)
+  // - LO label with ": Students will be able to" suffix
+  // - Course Description as <p><strong>...</strong>prose</p>, not in Part A table
+
+  itIfReady(
+    'returns MAMMOTH_STRUCTURED with full content extracted (no placeholder warnings)',
+    async () => {
+      const r = await parseDocxFile(F6);
+      expect(r.extractionMethod).toBe('MAMMOTH_STRUCTURED');
+      expect(r.data).not.toBeNull();
+      expect(r.warnings).toEqual([]);
+    },
+  );
+
+  itIfReady('extracts CO codes from a "No | Course Objective" header (not "Code")', async () => {
+    const r = await parseDocxFile(F6);
+    expect(r.data!.partA.courseObjectives.map((c) => c.code)).toEqual(['CO1', 'CO2']);
+    expect(r.data!.partA.courseObjectives[0]!.description).toContain('No');
+  });
+
+  itIfReady('extracts T-book rows from a no-header table (data-row-only)', async () => {
+    const r = await parseDocxFile(F6);
+    expect(r.data!.partA.textBooks.map((c) => c.code)).toEqual(['T1', 'T2']);
+    expect(r.data!.partA.textBooks[0]!.citation).toContain('Real Corpus Authority, Vol 1');
+  });
+
+  itIfReady('extracts R-book rows from a no-header table', async () => {
+    const r = await parseDocxFile(F6);
+    expect(r.data!.partA.referenceBooks.map((c) => c.code)).toEqual(['R1']);
+  });
+
+  itIfReady(
+    'extracts LO codes when the label has the "Students will be able to" suffix',
+    async () => {
+      const r = await parseDocxFile(F6);
+      expect(r.data!.partA.learningOutcomes.map((c) => c.code)).toEqual(['LO1', 'LO2']);
+    },
+  );
+
+  itIfReady(
+    'extracts Course Description from the <p>Course Description: prose</p> paragraph form',
+    async () => {
+      const r = await parseDocxFile(F6);
+      expect(r.data!.partA.courseDescription).toContain('real-corpus structure');
+      expect(r.data!.partA.courseDescription).toContain('AEL ZG631');
+    },
+  );
+});
+
+describe('corpus parser — narrative-prose template (F7) — 11f-b1', () => {
+  // Survey B finding: 5 corpus files use a "narrative-prose" template with
+  // colon-separated Part A lines and un-tabled text books. Out of scope for
+  // 11f-b1; parser returns SKIPPED_NARRATIVE_PROSE with the course number.
+
+  itIfReady('returns SKIPPED_NARRATIVE_PROSE with data: null', async () => {
+    const r = await parseDocxFile(F7);
+    expect(r.extractionMethod).toBe('SKIPPED_NARRATIVE_PROSE');
+    expect(r.data).toBeNull();
+  });
+
+  itIfReady('extracts the course number from the colon-prose line', async () => {
+    const r = await parseDocxFile(F7);
+    expect(r.bitsCourseNumber).toBe('NP ZG999');
+  });
+
+  itIfReady('emits a warning naming the template as out-of-scope', async () => {
+    const r = await parseDocxFile(F7);
+    expect(r.warnings.some((w) => /Narrative-prose template/i.test(w))).toBe(true);
   });
 });
 
