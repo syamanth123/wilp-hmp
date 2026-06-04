@@ -104,7 +104,7 @@ When adding a notify/action, pick the category and the queueing decision is forc
 
 **Synthetic test fixtures must be validated structurally against real source files before being trusted (Prompt 11f-b1).** When parsing external data formats (e.g. `.docx` corpus files), the synthetic fixtures used in unit tests must mirror the shape of real source files — NOT just whatever shape the fixture-generation library produces by default. Without validation, fixtures encode the test author's assumptions; tests pass against those assumptions; the parser then fails in production against the actual data shape. 11f-a learned this the hard way: synthetic `.docx` fixtures generated via the `docx` library produced "label-paragraph-then-table" structure, but real BITS corpus `.docx` (via mammoth's HTML output) has "label-cell-as-first-row-of-table", no-header-row T/R tables, suffix-bearing LO labels, paragraph-form Course Description, rowspan'd Evaluation EC cells, and bullet-list sub-topic cells. The 95.3% MAMMOTH_STRUCTURED rate reported in 11f-a was misleading — every import had placeholder warnings for CO/LO/T-books/Evaluation because the parser's table finders, trained on the synthetic shape, missed the real shape entirely. The fix: before writing a fixture, read at least one real source file's raw output (e.g. `mammoth.convertToHtml(realFile).value`) and design the fixture to match. The `f6-real-corpus-shape.docx` fixture added in 11f-b1 is the precedent — its docstring documents which real-corpus differences it exercises. Section §5 below documents the 11f-a → 11f-b1 corrections in detail.
 
-### Corpus import (Prompts 11f-a + 11f-b1)
+### Corpus import (Prompts 11f-a + 11f-b1 + 11f-b2)
 
 The corpus parser ([packages/db/src/corpus-import/parser.ts](../packages/db/src/corpus-import/parser.ts)) converts a BITS WILP `.docx` handout into a `BitsHandoutV1` via three tiers, in order:
 
@@ -144,7 +144,33 @@ Plus three Part B / Evaluation fixes:
 8. **Evaluation EC cells use HTML `rowspan="2"`** when an EC has multiple sub-components — second-row data appears with one fewer cell. Parser detects rows whose first cell isn't an EC code and inherits the previous EC, shifting cell indices.
 9. **Sub-topics rendered as `<ul><li>X</li><li>Y</li></ul>`** within table cells. Parser inserts `"; "` between `<li>` boundaries before tag-stripping, preserving the bullet structure per the schema's canonical `"; "` join contract.
 
-### Auto-fetch cascade for new handouts (Prompt 11e)
+**11f-b2 parser fixes (Survey D — second wave of real-corpus correctness work).** Survey D revealed three more shapes the 11f-b1 parser missed:
+
+10. **Eval header is "No | Name | Type | Duration | Weight | Day, Date, Session, Time"** in most real corpus files. Two issues vs synthetic fixtures: col0 is "No" (not "Evaluation Component" or "EC No."); **column order is Duration BEFORE Weight** (synthetic had Weight before Duration). `parseEvaluationTable` now detects column positions from the header row instead of hard-coding indices.
+11. **Part B header is "Contact Hour | List of Topic | Sub-Topics | Reference"** in the AEL/AE family (not "Contact Session"). Header regex accepts both. Also supports "Content Structure:" label paragraph as a label-after-paragraph fallback for QM-style files.
+12. **Module-template Part A** uses "Course ID No." (not "Course No(s)"), "Lead Instructor" (not "Instructor"), "Academic Term" (not "Date"). `extractPartAHeader` accepts both label sets; `findPartAHeaderTable` accepts either form when locating the Part A table.
+
+**11f-b2 Module-template honest-empty mapping (replaces 11f-b1's SKIPPED_MODULE).** The Module template (8 EE files + PE ZC321 — 9 of 384) fundamentally lacks Course Objectives and Learning Outcomes in source (per-module Objectives only). Per the planner decision, the 11f-b2 parser produces a Zod-valid `BitsHandoutV1` with:
+
+- `partA.courseObjectives = []` + parseWarning naming the source gap
+- `partA.learningOutcomes = []` + parseWarning naming the source gap
+- `partA.courseDescription`, T-book, R-book, Evaluation extracted from the Module template's standard sections
+- `partB.sessions` populated from the per-module "Self-Study & Contact Session Plan" tables (each `Topic No. | Topic Title | Reference` row → one session, with the preceding "Module Title:" used as the topic prefix)
+
+**Schema relaxation (Prompt 11f-b2 — corpus discipline correction).** `BitsHandoutSchemaV1.partA.courseObjectives` and `partA.learningOutcomes` had `.min(1)` constraints in 11a. Surveyed Module-template files genuinely lack these sections in source; corpus-validated discipline (audit §5) says the schema follows the data. Both arrays now accept empty (the schema change is backward-compatible because all existing rows have length ≥ 1).
+
+**Submit-time CO/LO validation (UI-only enforcement, schema permissive).** Empty CO/LO arrays are allowed in `saveStructuredDraftAction` (drafts WIP — faculty can save a Module import partially-filled across sessions) but rejected in `submitStructuredForReviewAction` with a faculty-facing message naming the missing section. The editor's Submit button is disabled with a `title` tooltip when either array is empty. Same shape as the evaluation 100% rule (UI/action enforcement, schema representational). The discipline: schema represents what _can_ exist; UI enforces what _should_ exist at submit time.
+
+**Approval workflow (Prompt 11f-b2).** Admin curates which imports surface to faculty via Tier 2 auto-fetch. Two paths:
+
+- **Bulk-approve.** Two-step server actions: `countBulkApproveEligibleAction()` returns the eligible count + first 10 course numbers (no mutations) for a confirmation dialog. `bulkApproveEligibleAction()` does the actual UPDATE. Eligibility filter: `extractionMethod = MAMMOTH_STRUCTURED AND parseWarnings.length <= 1 AND bitsCourseNumber IS NOT NULL AND approvedForReuse = false`. The two-step shape catches state-sync drift between dialog open and confirm — the action result reports the count actually updated; the dialog count was pre-flight.
+- **Per-row.** `approveImportAction(id)` / `rejectImportAction(id)` for individual rows. Approve has no eligibility gate — admin judgment overrides the bulk filter. Reject deletes the row.
+
+**Course-row reconciliation (Option 3 — Tier 2 queries HandoutImport directly).** The auto-fetch Tier 2 query doesn't require a matching `Course` row. Imports surface based on `bitsCourseNumber` overlap regardless of whether a Course row exists. The admin UI shows a "Course row not found — create it?" link per import that lacks a match; the link deep-links to `/admin/programmes?prefillCode=…&prefillTitle=…` with the form pre-filled. Three independent actions (approve, create-course, neither) each one click.
+
+**Tier 2 banner detail format** (`apps/web/src/lib/handout-auto-fetch.ts`): `Imported corpus handout: <courseCode>` with optional `(Module format — review CO/LO sections)` suffix when the source import has the "Module template source" parseWarning. Faculty sees the source course identity + a Module-specific hint when applicable.
+
+### Auto-fetch cascade for new handouts (Prompt 11e + Tier 2 wiring in 11f-b2)
 
 When faculty clicks "Start editing", `startEditingAction` walks a three-tier cascade to pre-populate the structured editor's initial version. Implementation in [`apps/web/src/lib/handout-auto-fetch.ts`](../apps/web/src/lib/handout-auto-fetch.ts) (pure resolver + DB wrapper + Tier 2 stub).
 
@@ -297,6 +323,32 @@ Prompt 11a defined the schema; **Prompt 11f** builds the `.docx → BitsHandoutV
 The sweep is a **proxy** for "would a faithful parser find the required fields", kept only until 11f exists. When the real parser lands, replace the section-presence regex with `BitsHandoutSchemaV1.safeParse(parse(docx))` and raise the threshold (the proxy's ~88% should become ≥95% once tables/runs/synonyms are handled).
 
 **11f-a → 11f-b1 honest correction (2026-06-02).** 11f-a reported 286/418 = 68.4% (or 95.3% of attempted-parse files) producing `MAMMOTH_STRUCTURED` data. The metric was measured against "produced Zod-valid `BitsHandoutV1`" but NOT against "extracted meaningful content from all sections." Survey C in 11f-b1 revealed all 286 imports carried placeholder warnings for CO/LO/T-books/Evaluation — the parser was generating placeholder rows for those sections because its table finders, designed against the synthetic-fixture shape, missed the real-corpus shape entirely. Root cause: the synthetic `.docx` fixtures (generated via the `docx` library) used "label-paragraph-then-table" structure; real BITS corpus (via mammoth's HTML output) uses "label-cell-as-first-row-of-table" plus several other variations. The fixture-to-real gap was invisible until the warning-count breakdown was inspected. 11f-b1 fixes 9 specific parser correctness issues (audit §1 has the list) and re-imports the corpus. Post-fix: 92 of 286 imports have zero parseWarnings, 114 have a single warning — **206 of 286 (72%) are now bulk-approve eligible** with real content extracted, not placeholders. The 11f-b1 audit §1 convention "Synthetic test fixtures must be validated structurally against real source files before being trusted" exists to prevent this class of failure recurring.
+
+**11f-b2 final corpus distribution (2026-06-04).** Survey D in 11f-b2 sampled the 47 Evaluation-missing + 103 Part-B-missing files and identified three more parser fixes. The Module template (9 files) got an honest-empty mapping (CO/LO arrays empty per the schema relaxation, populated Part A/B/Evaluation, parseWarnings naming the source gap). Post-11f-b2 corpus re-import (418 files):
+
+| Method                  | Count | % of 418 |
+| ----------------------- | ----: | -------: |
+| MAMMOTH_STRUCTURED      |   294 |    70.3% |
+| SKIPPED_NARRATIVE_PROSE |     5 |     1.2% |
+| FAILED                  |     1 |     0.2% |
+| SKIPPED_SIZE            |    84 |    20.1% |
+| SKIPPED_FORMAT          |    34 |     8.1% |
+
+Of attempted-parse files (excluding pre-flight skips): **294/300 = 98.0% success rate.** Bulk-approve eligible (≤1 parseWarning): **230 of 287 = 78%** (up from 0 in 11f-a and 206 in 11f-b1).
+
+Per-warning evolution across 11f-a → 11f-b1 → 11f-b2:
+
+| Warning                           |   11f-a |  11f-b1 |       11f-b2 |
+| --------------------------------- | ------: | ------: | -----------: |
+| "Course Objectives missing"       |     286 |      24 |           24 |
+| "Learning Outcomes missing"       |     286 |      25 |           25 |
+| "Text Books missing"              |     286 |      15 | (consistent) |
+| **"Evaluation Scheme missing"**   | **286** |  **47** |        **0** |
+| **"Part B sessions missing"**     | **281** | **103** |       **50** |
+| "Modular Content section ignored" |      94 |      94 |           94 |
+| "HHSM-style swap"                 |      16 |      16 |           16 |
+
+Final FAILED (1): the EE_ZG521 file with the malformed filename `EE ZG521COURSE HANDOUT.docx` (no space between code and "COURSE"). The remaining "Part B missing" 50 files are the AE_ZG614-shape multi-table-per-session-range pattern Survey D classified as accept-with-warning — a future prompt could add a dedicated parser path if scope warrants.
 
 **Corpus-test threshold transition (why 85% is defensible).** The committed threshold in [handout-schema-corpus.test.ts](../packages/db/src/__tests__/handout-schema-corpus.test.ts) is **85%** — calibrated to the proxy parser's structural ceiling (regex over flattened XML), _not_ the schema's correctness. The schema currently fits **100% of corpus content that the proxy can extract**; the 12.3% gap is the parser's, not the schema's. **Prompt 11f's deliverable includes raising the threshold to 95% with the mammoth-based structured parser.** Read six months from now, the 85% is not "we settled" — it is "the test currently measures the proxy, and the schema isn't the bottleneck."
 

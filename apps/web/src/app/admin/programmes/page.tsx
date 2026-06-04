@@ -1,15 +1,36 @@
 import { prisma } from '@hmp/db';
-import { Badge, Card, CardContent, CardHeader, CardTitle, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@hmp/ui';
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@hmp/ui';
 import { ProgrammeCreateForm } from './programme-form';
 import { CourseCreateForm } from './course-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ProgrammesPage() {
+interface PageProps {
+  searchParams?: { prefillCode?: string; prefillTitle?: string };
+}
+
+export default async function ProgrammesPage({ searchParams }: PageProps) {
   const [programmes, courses] = await Promise.all([
     prisma.programme.findMany({ orderBy: { code: 'asc' }, include: { semesters: true } }),
     prisma.course.findMany({ orderBy: { code: 'asc' } }),
   ]);
+  // 11f-b2: the /admin/corpus-imports admin page links to this page with
+  // `?prefillCode=…&prefillTitle=…` when an import lacks a matching Course
+  // row. CourseCreateForm reads these as defaultValue on the inputs.
+  const defaultCode = searchParams?.prefillCode;
+  const defaultTitle = searchParams?.prefillTitle;
 
   return (
     <div className="space-y-6">
@@ -42,7 +63,11 @@ export default async function ProgrammesPage() {
                     ))}
                   </TableCell>
                   <TableCell>
-                    {p.active ? <Badge variant="success">Active</Badge> : <Badge variant="destructive">Inactive</Badge>}
+                    {p.active ? (
+                      <Badge variant="success">Active</Badge>
+                    ) : (
+                      <Badge variant="destructive">Inactive</Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -51,7 +76,7 @@ export default async function ProgrammesPage() {
         </CardContent>
       </Card>
 
-      <CourseCreateForm />
+      <CourseCreateForm defaultCode={defaultCode} defaultTitle={defaultTitle} />
 
       <Card>
         <CardHeader>
@@ -74,7 +99,11 @@ export default async function ProgrammesPage() {
                   <TableCell>{c.title}</TableCell>
                   <TableCell>{c.credits}</TableCell>
                   <TableCell>
-                    {c.active ? <Badge variant="success">Active</Badge> : <Badge variant="destructive">Inactive</Badge>}
+                    {c.active ? (
+                      <Badge variant="success">Active</Badge>
+                    ) : (
+                      <Badge variant="destructive">Inactive</Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

@@ -443,6 +443,74 @@ function buildNarrativeProseDocx(): Document {
 
 // ---- Run ----
 
+/**
+ * F8 — Real-corpus Eval/PartB header variants (Prompt 11f-b2, Survey D).
+ *
+ * Mimics the dominant real-corpus shapes Survey D identified that 11f-b1's
+ * parser missed:
+ *
+ *   - Part B header `Contact Hour | List of Topic | Sub-Topics | Reference`
+ *     (AEL_ZG554 family — "Contact Hour" not "Contact Session").
+ *   - Evaluation header `No | Name | Type | Duration | Weight | Day, Date, ...`
+ *     (most of the corpus — "No" col0 not "Evaluation Component"; column
+ *     order Duration BEFORE Weight, the OPPOSITE of synthetic-fixture order).
+ *
+ * Parser should produce MAMMOTH_STRUCTURED with full Part B + Evaluation
+ * extraction (no placeholder warnings for those sections).
+ */
+function buildRealEvalAndPartBDocx(): Document {
+  return new Document({
+    creator: 'HMP Corpus Fixture Generator',
+    title: 'F8 real eval and partb',
+    sections: [
+      {
+        children: [
+          p('Birla Institute of Technology & Science, Pilani'),
+          p('Work Integrated Learning Programmes Division'),
+          p('First Semester 2025-2026'),
+          p('Digital Learning Handout'),
+          p('Part A: Content Design'),
+          labeledTable([
+            row('Course Title', 'Real Eval/PartB Shape Test'),
+            row('Course No(s)', 'RE ZG999'),
+            row('Credit Units', '3'),
+            row('Credit Model', '3-1-1'),
+            row('Instructors', 'Dr. Real Faculty'),
+            row('Date:', '6 Jan 2026'),
+          ]),
+          p('Course Description: Tests the Survey-D real-corpus Eval/PartB header variants.'),
+          p('Course Objectives'),
+          labeledTable([
+            row('No', 'Course Objective'),
+            row('CO1', 'Real-corpus Eval header detection'),
+            row('CO2', 'Real-corpus Part B header detection'),
+          ]),
+          p('Text Book(s):'),
+          labeledTable([row('T1', 'Real corpus authority on Eval/PartB shapes')]),
+          p('Learning Outcomes:'),
+          labeledTable([row('LO1', 'Parse Contact-Hour headers correctly')]),
+          // PART B with "Contact Hour" col0 (AEL ZG554-style).
+          p('Part B: Learning Plan'),
+          labeledTable([
+            row('Contact Hour', 'List of Topic', 'Sub-Topics', 'Reference'),
+            row('1', 'Real-corpus header detection', 'Eval; Part B', 'T1 Ch.1'),
+            row('2', 'Column-position handling', 'Duration before Weight', 'T1 Ch.2'),
+          ]),
+          // EVAL with "No" col0 and Duration BEFORE Weight (real-corpus order).
+          p('Evaluation Scheme'),
+          labeledTable([
+            row('No', 'Name', 'Type', 'Duration', 'Weight', 'Day, Date, Session, Time'),
+            row('EC-1', 'Quiz', 'Online', '30m', '20', 'September 01-10, 2025'),
+            row('EC-2', 'Mid-Sem', 'Closed Book', '90m', '30', '20/09/2025 (FN)'),
+            row('EC-3', 'Compre', 'Open Book', '180m', '50', '29/11/2025 (FN)'),
+          ]),
+          p('elearn.bits-pilani.ac.in'),
+        ],
+      },
+    ],
+  });
+}
+
 const FIXTURES: Array<{ name: string; build: () => Document; description: string }> = [
   {
     name: 'f1-standard.docx',
@@ -480,6 +548,12 @@ const FIXTURES: Array<{ name: string; build: () => Document; description: string
     build: buildNarrativeProseDocx,
     description:
       'Narrative-prose template (colon-separated Part A, un-tabled books) → SKIPPED_NARRATIVE_PROSE',
+  },
+  {
+    name: 'f8-real-eval-and-partb.docx',
+    build: buildRealEvalAndPartBDocx,
+    description:
+      'Real-corpus Part B "Contact Hour" header + Eval "No" col0 with Duration-before-Weight order → MAMMOTH_STRUCTURED with full extraction',
   },
 ];
 

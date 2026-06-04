@@ -77,10 +77,16 @@ const partA = z.object({
   date: z.string(),
   courseDescription: z.string(), // HTML
   laboratoryComponent: z.string().optional(), // HTML, optional
-  courseObjectives: z.array(courseObjective).min(1),
+  // Empty arrays accepted (Prompt 11f-b2 — surveyed Module-template imports
+  // genuinely lack source COs/LOs; corpus reality contradicts a `min(1)`
+  // assumption). Submission-time business rule (≥1 CO and ≥1 LO required
+  // before SUBMITTED) lives in submitStructuredForReviewAction + the
+  // editor's submit-button tooltip — same shape as the evaluation 100% rule
+  // (UI-only enforcement, schema permissive).
+  courseObjectives: z.array(courseObjective),
   textBooks: z.array(textBook).min(1),
   referenceBooks: z.array(referenceBook), // may be empty
-  learningOutcomes: z.array(learningOutcome).min(1),
+  learningOutcomes: z.array(learningOutcome),
 });
 
 // --- Part B (session plan) ---
