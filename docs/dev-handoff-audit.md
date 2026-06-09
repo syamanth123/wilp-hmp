@@ -463,6 +463,12 @@ Classed alongside Risk 4 as **environmental, not a regression**: the flaking ite
 
 Tracked in [docs/flake-tracker.md](./flake-tracker.md) alongside m4. Trigger threshold the same as Risk 4: investigate if the rate climbs above **>1 of every 5 runs**. The merged Risk 4/5 first-attempt rate as of 11e is **2/10 = 20%** — at the threshold edge, monitoring continues, no investigation triggered yet.
 
+### Risk 6 — Verification gap: orphaned E2E specs went unnoticed (discovered in 12-a, retroactively affecting PRs #18–#21)
+
+The local "existing E2E stays green" check across the template-stack PRs implicitly trusted that the **full** E2E suite was being run. It wasn't, consistently. `m5-faculty-edit-submit` went red in **PR #18 (11e)** — once `startEditingAction` began producing a structured `HandoutVersion`, "start editing" rendered the `StructuredEditor` instead of the legacy TipTap editor, and m5's selectors (`.ProseMirror` typed-into, then a "Save version" click that now resolves to the StructuredEditor's `bits-save-button`, which the 11d-b eval-100% rule disables on an empty-eval template) became obsolete. The spec was effectively orphaned by a default-path change. It stayed red **unnoticed through PRs #18, #19, #20, #21** because each PR's verification focused on m10 (the structured spec) and didn't re-run / notice m5. The account-level CI hold (see below) means no automated regression surfaced it either.
+
+**Discipline correction.** A PR touching a workflow path must **explicitly enumerate which E2E specs exercise that path and confirm each one's state — pass, OR documented "red since PR #N" with the attribution.** Don't report "all existing specs green" without naming what "all" is; "green" against a subset that silently shrank as default paths changed is how m5 hid for four PRs. When CI returns, a full-suite run on the first green CI will re-baseline every spec; until then, the enumerate-and-confirm step is the manual substitute. (12-a found this by investigating an m5 failure rather than patching the spec; m5's repair is scheduled for 12-b's E2E pass, where its fate — rewrite as the ConvertBanner-path spec, fold into m10, or delete — is decided.)
+
 ### CI gap (post-PR-#15)
 
 Starting **2026-06-01**, GitHub Actions runs on this repo's branches began failing at the runner-allocation step with `startup_failure` (no logs; runner never came up). Root cause: **account-level Actions hold** stemming from an unpaid balance accrued during prior private-repo CI usage. Standard mitigations attempted:
