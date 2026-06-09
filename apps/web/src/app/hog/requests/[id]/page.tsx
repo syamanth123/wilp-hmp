@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { prisma, HandoutStatus, FacultyType, resolveHandoutHtml } from '@hmp/db';
+import { prisma, HandoutStatus, FacultyType, RoleName, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
@@ -13,7 +13,7 @@ import { listFacultyForAllocation } from '@/lib/faculty-load';
 import { listVersions } from '@/lib/handout-versioning';
 import { recommendFaculty, type RecommendationResult } from '@hmp/ai';
 import { QualityReportCard } from '@/components/quality-report-card';
-import { AllocationPanel, type FacultyChoice } from './allocation-panel';
+import { AllocationPanel, type FacultyChoice, type SmeChoice } from './allocation-panel';
 import { FinalApprovalPanel } from './approval-panel';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
@@ -44,9 +44,18 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
     3;
 
   let facultyChoices: FacultyChoice[] = [];
+  let smeChoices: SmeChoice[] = [];
   let recommendation: RecommendationResult | null = null;
   if (request.status === HandoutStatus.REQUESTED) {
-    const list = await listFacultyForAllocation(request.offering.semesterId);
+    const [list, smeUsers] = await Promise.all([
+      listFacultyForAllocation(request.offering.semesterId),
+      // Prompt 12-b: HOG designates the (mandatory) SME at allocation.
+      prisma.user.findMany({
+        where: { active: true, roles: { some: { role: { name: RoleName.SME } } } },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, email: true },
+      }),
+    ]);
     facultyChoices = list.map((f) => ({
       id: f.id,
       name: f.name,
@@ -55,6 +64,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
       loadInSemester: f.loadInSemester,
       capped: CAPPED_TYPES.has(f.facultyType) && f.loadInSemester >= cap,
     }));
+    smeChoices = smeUsers;
     try {
       recommendation = await recommendFaculty({ requestId: request.id });
     } catch {
@@ -90,6 +100,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
             <AllocationPanel
               requestId={request.id}
               faculties={facultyChoices}
+              smes={smeChoices}
               cap={cap}
               recommendation={recommendation}
             />

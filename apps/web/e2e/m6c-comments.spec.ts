@@ -36,6 +36,8 @@ test('Faculty and PC can exchange comments on a request', async ({ page }) => {
     .locator('label', { hasText: 'faculty@hmp.local' })
     .locator('input[type=checkbox]')
     .check();
+  // Prompt 12-b: SME is mandatory at allocation. Pick the first seeded SME.
+  await page.getByTestId('sme-picker').selectOption({ index: 1 });
   await page.getByRole('button', { name: /allocate/i }).click();
   await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
@@ -51,21 +53,21 @@ test('Faculty and PC can exchange comments on a request', async ({ page }) => {
   await page.getByLabel('Add a comment').fill('Please double-check Bloom alignment.');
   await page.getByRole('button', { name: /post comment/i }).click();
   await expect(page.getByLabel('Add a comment')).toHaveValue('', { timeout: 15_000 });
-  await expect(
-    page.locator('li', { hasText: 'Please double-check Bloom alignment.' }),
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('li', { hasText: 'Please double-check Bloom alignment.' })).toBeVisible(
+    { timeout: 10_000 },
+  );
   await signOut(page);
 
   // Faculty sees PC's comment and replies.
   await signIn(page, 'faculty@hmp.local');
   await page.goto(`/faculty/assignments/${requestId}`);
-  await expect(
-    page.locator('li', { hasText: 'Please double-check Bloom alignment.' }),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('li', { hasText: 'Please double-check Bloom alignment.' })).toBeVisible(
+    { timeout: 15_000 },
+  );
   await page.getByLabel('Add a comment').fill('Updated Bloom levels for objectives 2 and 3.');
   await page.getByRole('button', { name: /post comment/i }).click();
   await expect(page.getByLabel('Add a comment')).toHaveValue('', { timeout: 15_000 });
-  await expect(
-    page.locator('li', { hasText: 'Updated Bloom levels' }),
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('li', { hasText: 'Updated Bloom levels' })).toBeVisible({
+    timeout: 10_000,
+  });
 });

@@ -35,11 +35,23 @@ const DEFAULT_CONTENT_JSON: Prisma.InputJsonValue = {
   type: 'doc',
   content: [
     { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Course Handout' }] },
-    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Part A — Course Description' }] },
+    {
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [{ type: 'text', text: 'Part A — Course Description' }],
+    },
     { type: 'paragraph', content: [{ type: 'text', text: 'Fixture content for E2E.' }] },
-    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Part B — Course Plan' }] },
+    {
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [{ type: 'text', text: 'Part B — Course Plan' }],
+    },
     { type: 'paragraph' },
-    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Evaluative Components' }] },
+    {
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [{ type: 'text', text: 'Evaluative Components' }],
+    },
     { type: 'paragraph' },
   ],
 };
@@ -62,8 +74,9 @@ export interface SeedHandoutOptions {
    *  realistically exist for a real request at that point in the workflow.
    *  IN_PROGRESS is identical to ASSIGNED in seeded shape — faculty has started
    *  editing (the fixture already always creates an initial HandoutVersion) so
-   *  comments are available, which the SME-response flow needs. */
-  status: 'ASSIGNED' | 'IN_PROGRESS' | 'APPROVED' | 'PUBLISHED';
+   *  comments are available. SME_REVIEW additionally creates the SmeAssignment
+   *  (Prompt 12-b) so the handout sits in the assigned SME's approval queue. */
+  status: 'ASSIGNED' | 'IN_PROGRESS' | 'SME_REVIEW' | 'APPROVED' | 'PUBLISHED';
   /** IC user email (defaults to the seeded `ic@hmp.local`). */
   initiatorEmail?: string;
   /** Faculty user email (defaults to the seeded `faculty@hmp.local`). */
@@ -72,6 +85,10 @@ export interface SeedHandoutOptions {
   hogEmail?: string;
   /** PC user email for PC_REVIEW approval. */
   pcEmail?: string;
+  /** SME user email (Prompt 12-b). Required in practice for SME_REVIEW — the
+   *  SmeAssignment is created when this is set (defaults to `sme@hmp.local`
+   *  whenever status is SME_REVIEW so the queue/detail pages resolve an SME). */
+  smeEmail?: string;
 }
 
 export interface SeededHandout {
@@ -94,6 +111,7 @@ export interface SeededHandout {
  *                                 simplicity, even for ASSIGNED where real
  *                                 requests wouldn't have one yet)
  *   FacultyAssignment            (acceptedAt set)
+ *   SmeAssignment                — SME_REVIEW (or when smeEmail is passed)
  *   Approval HOG_REVIEW APPROVED — always (HOG allocated)
  *   Approval PC_REVIEW  APPROVED — always (PC confirmed)
  *   Approval HOG_FINAL  APPROVED — APPROVED + PUBLISHED only
@@ -109,11 +127,18 @@ export async function seedHandoutAtStatus(opts: SeedHandoutOptions): Promise<See
   const hogEmail = opts.hogEmail ?? 'hog@hmp.local';
   const pcEmail = opts.pcEmail ?? 'pc@hmp.local';
 
-  const [ic, faculty, hog, pc] = await Promise.all([
+  // SME assignment is created for SME_REVIEW (defaulting the email) or whenever
+  // an smeEmail is explicitly passed.
+  const smeEmail = opts.smeEmail ?? (opts.status === 'SME_REVIEW' ? 'sme@hmp.local' : undefined);
+
+  const [ic, faculty, hog, pc, sme] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { email: initiatorEmail } }),
     prisma.user.findUniqueOrThrow({ where: { email: facultyEmail } }),
     prisma.user.findUniqueOrThrow({ where: { email: hogEmail } }),
     prisma.user.findUniqueOrThrow({ where: { email: pcEmail } }),
+    smeEmail
+      ? prisma.user.findUniqueOrThrow({ where: { email: smeEmail } })
+      : Promise.resolve(null),
   ]);
 
   const offering = await prisma.courseOffering.findFirst({
@@ -136,9 +161,11 @@ export async function seedHandoutAtStatus(opts: SeedHandoutOptions): Promise<See
       ? HandoutStatus.PUBLISHED
       : opts.status === 'APPROVED'
         ? HandoutStatus.APPROVED
-        : opts.status === 'IN_PROGRESS'
-          ? HandoutStatus.IN_PROGRESS
-          : HandoutStatus.ASSIGNED;
+        : opts.status === 'SME_REVIEW'
+          ? HandoutStatus.SME_REVIEW
+          : opts.status === 'IN_PROGRESS'
+            ? HandoutStatus.IN_PROGRESS
+            : HandoutStatus.ASSIGNED;
   const facultyType = faculty.facultyType ?? FacultyType.ON_CAMPUS;
   const now = new Date();
 
@@ -188,10 +215,23 @@ export async function seedHandoutAtStatus(opts: SeedHandoutOptions): Promise<See
       },
     });
 
+    // SmeAssignment (Prompt 12-b) — the designated SME for this handout. The
+    // HOG assigns it at allocation; the fixture stands in for that step.
+    if (sme) {
+      await tx.smeAssignment.create({
+        data: {
+          requestId: request.id,
+          smeUserId: sme.id,
+          assignedById: hog.id,
+        },
+      });
+    }
+
     // Upstream approvals — HOG_REVIEW + PC_REVIEW always present (true
     // from ASSIGNED onwards). HOG_FINAL only after the review cycle,
-    // so APPROVED + PUBLISHED only.
-    const approvals = [
+    // so APPROVED + PUBLISHED only. Explicitly typed so the conditional
+    // HOG_FINAL push below doesn't fight the array's inferred literal type.
+    const approvals: Prisma.ApprovalCreateManyInput[] = [
       {
         requestId: request.id,
         stage: ApprovalStage.HOG_REVIEW,

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { WorkflowError } from '@hmp/workflow';
+import { notifyTransition } from '@/lib/notifications';
 import { smeApprove, smeRevert, SmeReviewError } from './sme-review';
 
 /**
@@ -48,6 +49,15 @@ export async function smeApproveAction(formData: FormData) {
     throw err;
   }
 
+  // Notify faculty + IC + PC that the handout cleared the SME gate (recipients
+  // resolved per-event in computeRecipients). Best-effort: notifyTransition
+  // swallows its own failures, so a notification hiccup never fails the action.
+  await notifyTransition({
+    requestId: parsed.data.requestId,
+    event: 'SME_APPROVED',
+    actor: { id: me.id, name: me.name },
+  });
+
   revalidate(parsed.data.requestId);
   return { ok: true };
 }
@@ -68,6 +78,13 @@ export async function smeRevertAction(formData: FormData) {
     }
     throw err;
   }
+
+  // Notify faculty + IC that the SME sent the handout back for changes.
+  await notifyTransition({
+    requestId: parsed.data.requestId,
+    event: 'SME_REVERTED',
+    actor: { id: me.id, name: me.name },
+  });
 
   revalidate(parsed.data.requestId);
   return { ok: true };

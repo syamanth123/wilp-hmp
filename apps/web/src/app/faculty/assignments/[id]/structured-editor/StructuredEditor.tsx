@@ -118,7 +118,9 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
 
   if (submitted) {
     return (
-      <p className="text-sm text-emerald-600">Submitted. The PC will now review your handout.</p>
+      <p className="text-sm text-emerald-600">
+        Submitted. Your Subject Matter Expert will review it first.
+      </p>
     );
   }
 

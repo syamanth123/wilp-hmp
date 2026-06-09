@@ -30,36 +30,6 @@ export async function processNotification(job: Job<NotifyJob>): Promise<void> {
         commentId: d.commentId,
         actor: d.actor,
       });
-    case 'sme_nominated':
-      return notify.dispatchSmeNomination({
-        requestId: d.requestId,
-        nominationId: d.nominationId,
-        smeUserId: d.smeUserId,
-        topic: d.topic,
-        actor: d.actor,
-      });
-    case 'sme_accepted':
-      return notify.dispatchSmeAccepted({
-        requestId: d.requestId,
-        nominationId: d.nominationId,
-        smeUserId: d.smeUserId,
-        actor: d.actor,
-      });
-    case 'sme_declined':
-      return notify.dispatchSmeDeclined({
-        requestId: d.requestId,
-        nominationId: d.nominationId,
-        smeUserId: d.smeUserId,
-        reason: d.reason,
-        actor: d.actor,
-      });
-    case 'sme_completed':
-      return notify.dispatchSmeCompleted({
-        requestId: d.requestId,
-        nominationId: d.nominationId,
-        smeUserId: d.smeUserId,
-        actor: d.actor,
-      });
     case 'publish_export_ready':
       return notify.dispatchPublishExportReady({ requestId: d.requestId, actor: d.actor });
     case 'manually_published':

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { Job} from 'bullmq';
+import type { Job } from 'bullmq';
 import { UnrecoverableError } from 'bullmq';
 import { notifyJobId, type NotifyJob } from '../src/job-types';
 import { wrapProcessor, PermanentJobError } from '../src/worker-factory';
@@ -12,28 +12,6 @@ describe('notifyJobId — dedup key construction', () => {
   it('keys comment jobs on the unique commentId', () => {
     const job: NotifyJob = { kind: 'comment', requestId: 'r1', commentId: 'c1', actor };
     expect(notifyJobId(job)).toBe('notify:comment:c1');
-  });
-
-  it('keys SME jobs on the unique nominationId', () => {
-    expect(
-      notifyJobId({
-        kind: 'sme_nominated',
-        requestId: 'r1',
-        nominationId: 'n1',
-        smeUserId: 's1',
-        topic: 't',
-        actor,
-      }),
-    ).toBe('notify:sme_nominated:n1');
-    expect(
-      notifyJobId({
-        kind: 'sme_accepted',
-        requestId: 'r1',
-        nominationId: 'n1',
-        smeUserId: 's1',
-        actor,
-      }),
-    ).toBe('notify:sme_accepted:n1');
   });
 
   it('keys manually_published on requestId (published once)', () => {

@@ -10,7 +10,10 @@ async function signIn(page: import('@playwright/test').Page, email: string) {
 
 async function signOut(page: import('@playwright/test').Page) {
   await page.goto('/api/auth/signout');
-  await page.getByRole('button', { name: /sign out/i }).click().catch(() => {});
+  await page
+    .getByRole('button', { name: /sign out/i })
+    .click()
+    .catch(() => {});
   await page.context().clearCookies();
 }
 
@@ -41,6 +44,8 @@ test('IC creates → HOG allocates → PC confirms → status ASSIGNED', async (
     .locator('label', { hasText: 'faculty@hmp.local' })
     .locator('input[type=checkbox]')
     .check();
+  // Prompt 12-b: SME is mandatory at allocation. Pick the first seeded SME.
+  await page.getByTestId('sme-picker').selectOption({ index: 1 });
   await page.getByRole('button', { name: /allocate/i }).click();
   await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
 

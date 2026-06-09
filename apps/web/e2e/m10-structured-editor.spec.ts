@@ -58,6 +58,8 @@ test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A �
     .locator('label', { hasText: 'faculty@hmp.local' })
     .locator('input[type=checkbox]')
     .check();
+  // Prompt 12-b: SME is mandatory at allocation. Pick the first seeded SME.
+  await page.getByTestId('sme-picker').selectOption({ index: 1 });
   await page.getByRole('button', { name: /allocate/i }).click();
   await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);

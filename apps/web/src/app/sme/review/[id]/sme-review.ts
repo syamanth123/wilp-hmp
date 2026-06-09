@@ -5,8 +5,8 @@ import { transition, WorkflowError } from '@hmp/workflow';
  * SME approval-workflow business logic (Prompt 12-a). Separated from the
  * server-action layer (auth + revalidate live in actions.ts) so the core
  * approve/revert behavior is integration-testable with a real actor object
- * and no NextAuth context — same split as createSmeNomination /
- * sme-response.ts.
+ * and no NextAuth context — the same helper/action split the PC and HOG
+ * review actions use.
  *
  * Both helpers drive `transition()`:
  *   - smeApprove: SME_REVIEW → SUBMITTED (SME_APPROVED event). PC's existing

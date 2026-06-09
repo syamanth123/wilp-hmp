@@ -2,7 +2,8 @@ import { notFound, redirect } from 'next/navigation';
 import {
   HandoutStatus,
   RoleName,
-  SmeNominationStatus,
+  ApprovalStage,
+  ApprovalDecision,
   prisma,
   resolveHandoutHtml,
   BitsHandoutSchemaV1,
@@ -16,7 +17,6 @@ import { HandoutViewer } from '@/components/handout-viewer';
 import { VersionList } from '@/components/version-list';
 import { VersionDiff } from '@/components/version-diff';
 import { CommentThread } from '@/components/comment-thread';
-import { SmeAdvisoryPanel } from '@/components/sme-advisory-panel';
 import { loadHandoutForFaculty, listVersions } from '@/lib/handout-versioning';
 import { QualityReportCard } from '@/components/quality-report-card';
 import { AcceptPanel } from './accept-panel';
@@ -25,11 +25,6 @@ import { EditorPanel } from './editor-panel';
 import { QualityPanel } from './quality-panel';
 import { StructuredEditor } from './structured-editor/StructuredEditor';
 import { ConvertBanner } from './structured-editor/ConvertBanner';
-
-const ADVISORY_NOMINATION_STATUSES: SmeNominationStatus[] = [
-  SmeNominationStatus.ACCEPTED,
-  SmeNominationStatus.COMPLETED,
-];
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
 // for the rationale (Next.js production-build RSC caching vs revalidatePath).
@@ -85,23 +80,24 @@ export default async function FacultyAssignmentDetail({
   const versions = handout ? await listVersions(handout.id) : [];
   const showDiff = versions.length >= 2;
 
-  // SME advisors that are actively involved on this request. Listed in a
-  // small read-only panel above the comment thread so faculty know who's
-  // also weighing in. ACCEPTED + COMPLETED only — PENDING means the SME
-  // hasn't engaged yet; DECLINED is irrelevant. Separate query (not a
-  // deeper include on loadHandoutForFaculty) because that helper is shared
-  // with other paths — extending its return shape would ripple unnecessarily.
-  const advisorySmes = await prisma.smeNomination.findMany({
-    where: { requestId: request.id, status: { in: ADVISORY_NOMINATION_STATUSES } },
-    orderBy: { createdAt: 'asc' },
-    select: {
-      id: true,
-      topic: true,
-      status: true,
-      completedAt: true,
-      smeUser: { select: { name: true } },
-    },
-  });
+  // Revert banner (Prompt 12-b). When the handout is back with faculty for
+  // rework, the most recent Approval row is the revert that produced it. Its
+  // `stage` distinguishes who sent it back: SME_REVIEW = the assigned SME,
+  // PC_REVIEW = the Programme Committee. Surfaces the reason up top so faculty
+  // don't have to scroll to the comment thread to learn why.
+  const revert =
+    status === HandoutStatus.REWORK_REQUESTED
+      ? await prisma.approval.findFirst({
+          where: { requestId: request.id, decision: ApprovalDecision.REWORK },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            stage: true,
+            comments: true,
+            reviewer: { select: { name: true } },
+          },
+        })
+      : null;
+  const revertFromSme = revert?.stage === ApprovalStage.SME_REVIEW;
 
   return (
     <div className="space-y-4">
@@ -122,6 +118,29 @@ export default async function FacultyAssignmentDetail({
           <StatusBadge status={status} />
         </CardHeader>
       </Card>
+
+      {revert && (
+        <Card
+          data-testid={revertFromSme ? 'revert-banner-sme' : 'revert-banner-pc'}
+          style={{ borderColor: 'var(--warn)' }}
+        >
+          <CardHeader>
+            <CardTitle className="text-base">
+              {revertFromSme
+                ? 'Your SME requested changes'
+                : 'The Programme Committee requested changes'}
+            </CardTitle>
+            <CardDescription>
+              Sent back by {revert.reviewer.name}. Address the feedback below and resubmit.
+            </CardDescription>
+          </CardHeader>
+          {revert.comments && (
+            <CardContent>
+              <p className="whitespace-pre-wrap text-sm">{revert.comments}</p>
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {status === HandoutStatus.ASSIGNED && !assignment.acceptedAt && (
         <Card>
@@ -155,7 +174,7 @@ export default async function FacultyAssignmentDetail({
                   : 'Edit handout'}
               </CardTitle>
               <CardDescription>
-                Each save creates a new version. Submit when ready for PC review.
+                Each save creates a new version. Submit when ready for SME review.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -265,36 +284,12 @@ export default async function FacultyAssignmentDetail({
 
       {handout && <QualityReportCard handoutId={handout.id} />}
 
-      {advisorySmes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>SMEs advising on this handout</CardTitle>
-            <CardDescription>
-              Subject Matter Experts nominated by the Programme Committee. Their comments appear in
-              the discussion below.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <SmeAdvisoryPanel
-              nominations={advisorySmes.map((n) => ({
-                id: n.id,
-                topic: n.topic,
-                status: n.status as 'ACCEPTED' | 'COMPLETED',
-                completedAt: n.completedAt,
-                smeUser: n.smeUser,
-              }))}
-              commentAnchorId="comment-thread"
-            />
-          </CardContent>
-        </Card>
-      )}
-
       {handout && (
         <Card>
           <CardHeader>
             <CardTitle id="comment-thread">Discussion</CardTitle>
             <CardDescription>
-              Visible to IC, HOG, PC, the assigned faculty, and any active SME advisors.
+              Visible to IC, HOG, PC, the assigned faculty, and the assigned SME.
             </CardDescription>
           </CardHeader>
           <CardContent>

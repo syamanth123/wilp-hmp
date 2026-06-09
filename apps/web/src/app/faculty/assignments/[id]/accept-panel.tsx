@@ -20,10 +20,11 @@ export function AcceptPanel({ requestId }: { requestId: string }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Accept this assignment to begin editing the handout. The PC will be notified once you submit.
+      <p className="text-muted-foreground text-sm">
+        Accept this assignment to begin editing the handout. Your Subject Matter Expert reviews it
+        once you submit.
       </p>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-sm">{error}</p>}
       <Button onClick={accept} disabled={pending}>
         {pending ? 'Accepting…' : 'Accept assignment'}
       </Button>

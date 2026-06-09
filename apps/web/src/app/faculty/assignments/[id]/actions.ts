@@ -238,13 +238,20 @@ export async function submitForReviewAction(formData: FormData) {
     return { error: `Cannot submit from status ${request.status}` };
   }
 
-  // Prompt 12-a: opt-in SME routing (same as submitStructuredForReviewAction).
-  // SmeAssignment present → SME_REVIEW gate; absent → legacy SUBMITTED path.
+  // Prompt 12-b: SME review is mandatory (same as submitStructuredForReviewAction).
+  // Every submit routes through the SME approval gate; a missing SmeAssignment
+  // blocks submission rather than silently skipping the gate.
   const smeAssignment = await prisma.smeAssignment.findUnique({
     where: { requestId: request.id },
     select: { id: true },
   });
-  const submitEvent = smeAssignment ? 'SME_REVIEW_REQUESTED' : 'SUBMITTED';
+  if (!smeAssignment) {
+    return {
+      error:
+        'No Subject Matter Expert is assigned to this handout. Ask the Head of Group to assign one before submitting.',
+    };
+  }
+  const submitEvent = 'SME_REVIEW_REQUESTED' as const;
 
   try {
     await transition({

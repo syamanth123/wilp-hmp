@@ -1,7 +1,7 @@
 import { PrismaClient, RoleName, FacultyType, NotificationChannel } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import {
-  SME_NOTIFICATION_TEMPLATES,
+  SME_APPROVAL_TEMPLATES,
   PUBLISH_NOTIFICATION_TEMPLATES,
 } from '../src/notification-templates';
 import { normalizeBitsCourseNumber } from '../src/course-code';
@@ -399,6 +399,12 @@ async function main() {
       subject: 'You have been assigned {{refNo}}',
       body: 'Please log in to view and edit your assigned handout.',
     },
+    // handout.submitted is DORMANT post-12-b. The bare SUBMITTED event has no
+    // producer in the new workflow — faculty submit fires SME_REVIEW_REQUESTED,
+    // and SME approval fires SME_APPROVED (which lands in SUBMITTED status).
+    // Template kept defined to avoid a seed gap, but no notifications fire from
+    // it. If reactivated, review the recipient list (currently "all PCs", now
+    // redundant with the SME_APPROVED recipients).
     {
       key: 'handout.submitted',
       subject: 'Handout {{refNo}} submitted',
@@ -429,10 +435,10 @@ async function main() {
       subject: 'Handout {{refNo}} published to LMS',
       body: 'Handout {{refNo}} has been published to Taxila.',
     },
-    // SME advisory templates (Prompt 8) + Taxila publish templates (Prompt 9b).
-    // Defined in shared constants so the token-contract unit test renders
-    // byte-identical strings — see packages/db/src/notification-templates.ts.
-    ...SME_NOTIFICATION_TEMPLATES.map((t) => ({ key: t.key, subject: t.subject, body: t.body })),
+    // SME approval-gate templates (Prompt 12-b) + Taxila publish templates
+    // (Prompt 9b). Defined in shared constants so the token-contract unit test
+    // renders byte-identical strings — see packages/db/src/notification-templates.ts.
+    ...SME_APPROVAL_TEMPLATES.map((t) => ({ key: t.key, subject: t.subject, body: t.body })),
     ...PUBLISH_NOTIFICATION_TEMPLATES.map((t) => ({
       key: t.key,
       subject: t.subject,
@@ -487,77 +493,11 @@ async function main() {
     },
   });
 
-  // --- SME nomination (smoke seed; non-fatal) ---
-  // Appended after the existing seed flow. Wrapped in try/catch so a missing
-  // dependency (no SME user, no PC user, or no HandoutRequest in DB yet)
-  // surfaces as a console.warn instead of aborting the rest of the seed.
-  // The first HandoutRequest is created via the IC server action, not seeded,
-  // so on a freshly-migrated DB this block will warn and skip — the next run
-  // of `pnpm db:seed` after any IC create will succeed without further work.
-  try {
-    const [sme, pc, request] = await Promise.all([
-      prisma.user.findFirst({
-        where: { roles: { some: { role: { name: RoleName.SME } } } },
-        select: { id: true },
-      }),
-      prisma.user.findFirst({
-        where: { email: 'pc@hmp.local' },
-        select: { id: true },
-      }),
-      prisma.handoutRequest.findFirst({
-        orderBy: { createdAt: 'asc' },
-        select: { id: true },
-      }),
-    ]);
-    if (!sme || !pc || !request) {
-      console.warn(
-        '[seed] SME nomination skipped:',
-        !sme
-          ? 'no SME user found'
-          : !pc
-            ? 'no PC user found'
-            : 'no HandoutRequest exists yet (create one via IC flow then re-seed)',
-      );
-    } else {
-      // No @@unique on (requestId, smeUserId, topic), so we do a find-or-create
-      // by composite criteria to keep the seed idempotent across re-runs.
-      const existing = await prisma.smeNomination.findFirst({
-        where: {
-          requestId: request.id,
-          smeUserId: sme.id,
-          nominatedById: pc.id,
-          topic: 'Industry perspective on architectures',
-        },
-        select: { id: true },
-      });
-      if (existing) {
-        await prisma.smeNomination.update({
-          where: { id: existing.id },
-          data: { status: 'PENDING', notes: null },
-        });
-      } else {
-        await prisma.smeNomination.create({
-          data: {
-            requestId: request.id,
-            smeUserId: sme.id,
-            nominatedById: pc.id,
-            topic: 'Industry perspective on architectures',
-            status: 'PENDING',
-          },
-        });
-      }
-    }
-  } catch (err) {
-    console.warn('[seed] SME nomination upsert failed (non-fatal):', err);
-  }
-
-  // --- SME assignment (Prompt 12-a; smoke seed; non-fatal) ---
-  // Additive alongside the SME-nomination seed above (which is removed in
-  // 12-b with the SmeNomination table). Pre-assigns an SME to one demo
-  // request so the SME approval queue isn't empty when 12-b's UI lands, and
-  // so the 12-a manual walkthrough has a request whose faculty-submit routes
-  // to SME_REVIEW. Idempotent on requestId (@unique). Non-fatal: warns + skips
-  // if the dependencies aren't present on a freshly-migrated DB.
+  // --- SME assignment (Prompt 12-a/12-b; smoke seed; non-fatal) ---
+  // Pre-assigns an SME to one demo request so the SME approval queue isn't
+  // empty, and so the manual walkthrough has a request whose faculty-submit
+  // routes to SME_REVIEW. Idempotent on requestId (@unique). Non-fatal: warns
+  // + skips if the dependencies aren't present on a freshly-migrated DB.
   try {
     const [sme, hog, request] = await Promise.all([
       prisma.user.findFirst({
