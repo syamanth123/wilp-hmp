@@ -1,4 +1,5 @@
-import { FacultyType, HandoutStatus, RoleName } from '@hmp/db';
+import type { HandoutStatus} from '@hmp/db';
+import { FacultyType, RoleName } from '@hmp/db';
 import type { WorkflowEvent } from './types';
 
 /**
@@ -11,6 +12,12 @@ export const EVENT_ROLE_MATRIX: Record<WorkflowEvent['type'], RoleName[]> = {
   ASSIGNED: [RoleName.PROGRAMME_COMMITTEE],
   EDIT_STARTED: [RoleName.FACULTY],
   SUBMITTED: [RoleName.FACULTY],
+  // Prompt 12-a (SME approval workflow). Faculty fires SME_REVIEW_REQUESTED
+  // (their submit, routed to SME when an SmeAssignment exists). The SME
+  // fires the approve/revert decisions.
+  SME_REVIEW_REQUESTED: [RoleName.FACULTY],
+  SME_APPROVED: [RoleName.SME],
+  SME_REVERTED: [RoleName.SME],
   REVIEW_REWORK: [RoleName.PROGRAMME_COMMITTEE, RoleName.HOG],
   REVIEW_APPROVED: [RoleName.PROGRAMME_COMMITTEE],
   FINAL_APPROVED: [RoleName.HOG],

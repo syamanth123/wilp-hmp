@@ -238,10 +238,18 @@ export async function submitForReviewAction(formData: FormData) {
     return { error: `Cannot submit from status ${request.status}` };
   }
 
+  // Prompt 12-a: opt-in SME routing (same as submitStructuredForReviewAction).
+  // SmeAssignment present → SME_REVIEW gate; absent → legacy SUBMITTED path.
+  const smeAssignment = await prisma.smeAssignment.findUnique({
+    where: { requestId: request.id },
+    select: { id: true },
+  });
+  const submitEvent = smeAssignment ? 'SME_REVIEW_REQUESTED' : 'SUBMITTED';
+
   try {
     await transition({
       requestId: request.id,
-      event: 'SUBMITTED',
+      event: submitEvent,
       actor: { id: me.id, roles: me.roles },
       effects: async (tx, ctx) => {
         await appendVersion(
@@ -260,7 +268,7 @@ export async function submitForReviewAction(formData: FormData) {
 
   await notifyTransition({
     requestId: request.id,
-    event: 'SUBMITTED',
+    event: submitEvent,
     actor: { id: me.id, name: me.name },
   });
 

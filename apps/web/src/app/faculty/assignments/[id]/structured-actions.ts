@@ -153,10 +153,22 @@ export async function submitStructuredForReviewAction(formData: FormData) {
     };
   }
 
+  // Prompt 12-a: opt-in SME routing. When an SmeAssignment exists for this
+  // request, faculty submit routes to SME_REVIEW (the SME approval gate)
+  // instead of straight to SUBMITTED (PC's queue). 12-a keeps this opt-in so
+  // handouts allocated without an SME — including every existing E2E fixture
+  // — keep the legacy IN_PROGRESS→SUBMITTED path unchanged. 12-b makes SME
+  // mandatory at allocation and removes the legacy branch.
+  const smeAssignment = await prisma.smeAssignment.findUnique({
+    where: { requestId: request.id },
+    select: { id: true },
+  });
+  const submitEvent = smeAssignment ? 'SME_REVIEW_REQUESTED' : 'SUBMITTED';
+
   try {
     await transition({
       requestId: request.id,
-      event: 'SUBMITTED',
+      event: submitEvent,
       actor: { id: me.id, roles: me.roles },
       effects: async (tx, ctx) => {
         await appendStructuredVersion(
@@ -175,7 +187,7 @@ export async function submitStructuredForReviewAction(formData: FormData) {
 
   await notifyTransition({
     requestId: request.id,
-    event: 'SUBMITTED',
+    event: submitEvent,
     actor: { id: me.id, name: me.name },
   });
 

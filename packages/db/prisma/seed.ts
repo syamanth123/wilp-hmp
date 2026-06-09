@@ -551,6 +551,44 @@ async function main() {
     console.warn('[seed] SME nomination upsert failed (non-fatal):', err);
   }
 
+  // --- SME assignment (Prompt 12-a; smoke seed; non-fatal) ---
+  // Additive alongside the SME-nomination seed above (which is removed in
+  // 12-b with the SmeNomination table). Pre-assigns an SME to one demo
+  // request so the SME approval queue isn't empty when 12-b's UI lands, and
+  // so the 12-a manual walkthrough has a request whose faculty-submit routes
+  // to SME_REVIEW. Idempotent on requestId (@unique). Non-fatal: warns + skips
+  // if the dependencies aren't present on a freshly-migrated DB.
+  try {
+    const [sme, hog, request] = await Promise.all([
+      prisma.user.findFirst({
+        where: { roles: { some: { role: { name: RoleName.SME } } } },
+        select: { id: true },
+      }),
+      prisma.user.findFirst({
+        where: { roles: { some: { role: { name: RoleName.HOG } } } },
+        select: { id: true },
+      }),
+      prisma.handoutRequest.findFirst({
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      }),
+    ]);
+    if (!sme || !hog || !request) {
+      console.warn(
+        '[seed] SME assignment skipped:',
+        !sme ? 'no SME user found' : !hog ? 'no HOG user found' : 'no HandoutRequest exists yet',
+      );
+    } else {
+      await prisma.smeAssignment.upsert({
+        where: { requestId: request.id },
+        update: { smeUserId: sme.id, assignedById: hog.id },
+        create: { requestId: request.id, smeUserId: sme.id, assignedById: hog.id },
+      });
+    }
+  } catch (err) {
+    console.warn('[seed] SME assignment upsert failed (non-fatal):', err);
+  }
+
   console.log('Seed complete.');
 }
 

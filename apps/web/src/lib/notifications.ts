@@ -40,6 +40,12 @@ export type WorkflowEventType =
   | 'ASSIGNED'
   | 'EDIT_STARTED'
   | 'SUBMITTED'
+  // Prompt 12-a (SME approval workflow). Kept in sync with @hmp/workflow's
+  // WorkflowEvent['type'] union by hand — this local mirror exists so the
+  // notifications module doesn't depend on the workflow package's types.
+  | 'SME_REVIEW_REQUESTED'
+  | 'SME_APPROVED'
+  | 'SME_REVERTED'
   | 'REVIEW_REWORK'
   | 'REVIEW_APPROVED'
   | 'FINAL_APPROVED'
@@ -58,6 +64,14 @@ export const EVENT_TEMPLATE_KEY: Record<WorkflowEventType, string | null> = {
   ASSIGNED: 'handout.assigned',
   EDIT_STARTED: null,
   SUBMITTED: 'handout.submitted',
+  // Prompt 12-a: silent (null) for now — SME-workflow notification templates
+  // + recipient routing land in 12-b. These entries exist so the exhaustive
+  // Record compiles. notifyTransition tolerates a null template key (no-op),
+  // so firing these events in 12-a sends nothing — correct, since 12-a has
+  // no SME UI to act on a notification yet.
+  SME_REVIEW_REQUESTED: null,
+  SME_APPROVED: null,
+  SME_REVERTED: null,
   REVIEW_REWORK: 'handout.rework',
   REVIEW_APPROVED: 'handout.review_approved',
   FINAL_APPROVED: 'handout.approved',
@@ -86,6 +100,20 @@ const INLINE_FALLBACK: Record<WorkflowEventType, { subject: string; body: string
   SUBMITTED: {
     subject: 'Handout {{refNo}} submitted',
     body: 'Handout {{refNo}} is now awaiting review.',
+  },
+  // Prompt 12-a: fallback strings only (template keys are null above, so
+  // these aren't sent in 12-a). 12-b wires real templates + recipients.
+  SME_REVIEW_REQUESTED: {
+    subject: 'Handout {{refNo}} awaiting SME review',
+    body: 'Handout {{refNo}} has been submitted and is awaiting SME approval.',
+  },
+  SME_APPROVED: {
+    subject: 'SME approved {{refNo}}',
+    body: 'The SME approved {{refNo}}; it has moved to PC review.',
+  },
+  SME_REVERTED: {
+    subject: 'SME requested changes on {{refNo}}',
+    body: 'The SME sent {{refNo}} back for changes. Please address the comments and resubmit.',
   },
   REVIEW_REWORK: {
     subject: 'Rework requested on {{refNo}}',

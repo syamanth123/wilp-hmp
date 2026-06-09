@@ -6,6 +6,12 @@ export type WorkflowEvent =
   | { type: 'ASSIGNED'; actorId: string }
   | { type: 'EDIT_STARTED'; actorId: string }
   | { type: 'SUBMITTED'; actorId: string }
+  // Prompt 12-a (SME approval workflow). Faculty submit routes here when an
+  // SmeAssignment exists (opt-in in 12-a; default in 12-b). SME then either
+  // approves (→ SUBMITTED, PC's queue) or reverts (→ REWORK_REQUESTED).
+  | { type: 'SME_REVIEW_REQUESTED'; actorId: string }
+  | { type: 'SME_APPROVED'; actorId: string }
+  | { type: 'SME_REVERTED'; actorId: string; comments: string }
   | { type: 'REVIEW_REWORK'; actorId: string; comments: string }
   | { type: 'REVIEW_APPROVED'; actorId: string }
   | { type: 'FINAL_APPROVED'; actorId: string }
