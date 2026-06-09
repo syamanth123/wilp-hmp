@@ -2,19 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import {
-  prisma,
-  RoleName,
-  ApprovalStage,
-  ApprovalDecision,
-  HandoutStatus,
-} from '@hmp/db';
+import { prisma, RoleName, ApprovalStage, ApprovalDecision, HandoutStatus } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import {
-  transition,
-  WorkflowError,
-  assertOffCampusCap,
-} from '@hmp/workflow';
+import { transition, WorkflowError, assertOffCampusCap } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { audit } from '@/lib/audit';
 import { clearTodayRecommendations, recommendFaculty } from '@hmp/ai';
@@ -22,6 +12,11 @@ import { clearTodayRecommendations, recommendFaculty } from '@hmp/ai';
 const allocateSchema = z.object({
   requestId: z.string().cuid(),
   facultyIds: z.array(z.string().cuid()).min(1, 'Pick at least one faculty'),
+  // Prompt 12-a: OPTIONAL in 12-a (keeps existing m4 allocate E2E green —
+  // it allocates faculty only). When present, an SmeAssignment is created in
+  // the same allocate transaction, and the faculty's later submit routes to
+  // SME_REVIEW. 12-b makes this required + adds the HOG picker UI.
+  smeUserId: z.string().cuid().optional(),
 });
 
 const approvalSchema = z.object({
@@ -44,9 +39,11 @@ function revalidate(requestId: string) {
 export async function allocateFacultyAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
   const facultyIds = formData.getAll('facultyIds').map(String).filter(Boolean);
+  const smeUserId = String(formData.get('smeUserId') ?? '').trim() || undefined;
   const parsed = allocateSchema.safeParse({
     requestId: formData.get('requestId'),
     facultyIds,
+    smeUserId,
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
 
@@ -59,7 +56,9 @@ export async function allocateFacultyAction(formData: FormData) {
     return { error: `Cannot allocate from status ${request.status}` };
   }
 
-  const cap = (await prisma.workflowConfig.findUnique({ where: { key: 'default' } }))?.offCampusMaxCourses ?? 3;
+  const cap =
+    (await prisma.workflowConfig.findUnique({ where: { key: 'default' } }))?.offCampusMaxCourses ??
+    3;
 
   const faculties = await prisma.user.findMany({
     where: { id: { in: parsed.data.facultyIds }, active: true },
@@ -69,12 +68,29 @@ export async function allocateFacultyAction(formData: FormData) {
     return { error: 'One or more selected faculty are inactive or unknown' };
   }
 
+  // Prompt 12-a: validate the optional SME (must be active + hold the SME
+  // role). The SmeAssignment row is created inside the allocate transaction
+  // below so faculty + SME assignment land atomically.
+  if (parsed.data.smeUserId) {
+    const sme = await prisma.user.findFirst({
+      where: {
+        id: parsed.data.smeUserId,
+        active: true,
+        roles: { some: { role: { name: RoleName.SME } } },
+      },
+      select: { id: true },
+    });
+    if (!sme) {
+      return { error: 'Selected SME is inactive or does not hold the SME role' };
+    }
+  }
+
   try {
     await transition({
       requestId: request.id,
       event: 'FACULTY_ALLOCATED',
       actor: { id: actor.id, roles: actor.roles },
-      meta: { facultyIds: parsed.data.facultyIds },
+      meta: { facultyIds: parsed.data.facultyIds, smeUserId: parsed.data.smeUserId ?? null },
       effects: async (tx) => {
         // Per-faculty off-campus / adjunct cap check, inside the txn so
         // concurrent allocations cannot both squeak past the limit.
@@ -87,7 +103,10 @@ export async function allocateFacultyAction(formData: FormData) {
             },
           });
           try {
-            assertOffCampusCap({ facultyType: f.facultyType, activeAssignmentsInSemester: load }, cap);
+            assertOffCampusCap(
+              { facultyType: f.facultyType, activeAssignmentsInSemester: load },
+              cap,
+            );
           } catch (err) {
             if (err instanceof WorkflowError) {
               throw new WorkflowError(err.code, `${f.name}: ${err.message}`);
@@ -112,6 +131,17 @@ export async function allocateFacultyAction(formData: FormData) {
             decidedAt: new Date(),
           },
         });
+        // Prompt 12-a: create the SmeAssignment in the same transaction when
+        // an SME was picked. One SME per handout (requestId @unique).
+        if (parsed.data.smeUserId) {
+          await tx.smeAssignment.create({
+            data: {
+              requestId: request.id,
+              smeUserId: parsed.data.smeUserId,
+              assignedById: actor.id,
+            },
+          });
+        }
       },
     });
   } catch (err) {
@@ -176,7 +206,8 @@ export async function finalRejectAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Reject requires a reason' };
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'Reject requires a reason' };
 
   try {
     await transition({
@@ -241,7 +272,8 @@ export async function hogRequestReworkAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Rework requires a comment' };
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'Rework requires a comment' };
 
   try {
     await transition({

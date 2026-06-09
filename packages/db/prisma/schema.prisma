@@ -53,6 +53,12 @@ model User {
   versionsAuthored  HandoutVersion[]    @relation("VersionAuthor")
   smeNominationsAsSme       SmeNomination[] @relation("SmeNominationsAsSme")
   smeNominationsAsNominator SmeNomination[] @relation("SmeNominationsAsNominator")
+  // Prompt 12-a (SME approval workflow). Added alongside the advisory
+  // SmeNomination relations above; the advisory relations are removed in
+  // 12-b when SmeNomination is dropped. See docs/dev-handoff-audit.md §1
+  // "additive-first / destructive-second" convention.
+  smeAssignmentsAsSme       SmeAssignment[] @relation("SmeAssignmentsAsSme")
+  smeAssignmentsAsAssigner  SmeAssignment[] @relation("SmeAssignmentsAsAssigner")
   corpusImportsApproved     HandoutImport[] @relation("CorpusApprovedBy")
 
   @@index([email])
@@ -192,6 +198,12 @@ enum HandoutStatus {
   ALLOCATED
   ASSIGNED
   IN_PROGRESS
+  // Prompt 12-a (SME approval workflow): SME approval queue. Sits BETWEEN
+  // IN_PROGRESS and SUBMITTED — faculty submit routes here when an
+  // SmeAssignment exists; SME approval transitions onward to SUBMITTED
+  // (PC's existing review queue). Additive in 12-a; becomes the default
+  // submit destination in 12-b. See docs/dev-handoff-audit.md §1.
+  SME_REVIEW
   SUBMITTED
   UNDER_REVIEW
   REWORK_REQUESTED
@@ -221,6 +233,7 @@ model HandoutRequest {
   recommendations     AIRecommendation[]
   auditLogs           AuditLog[]
   smeNominations      SmeNomination[]
+  smeAssignment       SmeAssignment?
 
   @@index([status])
   @@index([courseOfferingId])
@@ -380,8 +393,37 @@ model SmeNomination {
   @@index([smeUserId, status])
 }
 
+// Prompt 12-a (SME approval workflow). Replaces the advisory SmeNomination
+// concept: one SME per handout, assigned by the HOG at allocation time, who
+// gates faculty submissions (approve → SUBMITTED / PC queue; revert →
+// REWORK_REQUESTED / faculty). Iteration history (each approve/revert) lives
+// in Approval(stage=SME_REVIEW) rows, NOT here — this table is just the
+// "who is the SME for this handout" pointer, so it carries no status or
+// per-decision timestamps.
+//
+// SmeNomination (above) stays in place through 12-a (additive-first
+// discipline, audit §1) and is dropped in 12-b once the advisory UI is
+// removed.
+model SmeAssignment {
+  id            String         @id @default(cuid())
+  requestId     String         @unique // one SME per handout
+  request       HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  smeUserId     String
+  smeUser       User           @relation("SmeAssignmentsAsSme", fields: [smeUserId], references: [id])
+  assignedById  String // the HOG who made the assignment
+  assignedBy    User           @relation("SmeAssignmentsAsAssigner", fields: [assignedById], references: [id])
+  assignedAt    DateTime       @default(now())
+
+  @@index([smeUserId])
+}
+
 enum ApprovalStage {
   HOG_REVIEW
+  // Prompt 12-a: each SME approve/revert decision writes an Approval row
+  // at this stage (decision = APPROVED on approve, REWORK on revert).
+  // Iteration history lives in these rows — SmeAssignment carries no
+  // status/timestamp columns of its own.
+  SME_REVIEW
   PC_REVIEW
   HOG_FINAL
   IC_PUBLISH

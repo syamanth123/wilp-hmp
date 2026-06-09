@@ -27,7 +27,57 @@ describe('handout workflow', () => {
   });
 
   it('supports rework loop', () => {
-    expect(nextStatus(HandoutStatus.SUBMITTED, 'REVIEW_REWORK')).toBe(HandoutStatus.REWORK_REQUESTED);
+    expect(nextStatus(HandoutStatus.SUBMITTED, 'REVIEW_REWORK')).toBe(
+      HandoutStatus.REWORK_REQUESTED,
+    );
     expect(nextStatus(HandoutStatus.REWORK_REQUESTED, 'SUBMITTED')).toBe(HandoutStatus.SUBMITTED);
+  });
+
+  // Prompt 12-a: SME approval gate inserted before SUBMITTED (PC's queue).
+  describe('SME approval workflow (Prompt 12-a)', () => {
+    it('routes faculty submit to SME_REVIEW via SME_REVIEW_REQUESTED', () => {
+      expect(nextStatus(HandoutStatus.IN_PROGRESS, 'SME_REVIEW_REQUESTED')).toBe(
+        HandoutStatus.SME_REVIEW,
+      );
+    });
+
+    it('SME approval lands in SUBMITTED (PC queue), NOT UNDER_REVIEW (HOG queue)', () => {
+      // The load-bearing correction: SME_APPROVED → SUBMITTED keeps the
+      // existing PC→HOG chain (SUBMITTED→UNDER_REVIEW→APPROVED) intact.
+      expect(nextStatus(HandoutStatus.SME_REVIEW, 'SME_APPROVED')).toBe(HandoutStatus.SUBMITTED);
+      expect(nextStatus(HandoutStatus.SME_REVIEW, 'SME_APPROVED')).not.toBe(
+        HandoutStatus.UNDER_REVIEW,
+      );
+    });
+
+    it('SME revert sends the handout back to the faculty rework state', () => {
+      expect(nextStatus(HandoutStatus.SME_REVIEW, 'SME_REVERTED')).toBe(
+        HandoutStatus.REWORK_REQUESTED,
+      );
+    });
+
+    it('re-submit after rework can re-route through SME (SME is always the gate)', () => {
+      expect(nextStatus(HandoutStatus.REWORK_REQUESTED, 'SME_REVIEW_REQUESTED')).toBe(
+        HandoutStatus.SME_REVIEW,
+      );
+    });
+
+    it('preserves the legacy SUBMITTED edges (opt-out path when no SME assigned)', () => {
+      expect(nextStatus(HandoutStatus.IN_PROGRESS, 'SUBMITTED')).toBe(HandoutStatus.SUBMITTED);
+      expect(nextStatus(HandoutStatus.REWORK_REQUESTED, 'SUBMITTED')).toBe(HandoutStatus.SUBMITTED);
+    });
+
+    it('keeps the PC→HOG chain unchanged downstream of SUBMITTED', () => {
+      expect(nextStatus(HandoutStatus.SUBMITTED, 'REVIEW_APPROVED')).toBe(
+        HandoutStatus.UNDER_REVIEW,
+      );
+      expect(nextStatus(HandoutStatus.UNDER_REVIEW, 'FINAL_APPROVED')).toBe(HandoutStatus.APPROVED);
+    });
+
+    it('rejects SME events from non-SME_REVIEW states', () => {
+      expect(canTransition(HandoutStatus.SUBMITTED, 'SME_APPROVED')).toBe(false);
+      expect(canTransition(HandoutStatus.IN_PROGRESS, 'SME_APPROVED')).toBe(false);
+      expect(canTransition(HandoutStatus.SME_REVIEW, 'REVIEW_APPROVED')).toBe(false);
+    });
   });
 });
