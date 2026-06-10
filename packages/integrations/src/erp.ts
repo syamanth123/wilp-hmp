@@ -42,6 +42,18 @@ export const handoutRequestRowSchema = z.object({
 });
 export type HandoutRequestRow = z.infer<typeof handoutRequestRowSchema>;
 
+// Prompt 14 — HOG bulk faculty + SME allocation. Addresses EXISTING requests
+// by refNo. `faculty_emails` is a single email or a comma-separated list in a
+// quoted cell (parseCsv unwraps the quotes; the caller splits on comma). No
+// `is_off_campus` column — capping derives from each faculty's User.facultyType,
+// not a per-allocation override (see audit §1).
+export const allocationRowSchema = z.object({
+  request_reference: z.string().min(1, 'request_reference is required'),
+  faculty_emails: z.string().min(1, 'faculty_emails is required'),
+  sme_email: z.string().min(1, 'sme_email is required'),
+});
+export type AllocationRow = z.infer<typeof allocationRowSchema>;
+
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM (00:00-23:59)');
 
 export const slotBookingRowSchema = z.object({
@@ -118,6 +130,29 @@ export function parseHandoutRequestsCsv(input: string): ParseResult<HandoutReque
     }
   }
   return parseWith(input, handoutRequestRowSchema);
+}
+
+const REQUIRED_ALLOCATION_COLS = ['request_reference', 'faculty_emails', 'sme_email'] as const;
+
+/**
+ * Prompt 14 — parse a HOG bulk-allocation CSV into validated rows. Same header
+ * guard + parseWith shape as parseHandoutRequestsCsv. `faculty_emails` is kept
+ * as a raw string here (structural validation = non-empty); the comma-split +
+ * per-email role checks are semantic, done by the caller against the DB.
+ */
+export function parseAllocationsCsv(input: string): ParseResult<AllocationRow> {
+  const { header } = parseCsv(input);
+  if (header.length > 0) {
+    const missing = REQUIRED_ALLOCATION_COLS.filter((c) => !header.includes(c));
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        rows: [],
+        errors: [{ line: 1, message: `missing required column(s): ${missing.join(', ')}` }],
+      };
+    }
+  }
+  return parseWith(input, allocationRowSchema);
 }
 
 export function parseSlotBookingsCsv(input: string): ParseResult<SlotBookingRow> {

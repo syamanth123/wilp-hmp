@@ -1,4 +1,4 @@
-import type { HandoutStatus} from '@hmp/db';
+import type { HandoutStatus } from '@hmp/db';
 import { FacultyType, RoleName } from '@hmp/db';
 import type { WorkflowEvent } from './types';
 
@@ -53,12 +53,23 @@ export interface FacultyLoad {
   activeAssignmentsInSemester: number;
 }
 
+/**
+ * Whether a faculty type is subject to the per-semester course cap. Capping is
+ * a property of the faculty member (OFF_CAMPUS / ADJUNCT / GUEST are capped;
+ * ON_CAMPUS is not), not of any individual allocation. Exported so every caller
+ * — `assertOffCampusCap` here and the bulk-allocate cumulative check (Prompt 14)
+ * — shares one source of truth for the capped-type list.
+ */
+export function isCappedFacultyType(facultyType: FacultyType | null): boolean {
+  return (
+    facultyType === FacultyType.OFF_CAMPUS ||
+    facultyType === FacultyType.ADJUNCT ||
+    facultyType === FacultyType.GUEST
+  );
+}
+
 export function assertOffCampusCap(load: FacultyLoad, cap: number) {
-  const isCapped =
-    load.facultyType === FacultyType.OFF_CAMPUS ||
-    load.facultyType === FacultyType.ADJUNCT ||
-    load.facultyType === FacultyType.GUEST;
-  if (!isCapped) return;
+  if (!isCappedFacultyType(load.facultyType)) return;
   if (load.activeAssignmentsInSemester >= cap) {
     throw new WorkflowError(
       'off_campus_cap_exceeded',
