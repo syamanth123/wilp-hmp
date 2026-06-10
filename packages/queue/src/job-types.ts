@@ -13,36 +13,6 @@ export interface ActorRef {
 export type NotifyJob =
   | { kind: 'transition'; requestId: string; event: string; actor: ActorRef; occurredAtMs: number }
   | { kind: 'comment'; requestId: string; commentId: string; actor: ActorRef }
-  | {
-      kind: 'sme_nominated';
-      requestId: string;
-      nominationId: string;
-      smeUserId: string;
-      topic: string;
-      actor: ActorRef;
-    }
-  | {
-      kind: 'sme_accepted';
-      requestId: string;
-      nominationId: string;
-      smeUserId: string;
-      actor: ActorRef;
-    }
-  | {
-      kind: 'sme_declined';
-      requestId: string;
-      nominationId: string;
-      smeUserId: string;
-      reason: string;
-      actor: ActorRef;
-    }
-  | {
-      kind: 'sme_completed';
-      requestId: string;
-      nominationId: string;
-      smeUserId: string;
-      actor: ActorRef;
-    }
   | { kind: 'publish_export_ready'; requestId: string; actor: ActorRef; occurredAtMs: number }
   | { kind: 'manually_published'; requestId: string; actor: ActorRef };
 // NOTE: notifySlaReminder is intentionally NOT queued — it returns a count the
@@ -67,11 +37,11 @@ export const AI_QUEUE = 'ai';
  * with the same id, so this both prevents accidental double-fires AND lets
  * genuinely-distinct events through.
  *
- * The rule: use the most specific NATURAL unique id available (commentId,
- * nominationId). For events that only carry a requestId, append a per-
- * occurrence timestamp so distinct events (e.g. two SUBMITTED transitions
- * across a rework loop) are NOT collapsed — the workflow status guard, not the
- * job id, prevents a true duplicate transition.
+ * The rule: use the most specific NATURAL unique id available (commentId).
+ * For events that only carry a requestId, append a per-occurrence timestamp so
+ * distinct events (e.g. two SUBMITTED transitions across a rework loop) are NOT
+ * collapsed — the workflow status guard, not the job id, prevents a true
+ * duplicate transition.
  */
 export function notifyJobId(job: NotifyJob): string {
   switch (job.kind) {
@@ -79,14 +49,6 @@ export function notifyJobId(job: NotifyJob): string {
       return `notify:transition:${job.requestId}:${job.event}:${job.occurredAtMs}`;
     case 'comment':
       return `notify:comment:${job.commentId}`;
-    case 'sme_nominated':
-      return `notify:sme_nominated:${job.nominationId}`;
-    case 'sme_accepted':
-      return `notify:sme_accepted:${job.nominationId}`;
-    case 'sme_declined':
-      return `notify:sme_declined:${job.nominationId}`;
-    case 'sme_completed':
-      return `notify:sme_completed:${job.nominationId}`;
     case 'publish_export_ready':
       return `notify:export_ready:${job.requestId}:${job.occurredAtMs}`;
     case 'manually_published':

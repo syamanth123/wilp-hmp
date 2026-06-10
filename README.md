@@ -91,7 +91,7 @@ All seeded users share password `password`.
 | `faculty.guest@hmp.local` | `FACULTY`             | `GUEST`      |
 | `sme@hmp.local`           | `SME`                 | —            |
 
-The `SME` role + seed user + `SmeNomination` schema (model + enum + back-relations) all exist as of the `add_sme_nomination` migration. **No `/sme/*` routes or UI surface yet** — those come in later prompts. See [docs/rfp-traceability.md](docs/rfp-traceability.md) row 23.
+The `SME` role is a full approval gate (Prompt 12): the HOG assigns one SME per handout at allocation, faculty submissions route through `SME_REVIEW`, and the SME approves (→ PC's queue) or requests changes (→ faculty) from `/sme/review`. The earlier advisory `SmeNomination` model was dropped in 12-b (migration `drop_sme_nomination`). See [docs/rfp-traceability.md](docs/rfp-traceability.md) row 23.
 
 ---
 

@@ -51,12 +51,8 @@ model User {
   notifications     Notification[]
   auditLogs         AuditLog[]
   versionsAuthored  HandoutVersion[]    @relation("VersionAuthor")
-  smeNominationsAsSme       SmeNomination[] @relation("SmeNominationsAsSme")
-  smeNominationsAsNominator SmeNomination[] @relation("SmeNominationsAsNominator")
-  // Prompt 12-a (SME approval workflow). Added alongside the advisory
-  // SmeNomination relations above; the advisory relations are removed in
-  // 12-b when SmeNomination is dropped. See docs/dev-handoff-audit.md §1
-  // "additive-first / destructive-second" convention.
+  // Prompt 12-b (SME approval workflow). The SME is assigned per handout at
+  // allocation; these are the "SME for" and "assigner of" back-relations.
   smeAssignmentsAsSme       SmeAssignment[] @relation("SmeAssignmentsAsSme")
   smeAssignmentsAsAssigner  SmeAssignment[] @relation("SmeAssignmentsAsAssigner")
   corpusImportsApproved     HandoutImport[] @relation("CorpusApprovedBy")
@@ -232,7 +228,6 @@ model HandoutRequest {
   attachments         Attachment[]
   recommendations     AIRecommendation[]
   auditLogs           AuditLog[]
-  smeNominations      SmeNomination[]
   smeAssignment       SmeAssignment?
 
   @@index([status])
@@ -366,44 +361,13 @@ model FacultyAssignment {
   @@index([facultyId])
 }
 
-enum SmeNominationStatus {
-  PENDING
-  ACCEPTED
-  DECLINED
-  COMPLETED
-}
-
-model SmeNomination {
-  id             String              @id @default(cuid())
-  requestId      String
-  request        HandoutRequest      @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  smeUserId      String
-  smeUser        User                @relation("SmeNominationsAsSme", fields: [smeUserId], references: [id])
-  nominatedById  String
-  nominatedBy    User                @relation("SmeNominationsAsNominator", fields: [nominatedById], references: [id])
-  topic          String
-  notes          String?
-  status         SmeNominationStatus @default(PENDING)
-  respondedAt    DateTime?
-  completedAt    DateTime?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-
-  @@index([requestId])
-  @@index([smeUserId, status])
-}
-
-// Prompt 12-a (SME approval workflow). Replaces the advisory SmeNomination
-// concept: one SME per handout, assigned by the HOG at allocation time, who
-// gates faculty submissions (approve → SUBMITTED / PC queue; revert →
-// REWORK_REQUESTED / faculty). Iteration history (each approve/revert) lives
-// in Approval(stage=SME_REVIEW) rows, NOT here — this table is just the
-// "who is the SME for this handout" pointer, so it carries no status or
-// per-decision timestamps.
-//
-// SmeNomination (above) stays in place through 12-a (additive-first
-// discipline, audit §1) and is dropped in 12-b once the advisory UI is
-// removed.
+// SME approval workflow (Prompt 12-a/12-b). One SME per handout, assigned by
+// the HOG at allocation time, who gates faculty submissions (approve →
+// SUBMITTED / PC queue; revert → REWORK_REQUESTED / faculty). Iteration history
+// (each approve/revert) lives in Approval(stage=SME_REVIEW) rows, NOT here —
+// this table is just the "who is the SME for this handout" pointer, so it
+// carries no status or per-decision timestamps. (12-b dropped the earlier
+// advisory SmeNomination model this replaced.)
 model SmeAssignment {
   id            String         @id @default(cuid())
   requestId     String         @unique // one SME per handout

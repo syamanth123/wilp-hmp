@@ -12,11 +12,14 @@ import { clearTodayRecommendations, recommendFaculty } from '@hmp/ai';
 const allocateSchema = z.object({
   requestId: z.string().cuid(),
   facultyIds: z.array(z.string().cuid()).min(1, 'Pick at least one faculty'),
-  // Prompt 12-a: OPTIONAL in 12-a (keeps existing m4 allocate E2E green —
-  // it allocates faculty only). When present, an SmeAssignment is created in
-  // the same allocate transaction, and the faculty's later submit routes to
-  // SME_REVIEW. 12-b makes this required + adds the HOG picker UI.
-  smeUserId: z.string().cuid().optional(),
+  // Prompt 12-b: REQUIRED. The SME is the approval gate between faculty submit
+  // and PC review, so allocation must designate one. The SmeAssignment is
+  // created in the same allocate transaction, and the faculty's later submit
+  // routes to SME_REVIEW unconditionally. (12-a introduced this as optional to
+  // keep the additive PR green; 12-b flips it once the picker UI is in place.)
+  smeUserId: z
+    .string({ required_error: 'Select a Subject Matter Expert' })
+    .cuid('Select a Subject Matter Expert'),
 });
 
 const approvalSchema = z.object({
@@ -68,21 +71,19 @@ export async function allocateFacultyAction(formData: FormData) {
     return { error: 'One or more selected faculty are inactive or unknown' };
   }
 
-  // Prompt 12-a: validate the optional SME (must be active + hold the SME
-  // role). The SmeAssignment row is created inside the allocate transaction
+  // Prompt 12-b: validate the (mandatory) SME — must be active + hold the SME
+  // role. The SmeAssignment row is created inside the allocate transaction
   // below so faculty + SME assignment land atomically.
-  if (parsed.data.smeUserId) {
-    const sme = await prisma.user.findFirst({
-      where: {
-        id: parsed.data.smeUserId,
-        active: true,
-        roles: { some: { role: { name: RoleName.SME } } },
-      },
-      select: { id: true },
-    });
-    if (!sme) {
-      return { error: 'Selected SME is inactive or does not hold the SME role' };
-    }
+  const sme = await prisma.user.findFirst({
+    where: {
+      id: parsed.data.smeUserId,
+      active: true,
+      roles: { some: { role: { name: RoleName.SME } } },
+    },
+    select: { id: true },
+  });
+  if (!sme) {
+    return { error: 'Selected SME is inactive or does not hold the SME role' };
   }
 
   try {
@@ -90,7 +91,7 @@ export async function allocateFacultyAction(formData: FormData) {
       requestId: request.id,
       event: 'FACULTY_ALLOCATED',
       actor: { id: actor.id, roles: actor.roles },
-      meta: { facultyIds: parsed.data.facultyIds, smeUserId: parsed.data.smeUserId ?? null },
+      meta: { facultyIds: parsed.data.facultyIds, smeUserId: parsed.data.smeUserId },
       effects: async (tx) => {
         // Per-faculty off-campus / adjunct cap check, inside the txn so
         // concurrent allocations cannot both squeak past the limit.
@@ -131,17 +132,15 @@ export async function allocateFacultyAction(formData: FormData) {
             decidedAt: new Date(),
           },
         });
-        // Prompt 12-a: create the SmeAssignment in the same transaction when
-        // an SME was picked. One SME per handout (requestId @unique).
-        if (parsed.data.smeUserId) {
-          await tx.smeAssignment.create({
-            data: {
-              requestId: request.id,
-              smeUserId: parsed.data.smeUserId,
-              assignedById: actor.id,
-            },
-          });
-        }
+        // Prompt 12-b: create the SmeAssignment in the same transaction.
+        // One SME per handout (requestId @unique).
+        await tx.smeAssignment.create({
+          data: {
+            requestId: request.id,
+            smeUserId: parsed.data.smeUserId,
+            assignedById: actor.id,
+          },
+        });
       },
     });
   } catch (err) {

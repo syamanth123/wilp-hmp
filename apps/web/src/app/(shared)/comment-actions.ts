@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { prisma, RoleName, HandoutStatus, SmeNominationStatus } from '@hmp/db';
+import { prisma, RoleName, HandoutStatus } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { notifyComment } from '@/lib/notifications';
@@ -18,9 +18,9 @@ const ALLOWED_ROLES: ReadonlySet<RoleName> = new Set([
   RoleName.HOG,
   RoleName.PROGRAMME_COMMITTEE,
   RoleName.FACULTY,
-  // SME advisors can post comments, but only when they have an ACCEPTED
-  // nomination on this specific request — gated below per the same pattern
-  // as the faculty-only assignment check.
+  // The assigned SME can post comments, but only on requests they're the
+  // designated SME for — gated below per the same pattern as the faculty-only
+  // assignment check.
   RoleName.SME,
 ]);
 
@@ -66,23 +66,19 @@ export async function addCommentAction(formData: FormData) {
     });
     if (!assigned) return { error: 'Forbidden' };
   }
-  // SME-only users (no privileged role, not assigned faculty) must have an
-  // ACCEPTED nomination on this specific request. PENDING is too early
-  // (they haven't agreed to advise yet); DECLINED/COMPLETED close the window.
+  // SME-only users (no privileged role, not assigned faculty) must be the
+  // designated SME for this specific request (Prompt 12-b: the SME is an
+  // approval gate assigned at allocation — one SME per handout).
   if (
     !hasPriviligedRole &&
     !me.roles.includes(RoleName.FACULTY) &&
     me.roles.includes(RoleName.SME)
   ) {
-    const nominated = await prisma.smeNomination.findFirst({
-      where: {
-        requestId: request.id,
-        smeUserId: me.id,
-        status: SmeNominationStatus.ACCEPTED,
-      },
-      select: { id: true },
+    const assignment = await prisma.smeAssignment.findUnique({
+      where: { requestId: request.id },
+      select: { smeUserId: true },
     });
-    if (!nominated) return { error: 'Forbidden' };
+    if (assignment?.smeUserId !== me.id) return { error: 'Forbidden' };
   }
 
   const comment = await prisma.comment.create({

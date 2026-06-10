@@ -3,7 +3,7 @@ import { AppShell } from '@/components/app-shell';
 
 const TABS = [
   { href: '/sme', label: 'Overview' },
-  { href: '/sme/nominations', label: 'Nominations' },
+  { href: '/sme/review', label: 'Review queue' },
 ];
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,7 @@ export default function SmeLayout({ children }: { children: React.ReactNode }) {
             <Link
               key={t.href}
               href={t.href}
-              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5"
             >
               {t.label}
             </Link>

@@ -1,5 +1,5 @@
 /**
- * Canonical SME notification template definitions.
+ * Canonical notification template definitions.
  *
  * Single source of truth shared by:
  *   - packages/db/prisma/seed.ts        — upserts these rows into NotificationTemplate
@@ -8,12 +8,8 @@
  *     asserts no residual `{{token}}` survives (catches the class of bug where
  *     a template references a token the supplier never provides)
  *
- * Because both the seed and the test import THIS array, there is zero drift
+ * Because both the seed and the test import THESE arrays, there is zero drift
  * risk: the strings tested are byte-identical to the strings seeded.
- *
- * Token contract (every {{token}} below MUST be supplied by the corresponding
- * supplier in notifications.ts — verified mechanically by the contract test):
- *   refNo, courseCode, courseTitle, actor, topic, reason
  *
  * NOTE: `{{link}}` is intentionally NOT used in any body. `deliver()` appends a
  * per-recipient "Open in HMP" anchor to every email and stores the link column
@@ -27,35 +23,40 @@ export interface NotificationTemplateSeed {
   body: string;
 }
 
-export const SME_NOTIFICATION_TEMPLATES: readonly NotificationTemplateSeed[] = [
+/**
+ * Prompt 12-b — SME APPROVAL-GATE templates. The SME is an approval gate
+ * between faculty submit and PC review; these fire on the workflow transitions
+ * (they route through notifyTransition, not a bespoke notify function). Token
+ * contract: refNo, course, actor (supplied by notifyTransition's token builder
+ * — see notifications.ts dispatchTransition).
+ *
+ * Recipient routing (computeRecipients, notifications.ts):
+ *   sme_review_requested → the assigned SME + IC
+ *   sme_approved         → faculty + IC + PC  (PC inherits the "work arrived"
+ *                          ping from the now-dormant handout.submitted; async
+ *                          workflows can't rely on dashboard polling — do not
+ *                          drop PC here without reviewing that contract)
+ *   sme_reverted         → faculty + IC
+ */
+export const SME_APPROVAL_TEMPLATES: readonly NotificationTemplateSeed[] = [
   {
-    key: 'handout.sme_nominated',
-    subject: 'SME nomination: {{refNo}} — {{courseCode}}',
+    key: 'handout.sme_review_requested',
+    subject: 'SME review requested: {{refNo}}',
     body:
-      'You have been nominated as Subject Matter Expert for handout {{refNo}} ' +
-      '({{courseCode}} – {{courseTitle}}) by {{actor}}. Topic: "{{topic}}". ' +
-      'Review the request to accept or decline.',
+      '{{actor}} submitted {{refNo}} ({{course}}) for your SME review. ' +
+      'Approve or request changes from your review queue.',
   },
   {
-    key: 'handout.sme_accepted',
-    subject: 'SME accepted: {{refNo}}',
-    body:
-      '{{actor}} accepted your SME nomination for {{refNo}} ({{courseCode}}). ' +
-      'They will now review the handout and add advisory input.',
+    key: 'handout.sme_approved',
+    subject: 'SME approved: {{refNo}}',
+    body: 'The SME approved {{refNo}} ({{course}}). It has moved to PC review.',
   },
   {
-    key: 'handout.sme_declined',
-    subject: 'SME declined: {{refNo}}',
+    key: 'handout.sme_reverted',
+    subject: 'SME requested changes: {{refNo}}',
     body:
-      '{{actor}} declined your SME nomination for {{refNo}} ({{courseCode}}). ' +
-      'Reason: "{{reason}}". You can nominate another SME from the request page.',
-  },
-  {
-    key: 'handout.sme_completed',
-    subject: 'SME review complete: {{refNo}}',
-    body:
-      '{{actor}} completed their SME review for {{refNo}} ({{courseCode}}). ' +
-      'Their comments are visible on the handout discussion.',
+      'The SME sent {{refNo}} ({{course}}) back for changes. ' +
+      'See the comment on the handout and resubmit.',
   },
 ] as const;
 

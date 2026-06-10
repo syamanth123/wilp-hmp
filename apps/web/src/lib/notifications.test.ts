@@ -1,14 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { SME_NOTIFICATION_TEMPLATES, PUBLISH_NOTIFICATION_TEMPLATES } from '@hmp/db';
+import { SME_APPROVAL_TEMPLATES, PUBLISH_NOTIFICATION_TEMPLATES } from '@hmp/db';
 import {
   renderTemplate,
   EVENT_TEMPLATE_KEY,
-  smeNominationTokens,
-  smeAcceptedTokens,
-  smeDeclinedTokens,
-  smeCompletedTokens,
   publishNotificationTokens,
-  type SmeTokenArgs,
   type PublishTokenArgs,
 } from './notifications';
 
@@ -44,20 +39,22 @@ describe('renderTemplate', () => {
  * otherwise leave as a literal `{{courseCode}}` in a real email).
  *
  * Table-driven: adding a future template is a one-line row. The template
- * strings come from the shared SME_NOTIFICATION_TEMPLATES constant in @hmp/db,
- * the same source seed.ts upserts — so there is zero drift between what's
- * tested and what's seeded.
+ * strings come from the shared template constants in @hmp/db, the same source
+ * seed.ts upserts — so there is zero drift between what's tested and what's
+ * seeded.
  */
 describe('notification template token contract', () => {
-  const sample: SmeTokenArgs = {
+  // Prompt 12-b: the SME approval templates route through the transition path
+  // (dispatchTransition in notifications.ts), so they render against that
+  // builder's token set: refNo, course, programme, semester, actor. This
+  // sample mirrors those keys — if an SME approval template references a token
+  // dispatchTransition doesn't supply, the contract test below catches it.
+  const transitionSample: Record<string, string> = {
     refNo: 'HMP-9999-0001',
-    courseCode: 'SE-ZG501',
-    courseTitle: 'Software Architecture',
+    course: 'SE-ZG501 — Software Architecture',
     programme: 'MTECH-SE',
     semester: 'First Semester 2026',
-    actorName: 'Dr. Priya Chandra',
-    topic: 'Industry case study selection',
-    reason: 'Out of expertise this term',
+    actor: 'Dr. Priya Chandra',
   };
   const publishSample: PublishTokenArgs = {
     refNo: 'HMP-9999-0002',
@@ -69,12 +66,11 @@ describe('notification template token contract', () => {
   // All seeded template families that have a notify-function token supplier.
   // Adding a future template is a one-line row here; the coverage check below
   // then forces it to be present in its constant.
-  const ALL_TEMPLATES = [...SME_NOTIFICATION_TEMPLATES, ...PUBLISH_NOTIFICATION_TEMPLATES];
+  const ALL_TEMPLATES = [...SME_APPROVAL_TEMPLATES, ...PUBLISH_NOTIFICATION_TEMPLATES];
   const CONTRACT: Array<[string, () => Record<string, string>]> = [
-    ['handout.sme_nominated', () => smeNominationTokens(sample)],
-    ['handout.sme_accepted', () => smeAcceptedTokens(sample)],
-    ['handout.sme_declined', () => smeDeclinedTokens(sample)],
-    ['handout.sme_completed', () => smeCompletedTokens(sample)],
+    ['handout.sme_review_requested', () => transitionSample],
+    ['handout.sme_approved', () => transitionSample],
+    ['handout.sme_reverted', () => transitionSample],
     ['handout.publish_export_ready', () => publishNotificationTokens(publishSample)],
     ['handout.manually_published', () => publishNotificationTokens(publishSample)],
   ];

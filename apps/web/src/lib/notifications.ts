@@ -64,14 +64,10 @@ export const EVENT_TEMPLATE_KEY: Record<WorkflowEventType, string | null> = {
   ASSIGNED: 'handout.assigned',
   EDIT_STARTED: null,
   SUBMITTED: 'handout.submitted',
-  // Prompt 12-a: silent (null) for now — SME-workflow notification templates
-  // + recipient routing land in 12-b. These entries exist so the exhaustive
-  // Record compiles. notifyTransition tolerates a null template key (no-op),
-  // so firing these events in 12-a sends nothing — correct, since 12-a has
-  // no SME UI to act on a notification yet.
-  SME_REVIEW_REQUESTED: null,
-  SME_APPROVED: null,
-  SME_REVERTED: null,
+  // Prompt 12-b: real templates wired (12-a had these null/silent).
+  SME_REVIEW_REQUESTED: 'handout.sme_review_requested',
+  SME_APPROVED: 'handout.sme_approved',
+  SME_REVERTED: 'handout.sme_reverted',
   REVIEW_REWORK: 'handout.rework',
   REVIEW_APPROVED: 'handout.review_approved',
   FINAL_APPROVED: 'handout.approved',
@@ -101,19 +97,20 @@ const INLINE_FALLBACK: Record<WorkflowEventType, { subject: string; body: string
     subject: 'Handout {{refNo}} submitted',
     body: 'Handout {{refNo}} is now awaiting review.',
   },
-  // Prompt 12-a: fallback strings only (template keys are null above, so
-  // these aren't sent in 12-a). 12-b wires real templates + recipients.
+  // Prompt 12-b: inline fallback wording — kept in sync with the DB templates
+  // in notification-templates.ts (SME_APPROVAL_TEMPLATES). Used when the DB
+  // row is absent.
   SME_REVIEW_REQUESTED: {
-    subject: 'Handout {{refNo}} awaiting SME review',
-    body: 'Handout {{refNo}} has been submitted and is awaiting SME approval.',
+    subject: 'SME review requested: {{refNo}}',
+    body: '{{actor}} submitted {{refNo}} ({{course}}) for your SME review. Approve or request changes from your review queue.',
   },
   SME_APPROVED: {
-    subject: 'SME approved {{refNo}}',
-    body: 'The SME approved {{refNo}}; it has moved to PC review.',
+    subject: 'SME approved: {{refNo}}',
+    body: 'The SME approved {{refNo}} ({{course}}). It has moved to PC review.',
   },
   SME_REVERTED: {
-    subject: 'SME requested changes on {{refNo}}',
-    body: 'The SME sent {{refNo}} back for changes. Please address the comments and resubmit.',
+    subject: 'SME requested changes: {{refNo}}',
+    body: 'The SME sent {{refNo}} ({{course}}) back for changes. See the comment on the handout and resubmit.',
   },
   REVIEW_REWORK: {
     subject: 'Rework requested on {{refNo}}',
@@ -144,11 +141,10 @@ const LINK_PREFIX_BY_ROLE: Partial<Record<RoleName, (id: string) => string>> = {
   [RoleName.PROGRAMME_COMMITTEE]: (id) => `/pc/requests/${id}`,
   [RoleName.FACULTY]: (id) => `/faculty/assignments/${id}`,
   [RoleName.ADMIN]: (id) => `/ic/requests/${id}`,
-  // SMEs land on /sme/nominations (their list view) and navigate to detail
-  // from there. The arg is intentionally unused — every other entry takes
-  // an id, so we keep the signature `(id) => string` so callers don't have
-  // to branch on role. (Prompt 7 will build the /sme route group.)
-  [RoleName.SME]: (_id) => '/sme/nominations',
+  // Prompt 12-b: SMEs land on /sme/review (approval queue) and navigate to
+  // the detail page from there. (Was /sme/nominations in the advisory model,
+  // removed in 12-b.)
+  [RoleName.SME]: (_id) => '/sme/review',
 };
 
 interface RequestForNotify {
@@ -160,6 +156,10 @@ interface RequestForNotify {
     semester: { name: string; programme: { code: string } };
   };
   assignments: { facultyId: string; active: boolean }[];
+  // Prompt 12-b: the assigned SME for this request (SmeAssignment.smeUserId),
+  // or null. Carries the "assignedSme" recipient for SME_REVIEW_REQUESTED —
+  // no separate resolver function needed; computeRecipients reads this field.
+  smeUserId: string | null;
 }
 
 async function loadRequest(requestId: string): Promise<RequestForNotify | null> {
@@ -176,9 +176,12 @@ async function loadRequest(requestId: string): Promise<RequestForNotify | null> 
         },
       },
       assignments: { where: { active: true }, select: { facultyId: true, active: true } },
+      smeAssignment: { select: { smeUserId: true } },
     },
   });
-  return r;
+  if (!r) return null;
+  const { smeAssignment, ...rest } = r;
+  return { ...rest, smeUserId: smeAssignment?.smeUserId ?? null };
 }
 
 async function usersWithRole(
@@ -229,7 +232,30 @@ async function computeRecipients(
       add(await usersById(facultyIds));
       break;
     case 'SUBMITTED':
+      // Prompt 12-b: DORMANT — no producer fires the bare SUBMITTED event
+      // once SME is mandatory (faculty submit fires SME_REVIEW_REQUESTED; SME
+      // approval fires SME_APPROVED, which lands in the SUBMITTED *status*).
+      // Recipient kept for legacy/safety; see notification-templates.ts.
       add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+      break;
+    // Prompt 12-b: SME approval-gate events.
+    case 'SME_REVIEW_REQUESTED':
+      // The assigned SME (the whole point of the gate) + IC for visibility.
+      if (req.smeUserId) add(await usersById([req.smeUserId]));
+      add(await usersWithRole(RoleName.INSTRUCTION_CELL));
+      break;
+    case 'SME_APPROVED':
+      // Faculty + IC, plus PC — PC inherits the "work arrived in your queue"
+      // ping that the now-dormant handout.submitted used to carry. Async
+      // workflows can't rely on dashboard polling; email-on-arrival is the
+      // standard pattern. Do NOT drop PC here without reviewing that contract.
+      add(await usersById(facultyIds));
+      add(await usersWithRole(RoleName.INSTRUCTION_CELL));
+      add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+      break;
+    case 'SME_REVERTED':
+      add(await usersById(facultyIds));
+      add(await usersWithRole(RoleName.INSTRUCTION_CELL));
       break;
     case 'REVIEW_APPROVED':
       add(await usersWithRole(RoleName.HOG));
@@ -260,53 +286,6 @@ async function computeRecipients(
 
 export function renderTemplate(tpl: string, tokens: Record<string, string>): string {
   return tpl.replace(/\{\{(\w+)\}\}/g, (_, k: string) => tokens[k] ?? `{{${k}}}`);
-}
-
-/**
- * Token suppliers for the four SME notification templates. Extracted as named,
- * exported functions (rather than inline object literals) so the token-contract
- * unit test can render each seeded template against the EXACT token set its
- * notify function supplies — see notifications.test.ts.
- *
- * `course` is the combined "CODE — Title" form kept for backward-compat with
- * any wording that uses {{course}}; `courseCode` / `courseTitle` are the split
- * forms the seeded templates use. Both are supplied so either works.
- */
-export interface SmeTokenArgs {
-  refNo: string;
-  courseCode: string;
-  courseTitle: string;
-  programme: string;
-  semester: string;
-  actorName: string;
-  topic: string;
-  reason?: string;
-}
-
-function smeBaseTokens(a: SmeTokenArgs): Record<string, string> {
-  return {
-    refNo: a.refNo,
-    course: `${a.courseCode} — ${a.courseTitle}`,
-    courseCode: a.courseCode,
-    courseTitle: a.courseTitle,
-    programme: a.programme,
-    semester: a.semester,
-    actor: a.actorName,
-    topic: a.topic,
-  };
-}
-
-export function smeNominationTokens(a: SmeTokenArgs): Record<string, string> {
-  return smeBaseTokens(a);
-}
-export function smeAcceptedTokens(a: SmeTokenArgs): Record<string, string> {
-  return smeBaseTokens(a);
-}
-export function smeDeclinedTokens(a: SmeTokenArgs): Record<string, string> {
-  return { ...smeBaseTokens(a), reason: a.reason ?? '' };
-}
-export function smeCompletedTokens(a: SmeTokenArgs): Record<string, string> {
-  return smeBaseTokens(a);
 }
 
 /** Token supplier for the Taxila publish templates (Prompt 9b). The templates
@@ -601,416 +580,6 @@ export async function notifySlaReminder(input: {
     ),
   );
   return filtered.length;
-}
-
-/**
- * Fires when a PC nominates an SME on a request. Side-channel notification —
- * does NOT go through the workflow state machine.
- *
- * Tries to load the DB template `handout.sme_nominated` first; if absent
- * (the template row isn't seeded yet — Prompt 8 will add it), falls back
- * to hardcoded production-quality wording defined inline below.
- *
- * NOTE for Prompt 8: when you seed the `handout.sme_nominated` template,
- * the template's `subject` and `body` MUST equal or improve on the inline
- * fallback wording below — we do NOT want to introduce a copy regression
- * the day Prompt 8 lands. The inline wording here is what real recipients
- * see in production until that template exists. Treat as production copy.
- *
- * Whole body is wrapped in try / catch so a missing template, broken
- * `deliver()`, or any other failure inside this helper never propagates
- * back to the calling server action. The action's success path is
- * independent of notification delivery.
- */
-export async function notifySmeNomination(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  topic: string;
-  actor: ActorRef;
-}): Promise<void> {
-  return dispatchOrEnqueue(
-    {
-      kind: 'sme_nominated',
-      requestId: input.requestId,
-      nominationId: input.nominationId,
-      smeUserId: input.smeUserId,
-      topic: input.topic,
-      actor: input.actor,
-    },
-    () => dispatchSmeNomination(input),
-  );
-}
-
-export async function dispatchSmeNomination(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  topic: string;
-  actor: ActorRef;
-}): Promise<void> {
-  try {
-    const [req, sme, tpl] = await Promise.all([
-      loadRequest(input.requestId),
-      prisma.user.findUnique({
-        where: { id: input.smeUserId },
-        select: { id: true, email: true, name: true },
-      }),
-      loadTemplate('handout.sme_nominated'),
-    ]);
-    if (!req || !sme) {
-      // No request or no SME user — nothing to notify. The action already
-      // committed; this is a no-op, not a failure.
-      return;
-    }
-
-    // Inline fallback wording. PROMPT 8: the seeded template's subject and
-    // body must equal or improve on these strings to avoid a copy regression
-    // (see jsdoc above).
-    const fallbackSubject = `You have been nominated as SME for ${req.refNo}`;
-    const fallbackBody =
-      `${input.actor.name} has nominated you as a Subject Matter Expert to advise on handout ` +
-      `${req.refNo} (${req.offering.course.code} — ${req.offering.course.title}). ` +
-      `Topic: "${input.topic}". Please review the request and accept or decline at your earliest convenience.`;
-
-    const tokens = smeNominationTokens({
-      refNo: req.refNo,
-      courseCode: req.offering.course.code,
-      courseTitle: req.offering.course.title,
-      programme: req.offering.semester.programme.code,
-      semester: req.offering.semester.name,
-      actorName: input.actor.name,
-      topic: input.topic,
-    });
-
-    const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
-    const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
-    const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
-
-    await deliver({
-      userId: sme.id,
-      email: sme.email,
-      role: RoleName.SME,
-      subject,
-      body,
-      link: linkFor(RoleName.SME, req.id),
-      channels,
-      metaKind: 'sme.nominated',
-      extraMeta: {
-        nominationId: input.nominationId,
-        requestId: req.id,
-        refNo: req.refNo,
-        topic: input.topic,
-        templateMissing: !tpl,
-      },
-    });
-  } catch (err) {
-    console.error('[notifySmeNomination] failed', err);
-  }
-}
-
-/**
- * Loads minimal info about an SmeNomination for the response notifications.
- * Pulls nominatedById (for PC recipient lookup) + smeUser name (for body
- * tokens). Returns null on miss — callers no-op the notification.
- */
-async function loadNominationForResponseNotify(nominationId: string) {
-  return prisma.smeNomination.findUnique({
-    where: { id: nominationId },
-    select: {
-      id: true,
-      topic: true,
-      nominatedById: true,
-      smeUser: { select: { id: true, name: true } },
-    },
-  });
-}
-
-/**
- * Fires when an SME accepts a PC's nomination. Recipient: the nominating PC
- * (one user — looked up by `SmeNomination.nominatedById`, not the broad
- * PROGRAMME_COMMITTEE role set, because only the originator needs to know
- * their specific nomination was accepted).
- *
- * Template `handout.sme_accepted` is missing until Prompt 8 — inline
- * fallback wording IS the production copy until then. Same wording-
- * regression guardrail as notifySmeNomination applies.
- */
-export async function notifySmeAccepted(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  actor: ActorRef;
-}): Promise<void> {
-  return dispatchOrEnqueue(
-    {
-      kind: 'sme_accepted',
-      requestId: input.requestId,
-      nominationId: input.nominationId,
-      smeUserId: input.smeUserId,
-      actor: input.actor,
-    },
-    () => dispatchSmeAccepted(input),
-  );
-}
-
-export async function dispatchSmeAccepted(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  actor: ActorRef;
-}): Promise<void> {
-  try {
-    const [req, nom, pc, tpl] = await Promise.all([
-      loadRequest(input.requestId),
-      loadNominationForResponseNotify(input.nominationId),
-      // Resolve nominating PC lazily — we need their email + active status.
-      // The nomination row carries the id; pull the rest here.
-      (async () => {
-        const nomRow = await prisma.smeNomination.findUnique({
-          where: { id: input.nominationId },
-          select: { nominatedBy: { select: { id: true, email: true, active: true } } },
-        });
-        return nomRow?.nominatedBy?.active ? nomRow.nominatedBy : null;
-      })(),
-      loadTemplate('handout.sme_accepted'),
-    ]);
-    if (!req || !nom || !pc) return;
-
-    const fallbackSubject = `SME accepted your nomination on ${req.refNo}`;
-    const fallbackBody =
-      `${input.actor.name} accepted your SME nomination on ${req.refNo} ` +
-      `(${req.offering.course.code} — ${req.offering.course.title}). ` +
-      `Topic: "${nom.topic}". They can now advise on this handout.`;
-
-    const tokens = smeAcceptedTokens({
-      refNo: req.refNo,
-      courseCode: req.offering.course.code,
-      courseTitle: req.offering.course.title,
-      programme: req.offering.semester.programme.code,
-      semester: req.offering.semester.name,
-      actorName: input.actor.name,
-      topic: nom.topic,
-    });
-
-    const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
-    const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
-    const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
-
-    await deliver({
-      userId: pc.id,
-      email: pc.email,
-      role: RoleName.PROGRAMME_COMMITTEE,
-      subject,
-      body,
-      link: linkFor(RoleName.PROGRAMME_COMMITTEE, req.id),
-      channels,
-      metaKind: 'sme.accepted',
-      extraMeta: {
-        nominationId: input.nominationId,
-        requestId: req.id,
-        refNo: req.refNo,
-        templateMissing: !tpl,
-      },
-    });
-  } catch (err) {
-    console.error('[notifySmeAccepted] failed', err);
-  }
-}
-
-/**
- * Fires when an SME declines a PC's nomination. Recipient: the nominating PC.
- * Body includes the SME's reason so the PC has context to re-nominate
- * someone else.
- */
-export async function notifySmeDeclined(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  reason: string;
-  actor: ActorRef;
-}): Promise<void> {
-  return dispatchOrEnqueue(
-    {
-      kind: 'sme_declined',
-      requestId: input.requestId,
-      nominationId: input.nominationId,
-      smeUserId: input.smeUserId,
-      reason: input.reason,
-      actor: input.actor,
-    },
-    () => dispatchSmeDeclined(input),
-  );
-}
-
-export async function dispatchSmeDeclined(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  reason: string;
-  actor: ActorRef;
-}): Promise<void> {
-  try {
-    const [req, nom, pc, tpl] = await Promise.all([
-      loadRequest(input.requestId),
-      loadNominationForResponseNotify(input.nominationId),
-      (async () => {
-        const nomRow = await prisma.smeNomination.findUnique({
-          where: { id: input.nominationId },
-          select: { nominatedBy: { select: { id: true, email: true, active: true } } },
-        });
-        return nomRow?.nominatedBy?.active ? nomRow.nominatedBy : null;
-      })(),
-      loadTemplate('handout.sme_declined'),
-    ]);
-    if (!req || !nom || !pc) return;
-
-    const fallbackSubject = `SME declined your nomination on ${req.refNo}`;
-    const fallbackBody =
-      `${input.actor.name} declined your SME nomination on ${req.refNo} ` +
-      `(${req.offering.course.code} — ${req.offering.course.title}). ` +
-      `Reason: "${input.reason}". You can nominate a different SME from the request page.`;
-
-    const tokens = smeDeclinedTokens({
-      refNo: req.refNo,
-      courseCode: req.offering.course.code,
-      courseTitle: req.offering.course.title,
-      programme: req.offering.semester.programme.code,
-      semester: req.offering.semester.name,
-      actorName: input.actor.name,
-      topic: nom.topic,
-      reason: input.reason,
-    });
-
-    const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
-    const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
-    const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
-
-    await deliver({
-      userId: pc.id,
-      email: pc.email,
-      role: RoleName.PROGRAMME_COMMITTEE,
-      subject,
-      body,
-      link: linkFor(RoleName.PROGRAMME_COMMITTEE, req.id),
-      channels,
-      metaKind: 'sme.declined',
-      extraMeta: {
-        nominationId: input.nominationId,
-        requestId: req.id,
-        refNo: req.refNo,
-        reason: input.reason,
-        templateMissing: !tpl,
-      },
-    });
-  } catch (err) {
-    console.error('[notifySmeDeclined] failed', err);
-  }
-}
-
-/**
- * Fires when an SME marks their nomination COMPLETED. Recipients: the
- * nominating PC + all assigned faculty for the request (deduped — same Map
- * pattern as notifyComment). Faculty want to know an SME has finished their
- * advisory pass so they can review the comments left.
- */
-export async function notifySmeCompleted(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  actor: ActorRef;
-}): Promise<void> {
-  return dispatchOrEnqueue(
-    {
-      kind: 'sme_completed',
-      requestId: input.requestId,
-      nominationId: input.nominationId,
-      smeUserId: input.smeUserId,
-      actor: input.actor,
-    },
-    () => dispatchSmeCompleted(input),
-  );
-}
-
-export async function dispatchSmeCompleted(input: {
-  requestId: string;
-  nominationId: string;
-  smeUserId: string;
-  actor: ActorRef;
-}): Promise<void> {
-  try {
-    const [req, nom, pc, tpl] = await Promise.all([
-      loadRequest(input.requestId),
-      loadNominationForResponseNotify(input.nominationId),
-      (async () => {
-        const nomRow = await prisma.smeNomination.findUnique({
-          where: { id: input.nominationId },
-          select: { nominatedBy: { select: { id: true, email: true, active: true } } },
-        });
-        return nomRow?.nominatedBy?.active ? nomRow.nominatedBy : null;
-      })(),
-      loadTemplate('handout.sme_completed'),
-    ]);
-    if (!req || !nom) return;
-
-    // Map-dedup: PC + faculty. Same pattern as notifyComment. If the
-    // nominating PC also happens to be assigned faculty (unlikely but
-    // possible in dual-role setups), they receive a single notification.
-    const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
-    const add = (us: { id: string; email: string; primaryRole: RoleName }[]) => {
-      for (const u of us) if (u.id !== input.actor.id) out.set(u.id, u);
-    };
-    if (pc) {
-      add([{ id: pc.id, email: pc.email, primaryRole: RoleName.PROGRAMME_COMMITTEE }]);
-    }
-    add(await usersById(req.assignments.map((a) => a.facultyId)));
-
-    const recipients = [...out.values()];
-    if (recipients.length === 0) return;
-
-    const fallbackSubject = `SME completed advisory on ${req.refNo}`;
-    const fallbackBody =
-      `${input.actor.name} has completed their SME advisory work on ${req.refNo} ` +
-      `(${req.offering.course.code} — ${req.offering.course.title}). ` +
-      `Topic: "${nom.topic}". Review their comments on the handout page.`;
-
-    const tokens = smeCompletedTokens({
-      refNo: req.refNo,
-      courseCode: req.offering.course.code,
-      courseTitle: req.offering.course.title,
-      programme: req.offering.semester.programme.code,
-      semester: req.offering.semester.name,
-      actorName: input.actor.name,
-      topic: nom.topic,
-    });
-
-    const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
-    const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
-    const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
-
-    await Promise.allSettled(
-      recipients.map((r) =>
-        deliver({
-          userId: r.id,
-          email: r.email,
-          role: r.primaryRole,
-          subject,
-          body,
-          link: linkFor(r.primaryRole, req.id),
-          channels,
-          metaKind: 'sme.completed',
-          extraMeta: {
-            nominationId: input.nominationId,
-            requestId: req.id,
-            refNo: req.refNo,
-            templateMissing: !tpl,
-          },
-        }),
-      ),
-    );
-  } catch (err) {
-    console.error('[notifySmeCompleted] failed', err);
-  }
 }
 
 /**

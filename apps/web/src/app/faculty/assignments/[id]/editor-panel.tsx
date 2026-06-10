@@ -21,14 +21,20 @@ export function EditorPanel({ requestId, initialJson, isRework }: Props) {
   const [pending, startTransition] = useTransition();
   const [isDirty, setIsDirty] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const lastSavedSnapshot = useRef<string>(JSON.stringify(initialJson ?? { type: 'doc', content: [] }));
+  const lastSavedSnapshot = useRef<string>(
+    JSON.stringify(initialJson ?? { type: 'doc', content: [] }),
+  );
 
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
-    content: (initialJson as Record<string, unknown>) ?? { type: 'doc', content: [{ type: 'paragraph' }] },
+    content: (initialJson as Record<string, unknown>) ?? {
+      type: 'doc',
+      content: [{ type: 'paragraph' }],
+    },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm max-w-none min-h-[280px] rounded-md border bg-background p-4 focus:outline-none',
+        class:
+          'prose prose-sm max-w-none min-h-[280px] rounded-md border bg-background p-4 focus:outline-none',
       },
     },
     onUpdate: ({ editor }) => {
@@ -89,7 +95,11 @@ export function EditorPanel({ requestId, initialJson, isRework }: Props) {
   };
 
   if (submitted) {
-    return <p className="text-sm text-emerald-600">Submitted. The PC will now review your handout.</p>;
+    return (
+      <p className="text-sm text-emerald-600">
+        Submitted. Your Subject Matter Expert will review it first.
+      </p>
+    );
   }
 
   return (
@@ -102,10 +112,10 @@ export function EditorPanel({ requestId, initialJson, isRework }: Props) {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="What changed in this version?"
-          className="min-h-[60px] rounded-md border bg-background p-2 text-sm"
+          className="bg-background min-h-[60px] rounded-md border p-2 text-sm"
         />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-sm">{error}</p>}
       {savedAt && <p className="text-sm text-emerald-600">{savedAt}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" onClick={save} disabled={pending || !editor}>
@@ -125,18 +135,19 @@ export function EditorPanel({ requestId, initialJson, isRework }: Props) {
         {isDirty && (
           <span
             className="badge-gold"
-            style={{ padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 600 }}
+            style={{
+              padding: '4px 10px',
+              borderRadius: '999px',
+              fontSize: '11px',
+              fontWeight: 600,
+            }}
             aria-live="polite"
           >
             Unsaved changes
           </span>
         )}
       </div>
-      <AiDraftDialog
-        requestId={requestId}
-        open={aiOpen}
-        onClose={() => setAiOpen(false)}
-      />
+      <AiDraftDialog requestId={requestId} open={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   );
 }

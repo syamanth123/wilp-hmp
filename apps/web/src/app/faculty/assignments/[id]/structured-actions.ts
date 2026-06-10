@@ -153,17 +153,23 @@ export async function submitStructuredForReviewAction(formData: FormData) {
     };
   }
 
-  // Prompt 12-a: opt-in SME routing. When an SmeAssignment exists for this
-  // request, faculty submit routes to SME_REVIEW (the SME approval gate)
-  // instead of straight to SUBMITTED (PC's queue). 12-a keeps this opt-in so
-  // handouts allocated without an SME — including every existing E2E fixture
-  // — keep the legacy IN_PROGRESS→SUBMITTED path unchanged. 12-b makes SME
-  // mandatory at allocation and removes the legacy branch.
+  // Prompt 12-b: SME review is mandatory. The HOG designates an SME at
+  // allocation, so every submit routes through the SME approval gate
+  // (IN_PROGRESS/REWORK_REQUESTED → SME_REVIEW). A missing SmeAssignment now
+  // means a handout that predates the requirement or a broken allocation —
+  // block submission and point faculty at the HOG rather than silently
+  // skipping the gate.
   const smeAssignment = await prisma.smeAssignment.findUnique({
     where: { requestId: request.id },
     select: { id: true },
   });
-  const submitEvent = smeAssignment ? 'SME_REVIEW_REQUESTED' : 'SUBMITTED';
+  if (!smeAssignment) {
+    return {
+      error:
+        'No Subject Matter Expert is assigned to this handout. Ask the Head of Group to assign one before submitting.',
+    };
+  }
+  const submitEvent = 'SME_REVIEW_REQUESTED' as const;
 
   try {
     await transition({
