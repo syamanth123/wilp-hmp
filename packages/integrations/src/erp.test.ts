@@ -4,6 +4,7 @@ import {
   parseOfferingsCsv,
   parseProgrammesCsv,
   parseSlotBookingsCsv,
+  parseHandoutRequestsCsv,
 } from './erp';
 
 describe('erp csv parsers', () => {
@@ -79,5 +80,73 @@ MTECH-SE,Sem-II 2025-26,SE-ZG501,class,A1,6,18-00,20:00,Online`;
 MTECH-SE,Sem-II 2025-26,SE-ZG501,labs,A1,9,18:00,20:00,Online`;
     const r = parseSlotBookingsCsv(csv);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('parseHandoutRequestsCsv (Prompt 13)', () => {
+  it('parses minimal programme/course/semester rows', () => {
+    const csv = `programme_code,course_code,semester
+MTECH-SE,SE ZG501,Sem-I 2025-26
+MTECH-DS,CC ZG501,Sem-I 2025-26`;
+    const r = parseHandoutRequestsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows).toHaveLength(2);
+    expect(r.rows[0]).toEqual({
+      programme_code: 'MTECH-SE',
+      course_code: 'SE ZG501',
+      semester: 'Sem-I 2025-26',
+    });
+  });
+
+  it('reports a single line-1 error when a required column is missing (header guard)', () => {
+    const csv = `programme_code,semester
+MTECH-SE,Sem-I 2025-26`;
+    const r = parseHandoutRequestsCsv(csv);
+    expect(r.ok).toBe(false);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]!.line).toBe(1);
+    expect(r.errors[0]!.message).toMatch(/missing required column\(s\): course_code/);
+  });
+
+  it('tolerates reordered columns (header-keyed)', () => {
+    const csv = `semester,course_code,programme_code
+Sem-I 2025-26,SE ZG501,MTECH-SE`;
+    const r = parseHandoutRequestsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]!.programme_code).toBe('MTECH-SE');
+    expect(r.rows[0]!.semester).toBe('Sem-I 2025-26');
+  });
+
+  it('skips #-comment + blank lines (template sample rows are ignored)', () => {
+    const csv = `programme_code,course_code,semester
+# MTECH-SE,SE ZG501,Sem-I 2025-26  (example — ignored)
+
+MTECH-SE,SE ZG501,Sem-I 2025-26`;
+    const r = parseHandoutRequestsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows).toHaveLength(1);
+  });
+
+  it('treats header-only (or empty) input as zero rows, ok', () => {
+    expect(parseHandoutRequestsCsv('programme_code,course_code,semester').rows).toHaveLength(0);
+    expect(parseHandoutRequestsCsv('programme_code,course_code,semester').ok).toBe(true);
+    expect(parseHandoutRequestsCsv('').rows).toHaveLength(0);
+  });
+
+  it('rejects a row with a blank required field, with its line number', () => {
+    const csv = `programme_code,course_code,semester
+MTECH-SE,,Sem-I 2025-26`;
+    const r = parseHandoutRequestsCsv(csv);
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]!.line).toBe(2);
+    expect(r.errors[0]!.message).toMatch(/course_code/);
+  });
+
+  it('handles quoted fields containing commas', () => {
+    const csv = `programme_code,course_code,semester
+MTECH-SE,SE ZG501,"Sem-I 2025-26, revised"`;
+    const r = parseHandoutRequestsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]!.semester).toBe('Sem-I 2025-26, revised');
   });
 });

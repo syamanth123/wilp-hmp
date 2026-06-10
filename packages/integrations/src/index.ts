@@ -9,16 +9,19 @@ export {
   parseProgrammesCsv,
   parseOfferingsCsv,
   parseSlotBookingsCsv,
+  parseHandoutRequestsCsv,
   courseRowSchema,
   programmeSemesterRowSchema,
   offeringRowSchema,
   slotBookingRowSchema,
+  handoutRequestRowSchema,
 } from './erp';
 export type {
   CourseRow,
   ProgrammeSemesterRow,
   OfferingRow,
   SlotBookingRow,
+  HandoutRequestRow,
   ParseResult,
 } from './erp';
 export { publishToLms, buildTaxilaRequestBody, buildExportZip, TaxilaPublishError } from './taxila';

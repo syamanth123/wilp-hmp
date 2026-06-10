@@ -30,9 +30,19 @@ export const offeringRowSchema = z.object({
 });
 export type OfferingRow = z.infer<typeof offeringRowSchema>;
 
-const timeOfDay = z
-  .string()
-  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM (00:00-23:59)');
+// Prompt 13 — IC bulk handout-request creation. Minimal columns (option a):
+// programme + course + semester only; faculty/SME allocation is HOG's job
+// (Prompt 14), not in this CSV. Column name `semester` (not `semester_name`)
+// per the approved 12-b/13 spec — the existing CSV schemas aren't internally
+// consistent on this anyway (courses use `code`, offerings use `course_code`).
+export const handoutRequestRowSchema = z.object({
+  programme_code: z.string().min(1, 'programme_code is required'),
+  course_code: z.string().min(1, 'course_code is required'),
+  semester: z.string().min(1, 'semester is required'),
+});
+export type HandoutRequestRow = z.infer<typeof handoutRequestRowSchema>;
+
+const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM (00:00-23:59)');
 
 export const slotBookingRowSchema = z.object({
   programme_code: z.string().min(2),
@@ -81,6 +91,33 @@ export function parseProgrammesCsv(input: string): ParseResult<ProgrammeSemester
 
 export function parseOfferingsCsv(input: string): ParseResult<OfferingRow> {
   return parseWith(input, offeringRowSchema);
+}
+
+const REQUIRED_HANDOUT_COLS = ['programme_code', 'course_code', 'semester'] as const;
+
+/**
+ * Prompt 13 — parse an IC bulk handout-request CSV into validated rows.
+ *
+ * Adds a header guard over bare `parseWith`: a missing required column reports
+ * ONCE at line 1 ("missing required column(s): …") instead of repeating the
+ * same Zod error on every data row. Row-level validation (non-empty fields)
+ * then runs through `parseWith` exactly like the other parsers. Semantic
+ * validation (programme/course/semester/offering existence, dedup) is the
+ * caller's job — it needs DB access this package deliberately doesn't have.
+ */
+export function parseHandoutRequestsCsv(input: string): ParseResult<HandoutRequestRow> {
+  const { header } = parseCsv(input);
+  if (header.length > 0) {
+    const missing = REQUIRED_HANDOUT_COLS.filter((c) => !header.includes(c));
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        rows: [],
+        errors: [{ line: 1, message: `missing required column(s): ${missing.join(', ')}` }],
+      };
+    }
+  }
+  return parseWith(input, handoutRequestRowSchema);
 }
 
 export function parseSlotBookingsCsv(input: string): ParseResult<SlotBookingRow> {
