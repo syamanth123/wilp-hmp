@@ -56,12 +56,20 @@ export default async function SmeOverview() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Welcome, {me.name}</h1>
-        <p className="text-muted-foreground text-sm">
-          Subject Matter Expert dashboard. Approve faculty submissions or send them back with
-          comments before they reach the Programme Committee.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Welcome, {me.name}</h1>
+          <p className="text-muted-foreground text-sm">
+            Subject Matter Expert dashboard. Approve faculty submissions or send them back with
+            comments before they reach the Programme Committee.
+          </p>
+        </div>
+        <Link
+          href="/sme/bulk-review"
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+        >
+          Bulk review
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

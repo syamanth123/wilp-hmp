@@ -11,12 +11,14 @@ export {
   parseSlotBookingsCsv,
   parseHandoutRequestsCsv,
   parseAllocationsCsv,
+  parseQueueActionsCsv,
   courseRowSchema,
   programmeSemesterRowSchema,
   offeringRowSchema,
   slotBookingRowSchema,
   handoutRequestRowSchema,
   allocationRowSchema,
+  queueActionRowSchema,
 } from './erp';
 export type {
   CourseRow,
@@ -25,6 +27,7 @@ export type {
   SlotBookingRow,
   HandoutRequestRow,
   AllocationRow,
+  QueueActionRow,
   ParseResult,
 } from './erp';
 export { publishToLms, buildTaxilaRequestBody, buildExportZip, TaxilaPublishError } from './taxila';

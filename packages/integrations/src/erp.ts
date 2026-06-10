@@ -54,6 +54,17 @@ export const allocationRowSchema = z.object({
 });
 export type AllocationRow = z.infer<typeof allocationRowSchema>;
 
+// Prompt 15 — bulk review actions (PC / SME / HOG queues). Columns are identical
+// across roles; `action` is a bare string here (allowed values + comment-required
+// are role-specific, validated in the per-role server action). `comment` optional
+// at parse — the per-action comment requirement is a semantic check.
+export const queueActionRowSchema = z.object({
+  request_reference: z.string().min(1, 'request_reference is required'),
+  action: z.string().min(1, 'action is required'),
+  comment: z.string().max(2000).optional().default(''),
+});
+export type QueueActionRow = z.infer<typeof queueActionRowSchema>;
+
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM (00:00-23:59)');
 
 export const slotBookingRowSchema = z.object({
@@ -153,6 +164,29 @@ export function parseAllocationsCsv(input: string): ParseResult<AllocationRow> {
     }
   }
   return parseWith(input, allocationRowSchema);
+}
+
+const REQUIRED_QUEUE_ACTION_COLS = ['request_reference', 'action'] as const;
+
+/**
+ * Prompt 15 — parse a bulk review-action CSV (`request_reference, action,
+ * comment`). `comment` is optional at the structural level; whether a given
+ * action requires it is role-specific and enforced by the caller. `action` is
+ * validated against the role's allowed set in the server action.
+ */
+export function parseQueueActionsCsv(input: string): ParseResult<QueueActionRow> {
+  const { header } = parseCsv(input);
+  if (header.length > 0) {
+    const missing = REQUIRED_QUEUE_ACTION_COLS.filter((c) => !header.includes(c));
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        rows: [],
+        errors: [{ line: 1, message: `missing required column(s): ${missing.join(', ')}` }],
+      };
+    }
+  }
+  return parseWith(input, queueActionRowSchema);
 }
 
 export function parseSlotBookingsCsv(input: string): ParseResult<SlotBookingRow> {

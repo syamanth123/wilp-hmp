@@ -192,6 +192,9 @@ export default async function HOGOverview() {
           >
             Bulk allocate
           </Link>
+          <Link href="/hog/bulk-review" className={buttonVariants({ variant: 'outline' })}>
+            Bulk review
+          </Link>
           <Link href="/hog/requests" className={buttonVariants({ variant: 'outline' })}>
             All requests
           </Link>
