@@ -5,6 +5,7 @@ import {
   parseProgrammesCsv,
   parseSlotBookingsCsv,
   parseHandoutRequestsCsv,
+  parseAllocationsCsv,
 } from './erp';
 
 describe('erp csv parsers', () => {
@@ -148,5 +149,61 @@ MTECH-SE,SE ZG501,"Sem-I 2025-26, revised"`;
     const r = parseHandoutRequestsCsv(csv);
     expect(r.ok).toBe(true);
     expect(r.rows[0]!.semester).toBe('Sem-I 2025-26, revised');
+  });
+});
+
+describe('parseAllocationsCsv (Prompt 14)', () => {
+  it('parses request_reference / faculty_emails / sme_email rows', () => {
+    const csv = `request_reference,faculty_emails,sme_email
+HMP-2026-0042,sharma@bits.ac.in,sme@bits.ac.in`;
+    const r = parseAllocationsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]).toEqual({
+      request_reference: 'HMP-2026-0042',
+      faculty_emails: 'sharma@bits.ac.in',
+      sme_email: 'sme@bits.ac.in',
+    });
+  });
+
+  it('keeps a quoted comma-separated faculty_emails cell intact (split is the caller’s job)', () => {
+    const csv = `request_reference,faculty_emails,sme_email
+HMP-2026-0043,"a@bits.ac.in,b@bits.ac.in",sme@bits.ac.in`;
+    const r = parseAllocationsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]!.faculty_emails).toBe('a@bits.ac.in,b@bits.ac.in');
+  });
+
+  it('reports a single line-1 error when a required column is missing', () => {
+    const csv = `request_reference,sme_email
+HMP-2026-0042,sme@bits.ac.in`;
+    const r = parseAllocationsCsv(csv);
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]!.line).toBe(1);
+    expect(r.errors[0]!.message).toMatch(/missing required column\(s\): faculty_emails/);
+  });
+
+  it('tolerates reordered columns + skips #-comment lines', () => {
+    const csv = `sme_email,request_reference,faculty_emails
+# HMP-2026-0001,a@x,sme@x  (example — ignored)
+sme@bits.ac.in,HMP-2026-0042,sharma@bits.ac.in`;
+    const r = parseAllocationsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]!.request_reference).toBe('HMP-2026-0042');
+  });
+
+  it('treats header-only input as zero rows, ok', () => {
+    const r = parseAllocationsCsv('request_reference,faculty_emails,sme_email');
+    expect(r.ok).toBe(true);
+    expect(r.rows).toHaveLength(0);
+  });
+
+  it('rejects a row with a blank required field, with its line number', () => {
+    const csv = `request_reference,faculty_emails,sme_email
+HMP-2026-0042,,sme@bits.ac.in`;
+    const r = parseAllocationsCsv(csv);
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]!.line).toBe(2);
+    expect(r.errors[0]!.message).toMatch(/faculty_emails/);
   });
 });

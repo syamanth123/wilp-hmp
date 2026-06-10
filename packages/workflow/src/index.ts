@@ -5,6 +5,7 @@ export {
   WorkflowError,
   assertRoleAllowed,
   assertOffCampusCap,
+  isCappedFacultyType,
   assertStatus,
 } from './guards';
 export type { FacultyLoad } from './guards';
