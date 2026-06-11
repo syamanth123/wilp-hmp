@@ -5,6 +5,8 @@ import {
   HeadBucketCommand,
   CreateBucketCommand,
   PutObjectCommand,
+  DeleteObjectCommand,
+  PutObjectTaggingCommand,
 } from '@aws-sdk/client-s3';
 
 // getSignedUrl lives in a separate package — mock it directly so we can assert
@@ -17,7 +19,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: (...args: unknown[]) => getSignedUrlMock(...args),
 }));
 
-import { ensureBucket, uploadAndPresign } from './storage';
+import { ensureBucket, uploadAndPresign, deleteObject, tagObject } from './storage';
 
 const s3Mock = mockClient(S3Client);
 
@@ -90,5 +92,40 @@ describe('uploadAndPresign', () => {
     expect(getSignedUrlMock).toHaveBeenCalledTimes(1);
     const presignArgs = getSignedUrlMock.mock.calls[0]!;
     expect(presignArgs[2]).toMatchObject({ expiresIn: 86_400 });
+  });
+});
+
+describe('deleteObject', () => {
+  it('sends a DeleteObject for the given bucket + key', async () => {
+    s3Mock.on(DeleteObjectCommand).resolves({});
+    const client = new S3Client({});
+
+    await deleteObject(client, 'hmp-handout-attachments', 'attachments/req-1/uuid-1');
+
+    const calls = s3Mock.commandCalls(DeleteObjectCommand);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.args[0].input).toMatchObject({
+      Bucket: 'hmp-handout-attachments',
+      Key: 'attachments/req-1/uuid-1',
+    });
+  });
+});
+
+describe('tagObject', () => {
+  it('replaces the tag set with the provided tags', async () => {
+    s3Mock.on(PutObjectTaggingCommand).resolves({});
+    const client = new S3Client({});
+
+    await tagObject(client, 'hmp-handout-attachments', 'attachments/req-1/uuid-1', {
+      archived: 'true',
+    });
+
+    const calls = s3Mock.commandCalls(PutObjectTaggingCommand);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.args[0].input).toMatchObject({
+      Bucket: 'hmp-handout-attachments',
+      Key: 'attachments/req-1/uuid-1',
+      Tagging: { TagSet: [{ Key: 'archived', Value: 'true' }] },
+    });
   });
 });

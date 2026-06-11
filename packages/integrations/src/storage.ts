@@ -19,6 +19,9 @@ import {
   CreateBucketCommand,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
+  PutObjectTaggingCommand,
+  GetObjectTaggingCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -99,6 +102,49 @@ export async function uploadAndPresign(
   return getSignedUrl(client, new GetObjectCommand({ Bucket: input.bucket, Key: input.key }), {
     expiresIn: input.expiresIn,
   });
+}
+
+/**
+ * Deletes an object. Used by the attachment delete flow (Prompt 16). Idempotent
+ * on the S3 side — deleting a missing key succeeds.
+ */
+export async function deleteObject(client: S3Client, bucket: string, key: string): Promise<void> {
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+/**
+ * Replaces an object's tag set. Used to tag a handout's attachments
+ * `archived=true` when the handout is archived, so the bucket lifecycle rule
+ * transitions them to Glacier Deep Archive (Prompt 16). PutObjectTagging
+ * REPLACES the tag set (not a merge), which is fine — we only set this one tag.
+ */
+export async function tagObject(
+  client: S3Client,
+  bucket: string,
+  key: string,
+  tags: Record<string, string>,
+): Promise<void> {
+  await client.send(
+    new PutObjectTaggingCommand({
+      Bucket: bucket,
+      Key: key,
+      Tagging: { TagSet: Object.entries(tags).map(([Key, Value]) => ({ Key, Value })) },
+    }),
+  );
+}
+
+/**
+ * Reads an object's tag set as a plain `{ key: value }` map. Inverse of
+ * `tagObject` — used to verify archive tagging took effect (Prompt 16 tests /
+ * ops checks). Returns `{}` for an object with no tags.
+ */
+export async function getObjectTags(
+  client: S3Client,
+  bucket: string,
+  key: string,
+): Promise<Record<string, string>> {
+  const res = await client.send(new GetObjectTaggingCommand({ Bucket: bucket, Key: key }));
+  return Object.fromEntries((res.TagSet ?? []).map((t) => [t.Key ?? '', t.Value ?? '']));
 }
 
 const DEFAULT_DOWNLOAD_TTL_SECONDS = 24 * 60 * 60; // 24h

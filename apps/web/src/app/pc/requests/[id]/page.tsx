@@ -9,6 +9,8 @@ import { HandoutViewer } from '@/components/handout-viewer';
 import { VersionList } from '@/components/version-list';
 import { VersionDiff } from '@/components/version-diff';
 import { CommentThread } from '@/components/comment-thread';
+import { AttachmentsPanel } from '@/components/attachments-panel';
+import { loadAttachments } from '@/lib/attachments';
 import { listVersions } from '@/lib/handout-versioning';
 import { QualityReportCard } from '@/components/quality-report-card';
 import { AssignmentPanel } from './assignment-panel';
@@ -28,6 +30,8 @@ export default async function PCRequestDetail({ params }: { params: { id: string
     },
   });
   if (!request) notFound();
+
+  const attachments = await loadAttachments(request.id);
   const handout = request.handout;
   const versions = handout ? await listVersions(handout.id) : [];
 
@@ -118,6 +122,21 @@ export default async function PCRequestDetail({ params }: { params: { id: string
         </CardHeader>
         <CardContent>
           <ApprovalsList requestId={request.id} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Attachments</CardTitle>
+          <CardDescription>Supplementary files uploaded by the assigned faculty.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AttachmentsPanel
+            requestId={request.id}
+            initial={attachments}
+            canUpload={false}
+            currentUserId=""
+          />
         </CardContent>
       </Card>
 
