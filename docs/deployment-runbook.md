@@ -14,22 +14,23 @@ Production cutover steps for the HMP portal.
 
 Copy `.env.example` and fill every value. Required in production:
 
-| Var                                                                           | Notes                                                                    |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `DATABASE_URL`                                                                | Postgres connection string with `?sslmode=require` for managed providers |
-| `NEXTAUTH_URL`                                                                | Public base URL, e.g. `https://hmp.bits-wilp.example`                    |
-| `NEXTAUTH_SECRET`                                                             | `openssl rand -base64 32`                                                |
-| `AUTH_MODE`                                                                   | `credentials` for dev, `sso` once SAML/OAuth is wired                    |
-| `SSO_*`                                                                       | IdP metadata; supply when team completes SSO adapter                     |
-| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Object storage                                                           |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`           | Email transport                                                          |
-| `REDIS_URL`                                                                   | For queues                                                               |
-| `CRON_SECRET`                                                                 | Required by `/api/cron/reminders`. `openssl rand -hex 32`                |
-| `AI_PROVIDER`                                                                 | `openai` or `anthropic`                                                  |
-| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`                                       | Provider key. Without it, AI features fall back to heuristic-only        |
-| `ERP_*`, `TAXILA_*`                                                           | Real ERP + LMS endpoints. Supplied by BITS WILP IT                       |
-| `NODE_ENV`                                                                    | `production`                                                             |
-| `LOG_LEVEL`                                                                   | `info` or `warn` in prod                                                 |
+| Var                                                                 | Notes                                                                    |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`                                                      | Postgres connection string with `?sslmode=require` for managed providers |
+| `NEXTAUTH_URL`                                                      | Public base URL, e.g. `https://hmp.bits-wilp.example`                    |
+| `NEXTAUTH_SECRET`                                                   | `openssl rand -base64 32`                                                |
+| `AUTH_MODE`                                                         | `credentials` for dev, `sso` once SAML/OAuth is wired                    |
+| `SSO_*`                                                             | IdP metadata; supply when team completes SSO adapter                     |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY` / `S3_SECRET_KEY`     | Object storage credentials. Omit `S3_ENDPOINT` for real AWS S3           |
+| `LMS_EXPORTS_BUCKET` / `HANDOUT_ATTACHMENTS_BUCKET`                 | Bucket names (default `hmp-lms-exports` / `hmp-handout-attachments`)     |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Email transport                                                          |
+| `REDIS_URL`                                                         | For queues                                                               |
+| `CRON_SECRET`                                                       | Required by `/api/cron/reminders`. `openssl rand -hex 32`                |
+| `AI_PROVIDER`                                                       | `openai` or `anthropic`                                                  |
+| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`                             | Provider key. Without it, AI features fall back to heuristic-only        |
+| `ERP_*`, `TAXILA_*`                                                 | Real ERP + LMS endpoints. Supplied by BITS WILP IT                       |
+| `NODE_ENV`                                                          | `production`                                                             |
+| `LOG_LEVEL`                                                         | `info` or `warn` in prod                                                 |
 
 ## First deploy
 
@@ -50,6 +51,59 @@ Copy `.env.example` and fill every value. Required in production:
 | **Production**                       | `pnpm --filter @hmp/db exec prisma migrate deploy`                                                       | Applies pending migrations in order, idempotent. **Never use `db push` or `migrate dev` in production.**                                                                            |
 
 Migrations now live under [`packages/db/prisma/migrations/`](../packages/db/prisma/migrations) — the `*_init` migration captures the 28-model pre-SME baseline; `*_add_sme_nomination` adds the SME nomination model, bringing the schema to 29 models.
+
+## Object storage & handout attachments (Prompt 16)
+
+Two buckets are used, kept separate on purpose so their access policies and
+lifecycle rules don't bleed into each other:
+
+- **`LMS_EXPORTS_BUCKET`** (default `hmp-lms-exports`) — Taxila Mode B export ZIPs.
+- **`HANDOUT_ATTACHMENTS_BUCKET`** (default `hmp-handout-attachments`) — faculty-uploaded
+  supplementary files (PDF/DOCX/XLSX/PPTX/PNG/JPEG, ≤ 50 MB). Objects are stored under
+  opaque UUID keys (`attachments/<requestId>/<uuid>`) — never the user-supplied filename.
+
+### One-time setup per environment
+
+1. **Create the buckets.** The app calls `ensureBucket` on first write, so this is
+   optional on S3/MinIO that allow auto-create — but create them explicitly in prod
+   so you control region + encryption:
+
+   ```
+   aws s3api create-bucket --bucket hmp-handout-attachments --region <region> \
+     --create-bucket-configuration LocationConstraint=<region>
+   aws s3api put-bucket-encryption --bucket hmp-handout-attachments \
+     --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+   ```
+
+   Keep both buckets **private** (block all public access) — downloads are always via
+   short-lived presigned URLs minted by the app, never public objects.
+
+2. **IAM.** The app's S3 credentials (`S3_ACCESS_KEY` / `S3_SECRET_KEY`) need, scoped to
+   the two bucket ARNs: `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`,
+   `s3:PutObjectTagging` (for archive tagging), and `s3:ListBucket` /
+   `s3:CreateBucket` / `s3:PutLifecycleConfiguration` if you let the app / setup script
+   create + configure buckets. Prefer creating + configuring buckets out-of-band and
+   granting the runtime only the object-level verbs + `PutObjectTagging`.
+
+3. **Install the lifecycle policy** (cold-storage transition for archived handouts):
+
+   ```
+   pnpm --filter @hmp/integrations exec tsx scripts/setup-s3-lifecycle.ts
+   ```
+
+   This installs one rule: objects tagged `archived=true` → Glacier **DEEP_ARCHIVE**
+   after 30 days, **no expiry** (attachments are retained indefinitely, just cheaply).
+   The app tags a request's attachments `archived=true`, best-effort, when it transitions
+   to ARCHIVED. Idempotent — re-running replaces the config with exactly this rule.
+   (DEEP_ARCHIVE is an AWS-S3 feature; MinIO accepts the config but won't transition.)
+
+4. **Smoke test** the wiring end-to-end (bucket reachable → upload → presigned download
+   round-trips → lifecycle present → cleanup):
+   ```
+   pnpm --filter @hmp/integrations exec tsx scripts/smoke-test-s3.ts
+   ```
+   Exits non-zero on the first hard failure. The lifecycle check is advisory (warns,
+   doesn't fail) so the smoke test is also usable against dev MinIO.
 
 ## Scheduled jobs
 

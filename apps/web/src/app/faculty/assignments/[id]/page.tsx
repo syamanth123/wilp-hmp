@@ -19,6 +19,8 @@ import { VersionDiff } from '@/components/version-diff';
 import { CommentThread } from '@/components/comment-thread';
 import { loadHandoutForFaculty, listVersions } from '@/lib/handout-versioning';
 import { QualityReportCard } from '@/components/quality-report-card';
+import { AttachmentsPanel } from '@/components/attachments-panel';
+import { loadAttachments } from '@/lib/attachments';
 import { AcceptPanel } from './accept-panel';
 import { StartEditingPanel } from './start-editing-panel';
 import { EditorPanel } from './editor-panel';
@@ -79,6 +81,7 @@ export default async function FacultyAssignmentDetail({
   const status = request.status;
   const versions = handout ? await listVersions(handout.id) : [];
   const showDiff = versions.length >= 2;
+  const attachments = await loadAttachments(request.id);
 
   // Revert banner (Prompt 12-b). When the handout is back with faculty for
   // rework, the most recent Approval row is the revert that produced it. Its
@@ -283,6 +286,24 @@ export default async function FacultyAssignmentDetail({
       )}
 
       {handout && <QualityReportCard handoutId={handout.id} />}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Attachments</CardTitle>
+          <CardDescription>
+            Supplementary files for this handout (exam papers, slides, references). Visible to all
+            reviewers; editable by you while the handout is in progress.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AttachmentsPanel
+            requestId={request.id}
+            initial={attachments}
+            canUpload={EDITABLE.has(status)}
+            currentUserId={me.id}
+          />
+        </CardContent>
+      </Card>
 
       {handout && (
         <Card>

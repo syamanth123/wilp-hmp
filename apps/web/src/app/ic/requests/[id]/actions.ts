@@ -19,6 +19,7 @@ import {
   notifyPublishExportReady,
   notifyManuallyPublished,
 } from '@/lib/notifications';
+import { tagAttachmentsArchived } from '@/lib/attachments';
 
 const schema = z.object({
   requestId: z.string().cuid(),
@@ -275,6 +276,11 @@ export async function archiveAction(formData: FormData) {
     if (err instanceof WorkflowError) return { error: err.message };
     throw err;
   }
+
+  // Best-effort, post-commit: tag attachment objects for lifecycle transition
+  // to cold storage. Deliberately OUTSIDE the transition transaction — it never
+  // throws, so S3 being unreachable can't roll back or block the archive.
+  await tagAttachmentsArchived(parsed.data.requestId);
 
   await notifyTransition({
     requestId: parsed.data.requestId,

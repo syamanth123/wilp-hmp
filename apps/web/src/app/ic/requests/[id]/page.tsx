@@ -17,6 +17,8 @@ import { VersionList } from '@/components/version-list';
 import { VersionDiff } from '@/components/version-diff';
 import { PublishLogs } from '@/components/publish-logs';
 import { CommentThread } from '@/components/comment-thread';
+import { AttachmentsPanel } from '@/components/attachments-panel';
+import { loadAttachments } from '@/lib/attachments';
 import { listVersions } from '@/lib/handout-versioning';
 import { QualityReportCard } from '@/components/quality-report-card';
 import Link from 'next/link';
@@ -34,6 +36,8 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
     },
   });
   if (!request) notFound();
+
+  const attachments = await loadAttachments(request.id);
 
   const handout = request.handout;
   const versions = handout ? await listVersions(handout.id) : [];
@@ -214,6 +218,21 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
         </CardHeader>
         <CardContent>
           <ApprovalsList requestId={request.id} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Attachments</CardTitle>
+          <CardDescription>Supplementary files uploaded by the assigned faculty.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AttachmentsPanel
+            requestId={request.id}
+            initial={attachments}
+            canUpload={false}
+            currentUserId=""
+          />
         </CardContent>
       </Card>
 

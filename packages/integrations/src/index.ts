@@ -32,7 +32,15 @@ export type {
 } from './erp';
 export { publishToLms, buildTaxilaRequestBody, buildExportZip, TaxilaPublishError } from './taxila';
 export type { PublishInput, PublishResult, LmsPublishLogStatus } from './taxila';
-export { getS3Client, ensureBucket, uploadAndPresign, getPresignedDownloadUrl } from './storage';
+export {
+  getS3Client,
+  ensureBucket,
+  uploadAndPresign,
+  getPresignedDownloadUrl,
+  deleteObject,
+  tagObject,
+  getObjectTags,
+} from './storage';
 export type { UploadAndPresignInput } from './storage';
 export { sendMail } from './email';
 export type { SendMailInput, SendMailResult } from './email';

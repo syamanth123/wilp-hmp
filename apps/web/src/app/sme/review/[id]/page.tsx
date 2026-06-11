@@ -5,6 +5,8 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { StatusBadge } from '@/components/status-badge';
 import { HandoutViewer } from '@/components/handout-viewer';
 import { CommentThread } from '@/components/comment-thread';
+import { AttachmentsPanel } from '@/components/attachments-panel';
+import { loadAttachments } from '@/lib/attachments';
 import { SmeReviewPanel } from './sme-review-panel';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +30,8 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
     },
   });
   if (!request) notFound();
+
+  const attachments = await loadAttachments(request.id);
 
   const isAssignedSme = request.smeAssignment?.smeUserId === me.id;
   const inReview = request.status === HandoutStatus.SME_REVIEW;
@@ -87,6 +91,21 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
                 ? resolveHandoutHtml(currentVersion, { omitInstitutionalHeader: true })
                 : null
             }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Attachments</CardTitle>
+          <CardDescription>Supplementary files uploaded by the assigned faculty.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AttachmentsPanel
+            requestId={request.id}
+            initial={attachments}
+            canUpload={false}
+            currentUserId=""
           />
         </CardContent>
       </Card>
