@@ -6,6 +6,7 @@ import {
   parseSlotBookingsCsv,
   parseHandoutRequestsCsv,
   parseAllocationsCsv,
+  parseQueueActionsCsv,
 } from './erp';
 
 describe('erp csv parsers', () => {
@@ -205,5 +206,60 @@ HMP-2026-0042,,sme@bits.ac.in`;
     expect(r.ok).toBe(false);
     expect(r.errors[0]!.line).toBe(2);
     expect(r.errors[0]!.message).toMatch(/faculty_emails/);
+  });
+});
+
+describe('parseQueueActionsCsv (Prompt 15)', () => {
+  it('parses request_reference / action / comment rows', () => {
+    const csv = `request_reference,action,comment
+HMP-2026-0042,sme_approve,
+HMP-2026-0043,sme_revert,Please expand Part C`;
+    const r = parseQueueActionsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]).toEqual({
+      request_reference: 'HMP-2026-0042',
+      action: 'sme_approve',
+      comment: '',
+    });
+    expect(r.rows[1]!.comment).toBe('Please expand Part C');
+  });
+
+  it('treats comment as optional at the structural level', () => {
+    const csv = `request_reference,action
+HMP-2026-0042,pc_approve`;
+    const r = parseQueueActionsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]!.comment).toBe('');
+  });
+
+  it('reports a single line-1 error when a required column is missing', () => {
+    const csv = `request_reference,comment
+HMP-2026-0042,hi`;
+    const r = parseQueueActionsCsv(csv);
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]!.line).toBe(1);
+    expect(r.errors[0]!.message).toMatch(/missing required column\(s\): action/);
+  });
+
+  it('keeps a quoted comment containing commas intact', () => {
+    const csv = `request_reference,action,comment
+HMP-2026-0042,hog_reject,"Rejected: scope, depth, and rubric all need work"`;
+    const r = parseQueueActionsCsv(csv);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]!.comment).toBe('Rejected: scope, depth, and rubric all need work');
+  });
+
+  it('does not validate the action value (that is the role layer’s job)', () => {
+    const csv = `request_reference,action,comment
+HMP-2026-0042,totally_made_up,`;
+    const r = parseQueueActionsCsv(csv);
+    expect(r.ok).toBe(true); // parser is action-agnostic
+    expect(r.rows[0]!.action).toBe('totally_made_up');
+  });
+
+  it('treats header-only input as zero rows, ok', () => {
+    const r = parseQueueActionsCsv('request_reference,action,comment');
+    expect(r.ok).toBe(true);
+    expect(r.rows).toHaveLength(0);
   });
 });

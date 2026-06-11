@@ -186,12 +186,13 @@ ${PA},${C2},${SEM}`;
 
   it('rejects unknown programme — no writes', async () => {
     if (!dbReady) return;
-    const before = await prisma.handoutRequest.count();
     const r = await run(`programme_code,course_code,semester\nNOPE-${TAG},${C1},${SEM}`);
     expect(r.status).toBe('rejected');
     if (r.status !== 'rejected') return;
     expect(r.errors[0]!.code).toBe('programme_not_found');
-    expect(await prisma.handoutRequest.count()).toBe(before);
+    // Scoped no-write check (isolation-safe under parallel test files): the C1
+    // offering has no request created. A global count() would race other DB tests.
+    expect(await prisma.handoutRequest.count({ where: { courseOfferingId: ids.off1 } })).toBe(0);
   });
 
   it('rejects unknown course', async () => {
@@ -244,12 +245,13 @@ ${PA},${C2},${SEM}`;
 
   it('is atomic: a mix of valid + invalid rows creates nothing', async () => {
     if (!dbReady) return;
-    const before = await prisma.handoutRequest.count();
     const r = await run(`programme_code,course_code,semester
 ${PA},${C1},${SEM}
 ${PA},ZZ ZG999,${SEM}`);
     expect(r.status).toBe('rejected');
-    expect(await prisma.handoutRequest.count()).toBe(before);
+    // Scoped no-write check (isolation-safe under parallel test files): the
+    // valid row's offering (C1) created nothing. A global count() would race.
+    expect(await prisma.handoutRequest.count({ where: { courseOfferingId: ids.off1 } })).toBe(0);
   });
 
   it('empty (header-only) input succeeds with zero created', async () => {
