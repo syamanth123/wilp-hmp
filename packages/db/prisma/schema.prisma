@@ -57,6 +57,7 @@ model User {
   smeAssignmentsAsAssigner  SmeAssignment[] @relation("SmeAssignmentsAsAssigner")
   corpusImportsApproved     HandoutImport[] @relation("CorpusApprovedBy")
   attachmentsUploaded       Attachment[]    @relation("AttachmentUploader")
+  aiUsage                   AiUsageLog[]    @relation("AiUsageActor")
 
   @@index([email])
 }
@@ -248,6 +249,7 @@ model Handout {
   comments     Comment[]
   qualityReports AIQualityReport[]
   aiDraftLogs  AIDraftLog[]
+  aiUsage      AiUsageLog[]
   publishLogs  LmsPublishLog[]
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
@@ -550,6 +552,47 @@ model AIDraftLog {
   handout    Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
 
   @@index([handoutId, createdAt])
+}
+
+// AI cost ledger (Prompt 17). One row per REAL provider call (cache/stub hits
+// record nothing — no API call, no cost). Orthogonal to the AI*output* models
+// above: those store what the AI produced; this stores what each call cost.
+//
+// onDelete: SetNull (NOT Cascade) on both FKs — a cost ledger is financial and
+// must survive deletion of the user or handout that incurred it. The dashboard
+// renders a null user as "system / background" (worker + page-render paths have
+// no actor) and a null handout for non-handout operations (recommendations,
+// corpus embeddings).
+enum AiOperation {
+  DRAFT_GENERATION        // generateHandoutDraft (legacy TipTap path)
+  STRUCTURED_DRAFT        // generateStructuredHandoutDraft (BitsHandoutV1)
+  QUALITY_REPORT          // runQualityReport
+  FACULTY_RECOMMENDATION  // embedding calls triggered BY a recommendation run
+  EMBEDDING               // embedding calls triggered by admin corpus refresh
+}
+
+model AiUsageLog {
+  id           String      @id @default(cuid())
+  userId       String?     // nullable: worker + page-render paths have no actor
+  handoutId    String?     // nullable: recommendations/embeddings aren't handout-scoped
+  operation    AiOperation
+  provider     String      // client.provider: 'anthropic' | 'openai'
+  model        String
+  tokensIn     Int         @default(0)
+  tokensOut    Int         @default(0)
+  costUsd      Decimal     @db.Decimal(12, 6)
+  durationMs   Int
+  succeeded    Boolean
+  errorMessage String?
+  createdAt    DateTime    @default(now())
+
+  user    User?    @relation("AiUsageActor", fields: [userId], references: [id], onDelete: SetNull)
+  handout Handout? @relation(fields: [handoutId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([handoutId])
+  @@index([operation, createdAt])
 }
 
 model Embedding {

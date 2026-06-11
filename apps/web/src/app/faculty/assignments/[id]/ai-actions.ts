@@ -56,10 +56,13 @@ export async function generateAiDraftAction(formData: FormData) {
   }
 
   try {
-    const result = await generateHandoutDraft({
-      handoutId: request.handout.id,
-      forceRefresh: parsed.data.forceRefresh,
-    });
+    const result = await generateHandoutDraft(
+      {
+        handoutId: request.handout.id,
+        forceRefresh: parsed.data.forceRefresh,
+      },
+      { actorId: me.id },
+    );
     await audit({
       actorId: me.id,
       action: 'ai.draft.generated',

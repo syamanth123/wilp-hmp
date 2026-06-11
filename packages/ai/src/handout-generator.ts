@@ -1,6 +1,7 @@
 import { prisma } from '@hmp/db';
 import { getAiClient, AiUnconfiguredError } from './client';
 import { HandoutDraftSchema, type HandoutDraftData } from './schemas';
+import { recordAiUsage, type AiUsageContext } from './usage';
 
 export type DraftSource = 'ai' | 'cache' | 'stub';
 
@@ -50,10 +51,15 @@ function buildUserPrompt(input: {
     `${input.programmeName} · ${input.semesterName}`,
     ``,
     `## Course description / syllabus`,
-    input.courseDescription || '(none provided — generate a faithful BITS-style draft from the title alone)',
+    input.courseDescription ||
+      '(none provided — generate a faithful BITS-style draft from the title alone)',
   ];
   if (input.previousHandoutText && input.previousHandoutText.trim()) {
-    parts.push('', '## Previous-year handout (reference, may be partial)', input.previousHandoutText.slice(0, 12_000));
+    parts.push(
+      '',
+      '## Previous-year handout (reference, may be partial)',
+      input.previousHandoutText.slice(0, 12_000),
+    );
   }
   return parts.join('\n');
 }
@@ -132,7 +138,11 @@ export function structuredDraftToTiptap(d: HandoutDraftData): {
 }
 
 /** Friendly stub draft used when the AI provider is unconfigured. */
-function buildStubDraft(course: { code: string; title: string; description: string | null }): HandoutDraftData {
+function buildStubDraft(course: {
+  code: string;
+  title: string;
+  description: string | null;
+}): HandoutDraftData {
   const desc =
     course.description?.trim() ||
     `${course.title} is a foundational course offered under BITS WILP. This draft is a template stub — connect an AI provider to generate a real outline grounded in the course syllabus.`;
@@ -152,21 +162,47 @@ function buildStubDraft(course: { code: string; title: string; description: stri
     },
     partB: {
       lecturePlan: [
-        { module: 'Introduction and scope', topics: ['Course overview', 'Learning outcomes', 'Resource map'], hours: 2 },
-        { module: 'Core concepts I', topics: ['Foundational ideas', 'Worked examples', 'Practice problems'], hours: 3 },
-        { module: 'Core concepts II', topics: ['Advanced ideas', 'Case study', 'Discussion'], hours: 3 },
-        { module: 'Applications and synthesis', topics: ['Cross-topic problems', 'Project briefing', 'Review'], hours: 2 },
+        {
+          module: 'Introduction and scope',
+          topics: ['Course overview', 'Learning outcomes', 'Resource map'],
+          hours: 2,
+        },
+        {
+          module: 'Core concepts I',
+          topics: ['Foundational ideas', 'Worked examples', 'Practice problems'],
+          hours: 3,
+        },
+        {
+          module: 'Core concepts II',
+          topics: ['Advanced ideas', 'Case study', 'Discussion'],
+          hours: 3,
+        },
+        {
+          module: 'Applications and synthesis',
+          topics: ['Cross-topic problems', 'Project briefing', 'Review'],
+          hours: 2,
+        },
       ],
-      selfStudy: ['Read chapter summaries', 'Solve end-of-chapter problems', 'Watch supplementary videos'],
+      selfStudy: [
+        'Read chapter summaries',
+        'Solve end-of-chapter problems',
+        'Watch supplementary videos',
+      ],
     },
     evaluative: {
       components: [
         { name: 'Assignment 1', weightage: 15, schedule: 'Week 4', nature: 'take-home' },
         { name: 'Mid-semester exam', weightage: 30, schedule: 'Week 8', nature: 'closed-book' },
         { name: 'Assignment 2', weightage: 15, schedule: 'Week 12', nature: 'take-home' },
-        { name: 'Comprehensive exam', weightage: 40, schedule: 'End of term', nature: 'closed-book' },
+        {
+          name: 'Comprehensive exam',
+          weightage: 40,
+          schedule: 'End of term',
+          nature: 'closed-book',
+        },
       ],
-      notes: 'Weightages and schedule are placeholder values — confirm against the official evaluation plan.',
+      notes:
+        'Weightages and schedule are placeholder values — confirm against the official evaluation plan.',
     },
   };
 }
@@ -182,6 +218,9 @@ function buildStubDraft(course: { code: string; title: string; description: stri
  */
 export async function generateHandoutDraft(
   input: GenerateHandoutDraftInput,
+  /** Cost-tracking attribution (Prompt 17). Optional; recorded only on the real
+   *  AI path (cache + stub paths make no API call). */
+  context?: AiUsageContext,
 ): Promise<HandoutDraftResult> {
   const handout = await prisma.handout.findUnique({
     where: { id: input.handoutId },
@@ -258,21 +297,51 @@ export async function generateHandoutDraft(
   }
 
   // ── Real AI generation ───────────────────────────────────────────────
-  const chatResult = await client.chatJson({
-    schema: HandoutDraftSchema,
-    system: SYSTEM_PROMPT,
-    user: buildUserPrompt({
-      courseCode: course.code,
-      courseTitle: course.title,
-      courseDescription: course.description ?? '',
-      programmeName,
-      semesterName,
-      previousHandoutText: previousHandoutText
-        ? previousHandoutText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 8000)
-        : undefined,
-    }),
-    maxTokens: 3500,
-  });
+  const startedAt = Date.now();
+  let chatResult;
+  try {
+    chatResult = await client.chatJson({
+      schema: HandoutDraftSchema,
+      system: SYSTEM_PROMPT,
+      user: buildUserPrompt({
+        courseCode: course.code,
+        courseTitle: course.title,
+        courseDescription: course.description ?? '',
+        programmeName,
+        semesterName,
+        previousHandoutText: previousHandoutText
+          ? previousHandoutText
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .slice(0, 8000)
+          : undefined,
+      }),
+      maxTokens: 3500,
+    });
+    await recordAiUsage({
+      ...context,
+      handoutId: handout.id,
+      operation: 'DRAFT_GENERATION',
+      provider: client.provider,
+      model: chatResult.model,
+      tokens: chatResult.tokens,
+      durationMs: Date.now() - startedAt,
+      succeeded: true,
+    });
+  } catch (err) {
+    await recordAiUsage({
+      ...context,
+      handoutId: handout.id,
+      operation: 'DRAFT_GENERATION',
+      provider: client.provider,
+      model: client.chatModel,
+      tokens: { in: 0, out: 0 },
+      durationMs: Date.now() - startedAt,
+      succeeded: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
   // Zod returns the parsed output (with defaults applied) but the inferred T from
   // ZodSchema<input> drops the defaults — cast back to the canonical output shape.
   const data = chatResult.data as HandoutDraftData;

@@ -1,6 +1,7 @@
 import { prisma, FacultyType, RoleName } from '@hmp/db';
 import { getAiClient, AiUnconfiguredError } from './client';
 import { embedCourse, embedFaculty, cosine } from './embeddings';
+import type { AiUsageContext } from './usage';
 
 export interface RecommendationCandidate {
   facultyId: string;
@@ -47,8 +48,18 @@ interface RecommendInput {
  * Persists today's result as an `AIRecommendation` row and reuses it
  * (same `requestId`, same UTC day) unless `forceRefresh` is true.
  */
-export async function recommendFaculty(input: RecommendInput): Promise<RecommendationResult> {
+export async function recommendFaculty(
+  input: RecommendInput,
+  /** Cost-tracking attribution (Prompt 17). The embedding calls this run makes
+   *  are labeled FACULTY_RECOMMENDATION (vs admin corpus EMBEDDING). actorId is
+   *  best-effort — the page-render path has a viewer, not a clear triggerer. */
+  context?: AiUsageContext,
+): Promise<RecommendationResult> {
   const topN = input.topN ?? 5;
+  const embedUsage = {
+    actorId: context?.actorId ?? null,
+    operation: 'FACULTY_RECOMMENDATION' as const,
+  };
 
   // Reuse today's cached row unless forceRefresh.
   if (!input.forceRefresh) {
@@ -157,13 +168,13 @@ export async function recommendFaculty(input: RecommendInput): Promise<Recommend
 
   if (client.provider !== 'noop') {
     try {
-      const cr = await embedCourse(request.offering.course.id);
+      const cr = await embedCourse(request.offering.course.id, embedUsage);
       if (!cr) throw new AiUnconfiguredError('course_text_empty');
       courseVec = cr.vector;
       model = cr.model;
       for (const f of faculty) {
         try {
-          const fr = await embedFaculty(f.id);
+          const fr = await embedFaculty(f.id, embedUsage);
           if (fr) facultyVecs.set(f.id, fr.vector);
         } catch {
           // Per-faculty embed failure is non-fatal; we'll score them heuristically.
@@ -173,7 +184,11 @@ export async function recommendFaculty(input: RecommendInput): Promise<Recommend
     } catch (err) {
       strategy = 'heuristic';
       fallbackReason =
-        err instanceof AiUnconfiguredError ? err.reason : err instanceof Error ? err.message : 'embedding_failed';
+        err instanceof AiUnconfiguredError
+          ? err.reason
+          : err instanceof Error
+            ? err.message
+            : 'embedding_failed';
     }
   } else {
     fallbackReason = 'ai_provider_unconfigured';

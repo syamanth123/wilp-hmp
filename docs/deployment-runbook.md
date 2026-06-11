@@ -14,23 +14,24 @@ Production cutover steps for the HMP portal.
 
 Copy `.env.example` and fill every value. Required in production:
 
-| Var                                                                 | Notes                                                                    |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `DATABASE_URL`                                                      | Postgres connection string with `?sslmode=require` for managed providers |
-| `NEXTAUTH_URL`                                                      | Public base URL, e.g. `https://hmp.bits-wilp.example`                    |
-| `NEXTAUTH_SECRET`                                                   | `openssl rand -base64 32`                                                |
-| `AUTH_MODE`                                                         | `credentials` for dev, `sso` once SAML/OAuth is wired                    |
-| `SSO_*`                                                             | IdP metadata; supply when team completes SSO adapter                     |
-| `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY` / `S3_SECRET_KEY`     | Object storage credentials. Omit `S3_ENDPOINT` for real AWS S3           |
-| `LMS_EXPORTS_BUCKET` / `HANDOUT_ATTACHMENTS_BUCKET`                 | Bucket names (default `hmp-lms-exports` / `hmp-handout-attachments`)     |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Email transport                                                          |
-| `REDIS_URL`                                                         | For queues                                                               |
-| `CRON_SECRET`                                                       | Required by `/api/cron/reminders`. `openssl rand -hex 32`                |
-| `AI_PROVIDER`                                                       | `openai` or `anthropic`                                                  |
-| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`                             | Provider key. Without it, AI features fall back to heuristic-only        |
-| `ERP_*`, `TAXILA_*`                                                 | Real ERP + LMS endpoints. Supplied by BITS WILP IT                       |
-| `NODE_ENV`                                                          | `production`                                                             |
-| `LOG_LEVEL`                                                         | `info` or `warn` in prod                                                 |
+| Var                                                                 | Notes                                                                                       |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                      | Postgres connection string with `?sslmode=require` for managed providers                    |
+| `NEXTAUTH_URL`                                                      | Public base URL, e.g. `https://hmp.bits-wilp.example`                                       |
+| `NEXTAUTH_SECRET`                                                   | `openssl rand -base64 32`                                                                   |
+| `AUTH_MODE`                                                         | `credentials` for dev, `sso` once SAML/OAuth is wired                                       |
+| `SSO_*`                                                             | IdP metadata; supply when team completes SSO adapter                                        |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY` / `S3_SECRET_KEY`     | Object storage credentials. Omit `S3_ENDPOINT` for real AWS S3                              |
+| `LMS_EXPORTS_BUCKET` / `HANDOUT_ATTACHMENTS_BUCKET`                 | Bucket names (default `hmp-lms-exports` / `hmp-handout-attachments`)                        |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Email transport                                                                             |
+| `REDIS_URL`                                                         | For queues                                                                                  |
+| `CRON_SECRET`                                                       | Required by `/api/cron/reminders`. `openssl rand -hex 32`                                   |
+| `AI_PROVIDER`                                                       | `openai` or `anthropic`                                                                     |
+| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`                             | Provider key. Without it, AI features fall back to heuristic-only                           |
+| `AI_MONTHLY_BUDGET_USD`                                             | Soft monthly AI budget (default 200). Over-budget → in-portal admin alert; AI stays enabled |
+| `ERP_*`, `TAXILA_*`                                                 | Real ERP + LMS endpoints. Supplied by BITS WILP IT                                          |
+| `NODE_ENV`                                                          | `production`                                                                                |
+| `LOG_LEVEL`                                                         | `info` or `warn` in prod                                                                    |
 
 ## First deploy
 
@@ -131,6 +132,7 @@ The worker handles `SIGTERM`/`SIGINT` gracefully — it stops accepting new jobs
 - **Uptime check**: hit `/login` every minute.
 - **Logs**: structured JSON to stdout. Pipe to platform log drain.
 - **Queue health**: `/admin/queues` shows per-queue counts, failed jobs (with retry/delete), and a **worker heartbeat** — a "⚠ Workers may not be running" banner appears if no heartbeat in 5 min. Monitor queue **waiting** depth: sustained growth means the worker is down or under-provisioned.
+- **AI cost**: `/admin/ai-metrics` shows month-to-date AI spend vs `AI_MONTHLY_BUDGET_USD`, a 6-month trend, and per-user / per-handout / per-operation breakdowns (sourced from the `AiUsageLog` cost ledger — one row per real provider call). Over-budget fires a once-a-month in-portal alert to admins (soft cap; AI stays enabled). Update `packages/ai/src/pricing.ts` when provider list prices change (see its "Verified" comment).
 
 ## Backups
 

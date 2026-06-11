@@ -222,7 +222,10 @@ export async function submitStructuredForReviewAction(formData: FormData) {
         }
       }
       if (!queued) {
-        await runQualityReport({ handoutVersionId: versionId, bypassRateLimit: true });
+        await runQualityReport(
+          { handoutVersionId: versionId, bypassRateLimit: true },
+          { actorId: me.id },
+        );
       }
     }
   } catch (err) {
@@ -398,10 +401,13 @@ export async function generateStructuredAiDraftAction(formData: FormData) {
   }
 
   try {
-    const result = await generateStructuredHandoutDraft({
-      handoutId: request.handout.id,
-      forceRefresh: parse.data.forceRefresh,
-    });
+    const result = await generateStructuredHandoutDraft(
+      {
+        handoutId: request.handout.id,
+        forceRefresh: parse.data.forceRefresh,
+      },
+      { actorId: me.id },
+    );
     await audit({
       actorId: me.id,
       action: 'ai.draft.generated.structured',

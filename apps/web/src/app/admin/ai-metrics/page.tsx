@@ -29,6 +29,22 @@ function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function startOfUtcMonth(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), 1));
+}
+
+/** Start of the month 5 months back — the 6-month trend window (inclusive). */
+function sixMonthWindowStart(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() - 5, 1));
+}
+
+/** Format USD; admin cost views want sub-cent precision, so default 4 dp. */
+function usd(n: number, dp = 4): string {
+  return `$${n.toFixed(dp)}`;
+}
+
 export default async function AiMetricsPage() {
   const client = getAiClient();
   const provider = (process.env.AI_PROVIDER ?? 'openai').toLowerCase();
@@ -103,9 +119,7 @@ export default async function AiMetricsPage() {
   const totalReports = reports.length;
   const totalDrafts = drafts.length;
   const avgScore =
-    reports.length === 0
-      ? null
-      : reports.reduce((s, r) => s + r.score, 0) / reports.length;
+    reports.length === 0 ? null : reports.reduce((s, r) => s + r.score, 0) / reports.length;
 
   // Group embeddings by ownerType for a compact summary.
   const embedByOwner = new Map<string, { count: number; models: Set<string> }>();
@@ -115,6 +129,78 @@ export default async function AiMetricsPage() {
     row.models.add(e.model);
     embedByOwner.set(e.ownerType, row);
   }
+
+  // ── AI cost ledger (Prompt 17). All queries empty-safe — a fresh deploy with
+  // an empty AiUsageLog renders $0 / 0 calls / empty tables, never errors. ──
+  const monthStart = startOfUtcMonth();
+  const budgetUsd =
+    Number(process.env.AI_MONTHLY_BUDGET_USD) > 0 ? Number(process.env.AI_MONTHLY_BUDGET_USD) : 200;
+  const monthLabel = monthStart.toISOString().slice(0, 7);
+
+  const [monthAgg, byOperation, topUserGroups, topHandoutGroups, monthlyTrend] = await Promise.all([
+    prisma.aiUsageLog.aggregate({
+      where: { createdAt: { gte: monthStart } },
+      _sum: { costUsd: true },
+      _count: { _all: true },
+    }),
+    prisma.aiUsageLog.groupBy({
+      by: ['operation'],
+      where: { createdAt: { gte: monthStart } },
+      _sum: { costUsd: true },
+      _count: { _all: true },
+    }),
+    prisma.aiUsageLog.groupBy({
+      by: ['userId'],
+      where: { createdAt: { gte: monthStart } },
+      _sum: { costUsd: true },
+      _count: { _all: true },
+      orderBy: { _sum: { costUsd: 'desc' } },
+      take: 10,
+    }),
+    prisma.aiUsageLog.groupBy({
+      by: ['handoutId'],
+      where: { createdAt: { gte: monthStart } },
+      _sum: { costUsd: true },
+      _count: { _all: true },
+      orderBy: { _sum: { costUsd: 'desc' } },
+      take: 10,
+    }),
+    prisma.$queryRaw<Array<{ month: string; cost: number; calls: number }>>`
+      SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') AS month,
+             COALESCE(SUM("costUsd"), 0)::float8 AS cost,
+             COUNT(*)::int AS calls
+      FROM "AiUsageLog"
+      WHERE "createdAt" >= ${sixMonthWindowStart()}
+      GROUP BY 1
+      ORDER BY 1 DESC`,
+  ]);
+
+  const monthSpend = Number(monthAgg._sum.costUsd ?? 0);
+  const monthCalls = monthAgg._count._all;
+  const budgetPct = budgetUsd > 0 ? Math.round((monthSpend / budgetUsd) * 100) : 0;
+  const overBudget = monthSpend > budgetUsd;
+
+  // Resolve names/refs for the top-N groups (null FK → orphaned/background).
+  const topUserIds = topUserGroups.map((g) => g.userId).filter((x): x is string => Boolean(x));
+  const topHandoutIds = topHandoutGroups
+    .map((g) => g.handoutId)
+    .filter((x): x is string => Boolean(x));
+  const [userRows, handoutRows] = await Promise.all([
+    topUserIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: topUserIds } },
+          select: { id: true, name: true },
+        })
+      : Promise.resolve([]),
+    topHandoutIds.length
+      ? prisma.handout.findMany({
+          where: { id: { in: topHandoutIds } },
+          select: { id: true, request: { select: { refNo: true } } },
+        })
+      : Promise.resolve([]),
+  ]);
+  const userName = new Map(userRows.map((u) => [u.id, u.name]));
+  const handoutRef = new Map(handoutRows.map((h) => [h.id, h.request.refNo]));
 
   return (
     <div className="space-y-4">
@@ -138,7 +224,7 @@ export default async function AiMetricsPage() {
                 <Badge variant="success">{client.provider}</Badge>
               )}
             </div>
-            <div className="mt-1 text-xs text-muted-foreground">
+            <div className="text-muted-foreground mt-1 text-xs">
               chat: {client.chatModel} · embed: {client.embedModel}
             </div>
           </div>
@@ -164,6 +250,179 @@ export default async function AiMetricsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>AI cost — {monthLabel}</CardTitle>
+          <CardDescription>
+            Month-to-date spend vs the soft monthly budget (
+            <code className="font-mono text-xs">AI_MONTHLY_BUDGET_USD</code>, default $200). Soft
+            cap: AI stays enabled when over budget; an admin is notified once per month.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
+          <div>
+            <div className="text-muted-foreground">This month</div>
+            <div className="text-2xl font-semibold">{usd(monthSpend, 2)}</div>
+            <div className="text-muted-foreground mt-1 text-xs">{monthCalls} call(s)</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Budget</div>
+            <div className="text-2xl font-semibold">{usd(budgetUsd, 2)}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Used</div>
+            <div className="text-2xl font-semibold">
+              {overBudget ? (
+                <Badge variant="destructive">{budgetPct}% — over budget</Badge>
+              ) : (
+                <Badge variant="success">{budgetPct}%</Badge>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Cost by operation ({monthLabel})</CardTitle>
+            <CardDescription>Which features drove spend this month.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {byOperation.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No AI usage recorded this month.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Operation</TableHead>
+                    <TableHead>Calls</TableHead>
+                    <TableHead>Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {byOperation
+                    .slice()
+                    .sort((a, b) => Number(b._sum.costUsd ?? 0) - Number(a._sum.costUsd ?? 0))
+                    .map((o) => (
+                      <TableRow key={o.operation}>
+                        <TableCell className="font-mono text-xs">{o.operation}</TableCell>
+                        <TableCell>{o._count._all}</TableCell>
+                        <TableCell>{usd(Number(o._sum.costUsd ?? 0))}</TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Monthly trend (6 months)</CardTitle>
+            <CardDescription>Cost + call count per month.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {monthlyTrend.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No AI usage recorded yet.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Month</TableHead>
+                    <TableHead>Calls</TableHead>
+                    <TableHead>Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {monthlyTrend.map((m) => (
+                    <TableRow key={m.month}>
+                      <TableCell className="font-mono text-xs">{m.month}</TableCell>
+                      <TableCell>{m.calls}</TableCell>
+                      <TableCell>{usd(Number(m.cost))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top users ({monthLabel})</CardTitle>
+            <CardDescription>Highest AI spend by triggering user this month.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topUserGroups.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No AI usage recorded this month.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Calls</TableHead>
+                    <TableHead>Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {topUserGroups.map((g) => (
+                    <TableRow key={g.userId ?? 'system'}>
+                      <TableCell>
+                        {g.userId ? (
+                          (userName.get(g.userId) ?? g.userId)
+                        ) : (
+                          <span className="text-muted-foreground">system / background</span>
+                        )}
+                      </TableCell>
+                      <TableCell>{g._count._all}</TableCell>
+                      <TableCell>{usd(Number(g._sum.costUsd ?? 0))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top handouts ({monthLabel})</CardTitle>
+            <CardDescription>Highest AI spend by handout this month.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topHandoutGroups.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No AI usage recorded this month.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Handout</TableHead>
+                    <TableHead>Calls</TableHead>
+                    <TableHead>Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {topHandoutGroups.map((g) => (
+                    <TableRow key={g.handoutId ?? 'none'}>
+                      <TableCell className="font-mono text-xs">
+                        {g.handoutId ? (
+                          (handoutRef.get(g.handoutId) ?? g.handoutId)
+                        ) : (
+                          <span className="text-muted-foreground">— (not handout-scoped)</span>
+                        )}
+                      </TableCell>
+                      <TableCell>{g._count._all}</TableCell>
+                      <TableCell>{usd(Number(g._sum.costUsd ?? 0))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>
@@ -205,9 +464,9 @@ export default async function AiMetricsPage() {
               ))}
             </TableBody>
           </Table>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Per-call token counts are not persisted yet — cost rollup will be added once the AI
-            provider returns and we capture token usage per request.
+          <p className="text-muted-foreground mt-2 text-xs">
+            Counts above are per artifact produced. Per-call token cost is tracked separately in the
+            AI cost cards above (one ledger row per real provider call; cache/stub hits are free).
           </p>
         </CardContent>
       </Card>
@@ -222,7 +481,7 @@ export default async function AiMetricsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {embedByOwner.size === 0 ? (
-            <p className="text-sm text-muted-foreground">No embeddings stored yet.</p>
+            <p className="text-muted-foreground text-sm">No embeddings stored yet.</p>
           ) : (
             <Table>
               <TableHeader>

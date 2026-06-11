@@ -24,7 +24,9 @@ export interface AiClient {
   readonly provider: 'openai' | 'anthropic' | 'noop';
   readonly chatModel: string;
   readonly embedModel: string;
-  embedText(input: string): Promise<{ vector: number[]; model: string }>;
+  embedText(
+    input: string,
+  ): Promise<{ vector: number[]; model: string; tokens?: { in: number; out: number } }>;
   chatJson<T>(input: ChatJsonInput<T>): Promise<ChatJsonResult<T>>;
 }
 

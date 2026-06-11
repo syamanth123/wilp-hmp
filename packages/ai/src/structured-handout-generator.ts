@@ -1,5 +1,6 @@
 import { prisma, BitsHandoutSchemaV1, type BitsHandoutV1 } from '@hmp/db';
 import { getAiClient } from './client';
+import { recordAiUsage, type AiUsageContext } from './usage';
 
 export type StructuredDraftSource = 'ai' | 'cache' | 'stub';
 
@@ -246,6 +247,9 @@ function buildStubStructuredDraft(
  */
 export async function generateStructuredHandoutDraft(
   input: GenerateStructuredHandoutDraftInput,
+  /** Cost-tracking attribution (Prompt 17). Optional; recorded only on the real
+   *  AI path (cache + stub paths make no API call). */
+  context?: AiUsageContext,
 ): Promise<StructuredHandoutDraftResult> {
   const handout = await prisma.handout.findUnique({
     where: { id: input.handoutId },
@@ -327,12 +331,39 @@ export async function generateStructuredHandoutDraft(
   // `chatJson` parses with the provided Zod schema and throws on malformed
   // JSON or schema-invalid output — the action layer catches and surfaces
   // the error message verbatim in the dialog.
-  const result = await client.chatJson({
-    system: SYSTEM_PROMPT,
-    user: userPrompt,
-    schema: BitsHandoutSchemaV1,
-    maxTokens: 8000,
-  });
+  const startedAt = Date.now();
+  let result;
+  try {
+    result = await client.chatJson({
+      system: SYSTEM_PROMPT,
+      user: userPrompt,
+      schema: BitsHandoutSchemaV1,
+      maxTokens: 8000,
+    });
+    await recordAiUsage({
+      ...context,
+      handoutId: handout.id,
+      operation: 'STRUCTURED_DRAFT',
+      provider: client.provider,
+      model: result.model,
+      tokens: result.tokens,
+      durationMs: Date.now() - startedAt,
+      succeeded: true,
+    });
+  } catch (err) {
+    await recordAiUsage({
+      ...context,
+      handoutId: handout.id,
+      operation: 'STRUCTURED_DRAFT',
+      provider: client.provider,
+      model: client.chatModel,
+      tokens: { in: 0, out: 0 },
+      durationMs: Date.now() - startedAt,
+      succeeded: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 
   const row = await prisma.aIDraftLog.create({
     data: {

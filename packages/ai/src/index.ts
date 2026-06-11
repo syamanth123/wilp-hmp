@@ -25,3 +25,5 @@ export {
 } from './schemas';
 export type { QualityReportData, BloomsBucket, Coverage, HandoutDraftData } from './schemas';
 export { MODEL_PRICING, estimateCostUsd } from './pricing';
+export { recordAiUsage, maybeWarnBudget } from './usage';
+export type { AiUsageContext, RecordAiUsageInput } from './usage';

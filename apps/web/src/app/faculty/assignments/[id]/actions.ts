@@ -308,7 +308,10 @@ export async function submitForReviewAction(formData: FormData) {
         }
       }
       if (!queued) {
-        await runQualityReport({ handoutVersionId: versionId, bypassRateLimit: true });
+        await runQualityReport(
+          { handoutVersionId: versionId, bypassRateLimit: true },
+          { actorId: me.id },
+        );
       }
     }
   } catch (err) {
@@ -336,7 +339,10 @@ export async function runQualityCheckAction(formData: FormData) {
   if (!handout?.currentVersionId) return { error: 'No version to check yet' };
 
   try {
-    const report = await runQualityReport({ handoutVersionId: handout.currentVersionId });
+    const report = await runQualityReport(
+      { handoutVersionId: handout.currentVersionId },
+      { actorId: me.id },
+    );
     await audit({
       actorId: me.id,
       action: 'ai.quality.generated',

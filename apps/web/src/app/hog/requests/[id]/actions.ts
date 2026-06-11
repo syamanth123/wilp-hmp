@@ -248,7 +248,7 @@ export async function regenerateRecommendationAction(formData: FormData) {
   let count = 0;
   try {
     await clearTodayRecommendations(requestId);
-    const res = await recommendFaculty({ requestId, forceRefresh: true });
+    const res = await recommendFaculty({ requestId, forceRefresh: true }, { actorId: actor.id });
     count = res.candidates?.length ?? 0;
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Recommendation failed' };

@@ -16,7 +16,13 @@ export function createOpenAiClient(apiKey: string): AiClient {
       const res = await sdk.embeddings.create({ model: EMBED_MODEL, input });
       const vector = res.data[0]?.embedding;
       if (!vector) throw new Error('openai_embedding_empty');
-      return { vector, model: EMBED_MODEL };
+      // Surface token usage so embedding cost can be tracked (Prompt 17).
+      // Embeddings have no output tokens; only prompt_tokens are billed.
+      return {
+        vector,
+        model: EMBED_MODEL,
+        tokens: { in: res.usage?.prompt_tokens ?? 0, out: 0 },
+      };
     },
 
     async chatJson<T>(opts: ChatJsonInput<T>): Promise<ChatJsonResult<T>> {
