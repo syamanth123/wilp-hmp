@@ -8,6 +8,13 @@ const { prismaMock, chatJsonMock } = vi.hoisted(() => ({
   prismaMock: {
     handout: { findUnique: vi.fn() },
     aIDraftLog: { findFirst: vi.fn(), create: vi.fn() },
+    // Prompt 17: generateStructuredHandoutDraft now records AI usage (best-effort).
+    // Stub it so the recording write succeeds and the budget check is a no-op
+    // (under-budget aggregate) rather than logging swallowed errors.
+    aiUsageLog: {
+      create: vi.fn().mockResolvedValue({ id: 'usage-1' }),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { costUsd: 0 } }),
+    },
   },
   chatJsonMock: vi.fn(),
 }));

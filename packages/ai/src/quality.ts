@@ -1,6 +1,7 @@
 import { prisma } from '@hmp/db';
 import { getAiClient, AiUnconfiguredError } from './client';
 import { QualityReportSchema, type QualityReportData } from './schemas';
+import { recordAiUsage, type AiUsageContext } from './usage';
 
 export interface QualityReportResult extends QualityReportData {
   reportId: string;
@@ -33,7 +34,12 @@ Given a course description and the handout body, return a strict JSON object wit
 
 Be specific, terse, and grounded in the provided text. Do not invent topics that aren't in the course description.`;
 
-function buildUserPrompt(courseCode: string, courseTitle: string, courseDescription: string, handoutText: string) {
+function buildUserPrompt(
+  courseCode: string,
+  courseTitle: string,
+  courseDescription: string,
+  handoutText: string,
+) {
   return [
     `# Course`,
     `${courseCode} — ${courseTitle}`,
@@ -46,11 +52,16 @@ function buildUserPrompt(courseCode: string, courseTitle: string, courseDescript
   ].join('\n');
 }
 
-export async function runQualityReport(input: {
-  handoutVersionId: string;
-  /** Skip rate-limit guard. Used by the auto-on-submit path. */
-  bypassRateLimit?: boolean;
-}): Promise<QualityReportResult> {
+export async function runQualityReport(
+  input: {
+    handoutVersionId: string;
+    /** Skip rate-limit guard. Used by the auto-on-submit path. */
+    bypassRateLimit?: boolean;
+  },
+  /** Cost-tracking attribution (Prompt 17). Optional — the worker path has no
+   *  actor. handoutId is resolved internally from the version. */
+  context?: AiUsageContext,
+): Promise<QualityReportResult> {
   const version = await prisma.handoutVersion.findUnique({
     where: { id: input.handoutVersionId },
     select: {
@@ -103,12 +114,42 @@ export async function runQualityReport(input: {
 
   const course = version.handout.request.offering.course;
   const handoutText = htmlToPlainText(version.contentHtml);
-  const { data, model } = await client.chatJson({
-    schema: QualityReportSchema,
-    system: SYSTEM_PROMPT,
-    user: buildUserPrompt(course.code, course.title, course.description ?? '', handoutText),
-    maxTokens: 1500,
-  });
+  const startedAt = Date.now();
+  let data: QualityReportData;
+  let model: string;
+  try {
+    const res = await client.chatJson({
+      schema: QualityReportSchema,
+      system: SYSTEM_PROMPT,
+      user: buildUserPrompt(course.code, course.title, course.description ?? '', handoutText),
+      maxTokens: 1500,
+    });
+    data = res.data;
+    model = res.model;
+    await recordAiUsage({
+      ...context,
+      handoutId: version.handoutId,
+      operation: 'QUALITY_REPORT',
+      provider: client.provider,
+      model: res.model,
+      tokens: res.tokens,
+      durationMs: Date.now() - startedAt,
+      succeeded: true,
+    });
+  } catch (err) {
+    await recordAiUsage({
+      ...context,
+      handoutId: version.handoutId,
+      operation: 'QUALITY_REPORT',
+      provider: client.provider,
+      model: client.chatModel,
+      tokens: { in: 0, out: 0 },
+      durationMs: Date.now() - startedAt,
+      succeeded: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 
   const row = await prisma.aIQualityReport.create({
     data: {

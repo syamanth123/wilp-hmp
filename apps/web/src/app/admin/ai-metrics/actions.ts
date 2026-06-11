@@ -16,7 +16,7 @@ export async function runReEmbedAction(): Promise<
   }
 
   try {
-    const result = await ensureCorpusEmbeddings();
+    const result = await ensureCorpusEmbeddings({ actorId: me.id, operation: 'EMBEDDING' });
     await audit({
       actorId: me.id,
       action: 'ai.embeddings.refreshed',

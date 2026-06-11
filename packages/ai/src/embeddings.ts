@@ -1,6 +1,21 @@
 import { createHash } from 'node:crypto';
-import { prisma, RoleName } from '@hmp/db';
+import { prisma, RoleName, type AiOperation } from '@hmp/db';
 import { getAiClient } from './client';
+import { recordAiUsage } from './usage';
+
+/**
+ * Cost-tracking label for an embedding call (Prompt 17). The SAME `embedText`
+ * call is labeled by what TRIGGERED it — `FACULTY_RECOMMENDATION` when a
+ * recommendation run drives the embedding, `EMBEDDING` for the admin corpus
+ * refresh — so the dashboard's by-operation breakdown reflects which feature
+ * cost what, not that both were technically `embedText`. Recorded on a real
+ * call only (a sourceHash cache hit makes no API call), success only (embedding
+ * failures self-heal into the recommender's heuristic fallback).
+ */
+export interface EmbedUsage {
+  actorId?: string | null;
+  operation: AiOperation;
+}
 
 export function cosine(a: number[], b: number[]): number {
   if (a.length === 0 || a.length !== b.length) return 0;
@@ -26,6 +41,7 @@ async function loadOrCreate(
   ownerType: 'Course' | 'User',
   ownerId: string,
   sourceText: string,
+  usage?: EmbedUsage,
 ): Promise<{ vector: number[]; model: string } | null> {
   if (!sourceText.trim()) return null;
   const client = getAiClient();
@@ -39,7 +55,20 @@ async function loadOrCreate(
     return { vector: existing.vector as number[], model: existing.model };
   }
 
-  const { vector, model } = await client.embedText(sourceText);
+  const startedAt = Date.now();
+  const { vector, model, tokens } = await client.embedText(sourceText);
+  if (usage) {
+    await recordAiUsage({
+      actorId: usage.actorId ?? null,
+      handoutId: null,
+      operation: usage.operation,
+      provider: client.provider,
+      model,
+      tokens: tokens ?? { in: 0, out: 0 },
+      durationMs: Date.now() - startedAt,
+      succeeded: true,
+    });
+  }
   await prisma.embedding.upsert({
     where: { ownerType_ownerId_model: { ownerType, ownerId, model } },
     create: { ownerType, ownerId, model, vector, sourceHash: hash },
@@ -48,17 +77,17 @@ async function loadOrCreate(
   return { vector, model };
 }
 
-export async function embedCourse(courseId: string) {
+export async function embedCourse(courseId: string, usage?: EmbedUsage) {
   const course = await prisma.course.findUnique({
     where: { id: courseId },
     select: { id: true, code: true, title: true, description: true },
   });
   if (!course) return null;
   const text = [course.code, course.title, course.description ?? ''].filter(Boolean).join('\n');
-  return loadOrCreate('Course', course.id, text);
+  return loadOrCreate('Course', course.id, text, usage);
 }
 
-export async function embedFaculty(facultyId: string) {
+export async function embedFaculty(facultyId: string, usage?: EmbedUsage) {
   const faculty = await prisma.user.findUnique({
     where: { id: facultyId },
     select: {
@@ -103,10 +132,10 @@ export async function embedFaculty(facultyId: string) {
   const text = [faculty.name, faculty.facultyType ?? '', Array.from(courseTexts).join('\n')]
     .filter(Boolean)
     .join('\n');
-  return loadOrCreate('User', faculty.id, text);
+  return loadOrCreate('User', faculty.id, text, usage);
 }
 
-export async function ensureCorpusEmbeddings(): Promise<{
+export async function ensureCorpusEmbeddings(usage?: EmbedUsage): Promise<{
   courses: number;
   faculty: number;
   skipped: number;
@@ -129,7 +158,7 @@ export async function ensureCorpusEmbeddings(): Promise<{
   let skipped = 0;
   for (const c of courses) {
     try {
-      const r = await embedCourse(c.id);
+      const r = await embedCourse(c.id, usage);
       if (r) cDone += 1;
       else skipped += 1;
     } catch {
@@ -138,7 +167,7 @@ export async function ensureCorpusEmbeddings(): Promise<{
   }
   for (const f of faculty) {
     try {
-      const r = await embedFaculty(f.id);
+      const r = await embedFaculty(f.id, usage);
       if (r) fDone += 1;
       else skipped += 1;
     } catch {
