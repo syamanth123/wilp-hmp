@@ -41,8 +41,10 @@ export type BulkAllocErrorCode =
   | 'faculty_emails_empty'
   | 'faculty_not_found'
   | 'faculty_role_invalid'
+  | 'faculty_inactive'
   | 'sme_not_found'
   | 'sme_role_invalid'
+  | 'sme_inactive'
   | 'off_campus_cap_exceeded'
   | 'duplicate_row_in_file';
 
@@ -170,6 +172,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
         select: {
           id: true,
           name: true,
+          active: true,
           facultyType: true,
           roles: { select: { role: { select: { name: true } } } },
         },
@@ -192,6 +195,17 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
         };
         break;
       }
+      // Match the single-action picker, which filters active=true: a deactivated
+      // user must not be bulk-allocated (Prompt 18 — closes the Prompt 14 gap).
+      if (!u.active) {
+        facultyError = {
+          line,
+          field: 'faculty_emails',
+          code: 'faculty_inactive',
+          message: `User "${email}" is deactivated`,
+        };
+        break;
+      }
       faculties.push({ id: u.id, name: u.name, facultyType: u.facultyType });
     }
     if (facultyError) {
@@ -201,7 +215,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
 
     const sme = await prisma.user.findUnique({
       where: { email: row.sme_email },
-      select: { id: true, roles: { select: { role: { select: { name: true } } } } },
+      select: { id: true, active: true, roles: { select: { role: { select: { name: true } } } } },
     });
     if (!sme) {
       errors.push({
@@ -218,6 +232,17 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
         field: 'sme_email',
         code: 'sme_role_invalid',
         message: `User "${row.sme_email}" does not hold the SME role`,
+      });
+      continue;
+    }
+    // Match the single-action picker (active=true) — no bulk-allocating a
+    // deactivated SME (Prompt 18 — closes the Prompt 14 gap).
+    if (!sme.active) {
+      errors.push({
+        line,
+        field: 'sme_email',
+        code: 'sme_inactive',
+        message: `User "${row.sme_email}" is deactivated`,
       });
       continue;
     }

@@ -1,5 +1,12 @@
 import { notFound } from 'next/navigation';
-import { prisma, HandoutStatus, FacultyType, RoleName, resolveHandoutHtml } from '@hmp/db';
+import {
+  prisma,
+  HandoutStatus,
+  FacultyType,
+  RoleName,
+  resolveHandoutHtml,
+  ACTIVE_USER_FILTER,
+} from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
@@ -55,7 +62,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
       listFacultyForAllocation(request.offering.semesterId),
       // Prompt 12-b: HOG designates the (mandatory) SME at allocation.
       prisma.user.findMany({
-        where: { active: true, roles: { some: { role: { name: RoleName.SME } } } },
+        where: { ...ACTIVE_USER_FILTER, roles: { some: { role: { name: RoleName.SME } } } },
         orderBy: { name: 'asc' },
         select: { id: true, name: true, email: true },
       }),
