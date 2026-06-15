@@ -446,6 +446,12 @@ model Attachment {
   size        Int
   s3Key       String   @unique
   uploadedAt  DateTime @default(now())
+  // Set when the `archived=true` S3 tag is confirmed applied (Prompt 21).
+  // NULL = not yet tagged. The reconciliation sweep detects ARCHIVED-request
+  // attachments still NULL and re-tags them. Detection filters primarily on the
+  // (indexed) HandoutRequest.status = ARCHIVED — the selective dimension — so no
+  // index on this mostly-NULL column is needed.
+  archivedTaggedAt DateTime?
 
   request     HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   uploader    User           @relation("AttachmentUploader", fields: [uploaderId], references: [id])

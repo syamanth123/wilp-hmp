@@ -56,13 +56,17 @@ export async function tagAttachmentsArchived(requestId: string): Promise<void> {
   try {
     const rows = await prisma.attachment.findMany({
       where: { requestId },
-      select: { s3Key: true },
+      select: { id: true, s3Key: true },
     });
     if (rows.length === 0) return;
     const client = getS3Client();
-    for (const { s3Key } of rows) {
+    for (const { id, s3Key } of rows) {
       try {
         await tagObject(client, ATTACHMENTS_BUCKET, s3Key, { archived: 'true' });
+        // Record success so the reconciliation sweep (Prompt 21) skips this one.
+        // A failure here just leaves archivedTaggedAt NULL → reconciliation
+        // catches it next run; still best-effort.
+        await prisma.attachment.update({ where: { id }, data: { archivedTaggedAt: new Date() } });
       } catch (err) {
         console.warn('[attachments] archive tag failed', { requestId, s3Key, err });
       }
