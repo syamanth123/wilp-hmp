@@ -1,4 +1,5 @@
-import { prisma, FacultyType, RoleName } from '@hmp/db';
+import type { FacultyType} from '@hmp/db';
+import { prisma, RoleName, ACTIVE_USER_FILTER } from '@hmp/db';
 
 export interface FacultyOption {
   id: string;
@@ -12,7 +13,10 @@ export interface FacultyOption {
  * Count of active FacultyAssignments held by `facultyId` in the same
  * Semester (joined via the request's CourseOffering).
  */
-export async function getFacultyLoadInSemester(facultyId: string, semesterId: string): Promise<number> {
+export async function getFacultyLoadInSemester(
+  facultyId: string,
+  semesterId: string,
+): Promise<number> {
   return prisma.facultyAssignment.count({
     where: {
       facultyId,
@@ -30,7 +34,7 @@ export async function getFacultyLoadInSemester(facultyId: string, semesterId: st
 export async function listFacultyForAllocation(semesterId: string): Promise<FacultyOption[]> {
   const faculties = await prisma.user.findMany({
     where: {
-      active: true,
+      ...ACTIVE_USER_FILTER,
       roles: { some: { role: { name: RoleName.FACULTY } } },
     },
     select: { id: true, name: true, email: true, facultyType: true },

@@ -2,7 +2,14 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { prisma, RoleName, ApprovalStage, ApprovalDecision, HandoutStatus } from '@hmp/db';
+import {
+  prisma,
+  RoleName,
+  ApprovalStage,
+  ApprovalDecision,
+  HandoutStatus,
+  ACTIVE_USER_FILTER,
+} from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition, WorkflowError, assertOffCampusCap } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
@@ -64,7 +71,7 @@ export async function allocateFacultyAction(formData: FormData) {
     3;
 
   const faculties = await prisma.user.findMany({
-    where: { id: { in: parsed.data.facultyIds }, active: true },
+    where: { id: { in: parsed.data.facultyIds }, ...ACTIVE_USER_FILTER },
     select: { id: true, facultyType: true, name: true },
   });
   if (faculties.length !== parsed.data.facultyIds.length) {
@@ -77,7 +84,7 @@ export async function allocateFacultyAction(formData: FormData) {
   const sme = await prisma.user.findFirst({
     where: {
       id: parsed.data.smeUserId,
-      active: true,
+      ...ACTIVE_USER_FILTER,
       roles: { some: { role: { name: RoleName.SME } } },
     },
     select: { id: true },

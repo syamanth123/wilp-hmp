@@ -41,7 +41,6 @@ model User {
   active            Boolean             @default(true)
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
-  deletedAt         DateTime?
 
   roles             UserRole[]
   initiatedRequests HandoutRequest[]    @relation("RequestInitiator")

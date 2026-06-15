@@ -65,6 +65,25 @@ async function mkLoad(facultyId: string, semesterId: string): Promise<void> {
   });
 }
 
+// Deactivated users for the Prompt 18 regression (cleaned in afterAll —
+// deleting a User cascades its UserRole rows).
+const extraUserIds: string[] = [];
+async function mkInactiveUserWithRole(role: RoleName): Promise<string> {
+  const roleRow = await prisma.role.findUniqueOrThrow({ where: { name: role } });
+  const u = await prisma.user.create({
+    data: {
+      email: `${TAG}-inactive-${role}-${extraUserIds.length}@test.local`,
+      name: `${TAG} inactive ${role}`,
+      active: false,
+      facultyType: role === RoleName.FACULTY ? 'ON_CAMPUS' : null,
+      roles: { create: [{ roleId: roleRow.id }] },
+    },
+    select: { id: true, email: true },
+  });
+  extraUserIds.push(u.id);
+  return u.email;
+}
+
 beforeAll(async () => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -132,6 +151,9 @@ afterEach(async () => {
 
 afterAll(async () => {
   if (dbReady) {
+    if (extraUserIds.length) {
+      await prisma.user.deleteMany({ where: { id: { in: extraUserIds } } });
+    }
     await prisma.semester.deleteMany({ where: { id: { in: [ids.semA!, ids.semB!] } } });
     await prisma.programme.deleteMany({ where: { id: ids.prog! } });
   }
@@ -198,6 +220,46 @@ describe('bulkAllocate (Prompt 14)', () => {
     );
     expect(audits.length).toBe(2);
     expect(sessions.size).toBe(1);
+  });
+
+  // Prompt 18: the bulk path must reject deactivated users, matching the
+  // single-action picker (which filters active=true). Closes the Prompt 14 gap.
+  it('rejects a deactivated FACULTY → faculty_inactive, nothing allocated', async () => {
+    if (!dbReady) return;
+    const inactiveFaculty = await mkInactiveUserWithRole(RoleName.FACULTY);
+    const r1 = await mkRequest(ids.semA!, HandoutStatus.REQUESTED);
+    const res = await bulkAllocate(csvOf([`${r1.refNo},${inactiveFaculty},${smeEmail}`]), actor);
+
+    expect(res.status).toBe('rejected');
+    if (res.status !== 'rejected') return;
+    expect(res.errors.some((e) => e.code === 'faculty_inactive')).toBe(true);
+    expect(res.errors.find((e) => e.code === 'faculty_inactive')?.message).toContain(
+      inactiveFaculty,
+    );
+    // Atomic reject: the request stays REQUESTED, no assignment written.
+    const after = await prisma.handoutRequest.findUnique({
+      where: { refNo: r1.refNo },
+      select: { id: true, status: true },
+    });
+    expect(after?.status).toBe(HandoutStatus.REQUESTED);
+    expect(await prisma.facultyAssignment.count({ where: { requestId: after!.id } })).toBe(0);
+  });
+
+  it('rejects a deactivated SME → sme_inactive, nothing allocated', async () => {
+    if (!dbReady) return;
+    const inactiveSme = await mkInactiveUserWithRole(RoleName.SME);
+    const r1 = await mkRequest(ids.semA!, HandoutStatus.REQUESTED);
+    const res = await bulkAllocate(csvOf([`${r1.refNo},${onCampusEmail},${inactiveSme}`]), actor);
+
+    expect(res.status).toBe('rejected');
+    if (res.status !== 'rejected') return;
+    expect(res.errors.some((e) => e.code === 'sme_inactive')).toBe(true);
+    const after = await prisma.handoutRequest.findUnique({
+      where: { refNo: r1.refNo },
+      select: { id: true, status: true },
+    });
+    expect(after?.status).toBe(HandoutStatus.REQUESTED);
+    expect(await prisma.smeAssignment.count({ where: { requestId: after!.id } })).toBe(0);
   });
 
   it('rejects unknown refNo', async () => {

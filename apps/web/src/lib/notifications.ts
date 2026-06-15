@@ -3,6 +3,7 @@ import {
   NotificationChannel,
   NotificationStatus,
   RoleName,
+  ACTIVE_USER_FILTER,
   type HandoutRequest,
 } from '@hmp/db';
 import { sendMail } from '@hmp/integrations';
@@ -188,7 +189,7 @@ async function usersWithRole(
   role: RoleName,
 ): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
   const users = await prisma.user.findMany({
-    where: { active: true, roles: { some: { role: { name: role } } } },
+    where: { ...ACTIVE_USER_FILTER, roles: { some: { role: { name: role } } } },
     select: { id: true, email: true },
   });
   return users.map((u) => ({ ...u, primaryRole: role }));
@@ -199,7 +200,7 @@ async function usersById(
 ): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
   if (ids.length === 0) return [];
   const users = await prisma.user.findMany({
-    where: { id: { in: ids }, active: true },
+    where: { id: { in: ids }, ...ACTIVE_USER_FILTER },
     select: { id: true, email: true, roles: { select: { role: { select: { name: true } } } } },
   });
   return users.map((u) => ({

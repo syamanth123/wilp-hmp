@@ -41,3 +41,4 @@ export {
 //   import { runCorpusImport } from '@hmp/db/src/corpus-import';
 // See `apps/web/src/app/admin/corpus-imports/actions.ts` for the concrete usage.
 export { type CorpusExtractionMethod } from './corpus-import/parser';
+export { ACTIVE_USER_FILTER, requireActiveUser } from './user-helpers';
