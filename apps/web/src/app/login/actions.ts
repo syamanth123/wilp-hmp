@@ -1,10 +1,24 @@
 'use server';
 
+import { headers } from 'next/headers';
 import { signIn } from '@hmp/auth';
 import { prisma, type RoleName } from '@hmp/db';
 import { defaultRouteForUser } from '@/lib/routing';
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 export async function signInAction(input: { email: string; password: string; next?: string }) {
+  // Login throttle (Prompt 20). The form posts here via a SERVER ACTION — the
+  // browser never hits /api/auth/callback/credentials directly — so this, not
+  // the auth-route wrapper, is the real login path. Shares the `login:${ip}`
+  // counter with that wrapper (which stays as defense-in-depth for direct API
+  // POSTs). Keyed by IP from the proxy's x-forwarded-for. Fail-open if Redis is
+  // down; RPC-shaped { error } since this is a server action.
+  const ip = (headers().get('x-forwarded-for')?.split(',')[0] ?? 'unknown').trim() || 'unknown';
+  const rl = await rateLimit(`login:${ip}`, RATE_LIMITS.login.limit, RATE_LIMITS.login.windowSec);
+  if (!rl.ok) {
+    return { error: 'Too many login attempts. Please wait a few minutes and try again.' };
+  }
+
   try {
     await signIn('credentials', {
       email: input.email,

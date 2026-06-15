@@ -7,6 +7,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { generateHandoutDraft, AiUnconfiguredError } from '@hmp/ai';
 import { appendVersion, renderTiptapToHtml } from '@/lib/handout-versioning';
 import { audit } from '@/lib/audit';
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 const generateSchema = z.object({
   requestId: z.string().cuid(),
@@ -42,6 +43,10 @@ async function loadMyAssignment(requestId: string, facultyId: string) {
 
 export async function generateAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  // Per-user AI throttle (Prompt 20). Server action → RPC-shaped { error }, not
+  // an HTTP 429. Fail-open if Redis is down.
+  const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
+  if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };
   const parsed = generateSchema.safeParse({
     requestId: formData.get('requestId'),
     forceRefresh: formData.get('forceRefresh') === 'true',

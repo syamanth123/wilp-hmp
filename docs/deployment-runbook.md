@@ -134,6 +134,18 @@ The worker handles `SIGTERM`/`SIGINT` gracefully — it stops accepting new jobs
 - **Queue health**: `/admin/queues` shows per-queue counts, failed jobs (with retry/delete), and a **worker heartbeat** — a "⚠ Workers may not be running" banner appears if no heartbeat in 5 min. Monitor queue **waiting** depth: sustained growth means the worker is down or under-provisioned.
 - **AI cost**: `/admin/ai-metrics` shows month-to-date AI spend vs `AI_MONTHLY_BUDGET_USD`, a 6-month trend, and per-user / per-handout / per-operation breakdowns (sourced from the `AiUsageLog` cost ledger — one row per real provider call). Over-budget fires a once-a-month in-portal alert to admins (soft cap; AI stays enabled). Update `packages/ai/src/pricing.ts` when provider list prices change (see its "Verified" comment).
 
+## Security headers + rate limiting (Prompt 20)
+
+**Verify security headers after deploy** (all set globally — static ones via `next.config.mjs headers()`, CSP per-request via middleware):
+
+```
+curl -sI https://<host>/ | grep -iE 'strict-transport|content-security|x-frame|x-content-type|referrer-policy|permissions-policy'
+```
+
+Expect: `Strict-Transport-Security`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, and a `Content-Security-Policy` containing `'nonce-…'` in `script-src`. (HSTS only takes effect over HTTPS — inert on plain-HTTP localhost.)
+
+**Rate limiting** requires `REDIS_URL` (the same Redis as BullMQ; uses a separate fast-fail client). Limits: login 5 / 15 min per IP, attachment upload 10 / hour per user, AI generation 20 / hour per user. **Fail-open:** if Redis is unreachable, requests are allowed and a `ratelimit.unavailable` audit row is written each time — monitor that action's frequency as a Redis-outage signal. Without `REDIS_URL`, rate limiting is silently disabled (degraded-open) — acceptable for dev, **set it in production**.
+
 ## Backups
 
 - Managed Postgres: enable daily snapshots, 7-day retention minimum.

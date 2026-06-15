@@ -13,6 +13,7 @@ import {
   type ResolvedSource,
 } from '@/lib/handout-auto-fetch';
 import { audit } from '@/lib/audit';
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
@@ -326,6 +327,9 @@ export async function submitForReviewAction(formData: FormData) {
 
 export async function runQualityCheckAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  // Per-user AI throttle (Prompt 20). RPC-shaped { error }, fail-open.
+  const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
+  if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
   if (!parsed.success) return { error: 'Invalid input' };
   const request = await loadMyAssignment(parsed.data.requestId, me.id);

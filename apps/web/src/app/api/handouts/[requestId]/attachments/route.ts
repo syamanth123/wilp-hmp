@@ -3,6 +3,7 @@ import { getSessionUser } from '@hmp/auth';
 import { getS3Client, uploadAndPresign } from '@hmp/integrations';
 import { audit } from '@/lib/audit';
 import { validateAttachment } from '@/lib/attachment-validation';
+import { rateLimit, tooManyRequests, RATE_LIMITS } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,11 +21,28 @@ const UPLOADABLE_STATUSES: HandoutStatus[] = [
  * handout is editable (IN_PROGRESS / REWORK_REQUESTED).
  */
 export async function POST(req: Request, { params }: { params: { requestId: string } }) {
+  // CSRF defense-in-depth (Prompt 20): reject a cross-origin POST. The session
+  // cookie is SameSite=Lax (NextAuth default) so a cross-site POST wouldn't
+  // carry it anyway; this is a belt-and-suspenders Origin/Host check. No token
+  // machinery needed for a single authenticated Route Handler.
+  const origin = req.headers.get('origin');
+  if (origin && new URL(origin).host !== req.headers.get('host')) {
+    return Response.json({ error: 'bad_origin' }, { status: 403 });
+  }
+
   const me = await getSessionUser();
   if (!me) return Response.json({ error: 'unauthenticated' }, { status: 401 });
   if (!me.roles.includes(RoleName.FACULTY)) {
     return Response.json({ error: 'forbidden' }, { status: 403 });
   }
+
+  // Per-user upload throttle (Prompt 20). Fail-open if Redis is down.
+  const rl = await rateLimit(
+    `upload:${me.id}`,
+    RATE_LIMITS.upload.limit,
+    RATE_LIMITS.upload.windowSec,
+  );
+  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
 
   const { requestId } = params;
   const request = await prisma.handoutRequest.findUnique({

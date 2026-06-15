@@ -15,6 +15,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition, WorkflowError } from '@hmp/workflow';
 import { appendStructuredVersion } from '@/lib/handout-versioning';
 import { audit } from '@/lib/audit';
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError, generateStructuredHandoutDraft } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
@@ -382,6 +383,9 @@ export async function convertToStructuredAction(formData: FormData) {
  */
 export async function generateStructuredAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  // Per-user AI throttle (Prompt 20). RPC-shaped { error }, fail-open.
+  const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
+  if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };
   const parse = z
     .object({
       requestId: z.string().cuid(),
