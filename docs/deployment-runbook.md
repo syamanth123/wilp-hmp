@@ -149,7 +149,17 @@ Expect: `Strict-Transport-Security`, `X-Frame-Options: DENY`, `X-Content-Type-Op
 ## Backups
 
 - Managed Postgres: enable daily snapshots, 7-day retention minimum.
-- Test restore quarterly into a staging DB and run the seeded smoke test (`pnpm test`).
+- **S3 attachments bucket: enable versioning** (accidental-delete recovery) — run `pnpm --filter @hmp/integrations exec tsx scripts/setup-s3-lifecycle.ts` once per environment; it enables versioning + installs the Glacier lifecycle rule (idempotent). Noncurrent-version expiry is left unset (a retention tuning knob — set it if storage cost of old versions matters).
+- **Verify backups** weekly: `pnpm --filter @hmp/integrations exec tsx scripts/verify-backups.ts` checks S3 versioning + lifecycle in code and prints the `aws rds describe-db-instances` command to confirm `BackupRetentionPeriod` + a recent `LatestRestorableTime`.
+- Test restore **quarterly** into a staging DB and run the verification SQL — full procedure + restore drill in **[disaster-recovery.md](./disaster-recovery.md)**. A backup you've never restored is a hope, not a backup.
+
+## Disaster recovery
+
+Restore procedures for each failure class (RDS data loss, S3 attachment loss, auth outage, notification failure, total region failure) — detection signals, exact commands, post-restore verification SQL, and escalation — live in **[disaster-recovery.md](./disaster-recovery.md)**. Read it before go-live; keep its contact table current.
+
+### Reconciliation sweep
+
+Best-effort side effects that silently failed are repaired by a daily sweep: schedule an authenticated HTTPS POST to `/api/cron/reconcile` with `Authorization: Bearer <CRON_SECRET>` (same pattern + scheduler as `/api/cron/reminders`, off-peak e.g. 03:00 IST). It currently re-applies the `archived=true` S3 tag to ARCHIVED-handout attachments that missed it; returns a per-effect `{ found, reconciled, failed }` summary. Monitor `reconciliation.failed` audit-row frequency — a sustained nonzero count signals a chronic repair failure (e.g. S3 unreachable).
 
 ## Cutover checklist
 
@@ -160,6 +170,9 @@ Expect: `Strict-Transport-Security`, `X-Frame-Options: DENY`, `X-Content-Type-Op
 - [ ] Test request created end-to-end (IC → HOG → PC → Faculty → publish).
 - [ ] Mailhog/SMTP delivered notifications received.
 - [ ] `/api/cron/reminders` reachable with bearer.
+- [ ] `/api/cron/reconcile` reachable with bearer + scheduled (daily, off-peak).
+- [ ] S3 attachments bucket: versioning enabled + lifecycle present (`verify-backups.ts`).
+- [ ] DR runbook contact table filled in; quarterly restore drill scheduled.
 - [ ] AI provider key validated (if set) — `/admin/ai-metrics` shows provider OK.
 - [ ] Sentry receiving events.
 - [ ] Backup restore drill passed in staging within last 30 days.
