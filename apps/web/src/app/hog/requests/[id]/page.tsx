@@ -4,6 +4,8 @@ import {
   HandoutStatus,
   FacultyType,
   RoleName,
+  ApprovalStage,
+  ApprovalDecision,
   resolveHandoutHtml,
   ACTIVE_USER_FILTER,
 } from '@hmp/db';
@@ -57,6 +59,22 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
   let facultyChoices: FacultyChoice[] = [];
   let smeChoices: SmeChoice[] = [];
   let recommendation: RecommendationResult | null = null;
+  // Prompt 22: if a prior allocation was rejected by PC, surface the reason so
+  // HOG re-allocates informed. The reject writes a PC_REVIEW/REWORK Approval.
+  let allocationRejectReason: string | null = null;
+  if (request.status === HandoutStatus.REQUESTED) {
+    const lastReject = await prisma.approval.findFirst({
+      where: {
+        requestId: request.id,
+        stage: ApprovalStage.PC_REVIEW,
+        decision: ApprovalDecision.REWORK,
+        comments: { not: null },
+      },
+      orderBy: { decidedAt: 'desc' },
+      select: { comments: true },
+    });
+    allocationRejectReason = lastReject?.comments ?? null;
+  }
   if (request.status === HandoutStatus.REQUESTED) {
     const [list, smeUsers] = await Promise.all([
       listFacultyForAllocation(request.offering.semesterId),
@@ -100,6 +118,17 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
           <StatusBadge status={request.status} />
         </CardHeader>
       </Card>
+
+      {request.status === HandoutStatus.REQUESTED && allocationRejectReason && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardHeader>
+            <CardTitle className="text-amber-800">Previous allocation rejected by PC</CardTitle>
+            <CardDescription className="text-amber-700">
+              Re-allocate addressing this feedback: “{allocationRejectReason}”
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {request.status === HandoutStatus.REQUESTED && (
         <Card>

@@ -80,4 +80,29 @@ describe('handout workflow', () => {
       expect(canTransition(HandoutStatus.SME_REVIEW, 'REVIEW_APPROVED')).toBe(false);
     });
   });
+
+  // Prompt 22: PC allocation review — confirm (existing ASSIGNED) OR reject.
+  describe('PC allocation reject (Prompt 22)', () => {
+    it('ALLOCATION_REJECTED sends ALLOCATED back to REQUESTED', () => {
+      expect(nextStatus(HandoutStatus.ALLOCATED, 'ALLOCATION_REJECTED')).toBe(
+        HandoutStatus.REQUESTED,
+      );
+    });
+
+    it('leaves the existing ASSIGNED confirm edge intact (confirm OR reject)', () => {
+      expect(nextStatus(HandoutStatus.ALLOCATED, 'ASSIGNED')).toBe(HandoutStatus.ASSIGNED);
+    });
+
+    it('ALLOCATION_REJECTED is only valid from ALLOCATED', () => {
+      expect(canTransition(HandoutStatus.REQUESTED, 'ALLOCATION_REJECTED')).toBe(false);
+      expect(canTransition(HandoutStatus.ASSIGNED, 'ALLOCATION_REJECTED')).toBe(false);
+      expect(canTransition(HandoutStatus.SUBMITTED, 'ALLOCATION_REJECTED')).toBe(false);
+    });
+
+    it('a rejected request can be re-allocated (REQUESTED → ALLOCATED again)', () => {
+      expect(nextStatus(HandoutStatus.REQUESTED, 'FACULTY_ALLOCATED')).toBe(
+        HandoutStatus.ALLOCATED,
+      );
+    });
+  });
 });

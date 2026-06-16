@@ -64,7 +64,7 @@ test('Faculty quality panel surfaces a friendly error without AI keys', async ({
   // 3. PC confirms.
   await signIn(page, 'pc@hmp.local');
   await page.goto(`/pc/requests/${requestId}`);
-  await page.getByRole('button', { name: /confirm assignment/i }).click();
+  await page.getByRole('button', { name: /confirm allocation/i }).click();
   await expect(page.getByText(/ASSIGNED/i).first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 

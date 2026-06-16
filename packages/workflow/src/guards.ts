@@ -10,6 +10,8 @@ export const EVENT_ROLE_MATRIX: Record<WorkflowEvent['type'], RoleName[]> = {
   REQUEST_INITIATED: [RoleName.INSTRUCTION_CELL],
   FACULTY_ALLOCATED: [RoleName.HOG],
   ASSIGNED: [RoleName.PROGRAMME_COMMITTEE],
+  // Prompt 22: PC rejects HOG's allocation (ALLOCATED → REQUESTED).
+  ALLOCATION_REJECTED: [RoleName.PROGRAMME_COMMITTEE],
   EDIT_STARTED: [RoleName.FACULTY],
   SUBMITTED: [RoleName.FACULTY],
   // Prompt 12-a (SME approval workflow). Faculty fires SME_REVIEW_REQUESTED

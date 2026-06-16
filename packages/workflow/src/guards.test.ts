@@ -54,4 +54,15 @@ describe('workflow guards', () => {
     expect(() => assertRoleAllowed('SME_REVIEW_REQUESTED', [RoleName.FACULTY])).not.toThrow();
     expect(() => assertRoleAllowed('SME_REVIEW_REQUESTED', [RoleName.SME])).toThrow(WorkflowError);
   });
+
+  // Prompt 22: only PC may reject an allocation.
+  it('allows PC to reject an allocation; blocks HOG/faculty', () => {
+    expect(() =>
+      assertRoleAllowed('ALLOCATION_REJECTED', [RoleName.PROGRAMME_COMMITTEE]),
+    ).not.toThrow();
+    expect(() => assertRoleAllowed('ALLOCATION_REJECTED', [RoleName.HOG])).toThrow(WorkflowError);
+    expect(() => assertRoleAllowed('ALLOCATION_REJECTED', [RoleName.FACULTY])).toThrow(
+      WorkflowError,
+    );
+  });
 });

@@ -4,6 +4,11 @@ export type WorkflowEvent =
   | { type: 'REQUEST_INITIATED'; actorId: string }
   | { type: 'FACULTY_ALLOCATED'; actorId: string; facultyIds: string[] }
   | { type: 'ASSIGNED'; actorId: string }
+  // Prompt 22: PC rejects HOG's allocation (ALLOCATED → REQUESTED). Comment
+  // required; the reject effect clears the FacultyAssignment + SmeAssignment so
+  // HOG re-allocates from scratch. Complements the existing ASSIGNED confirm
+  // edge — together they make PC's allocation-review gate confirm-OR-reject.
+  | { type: 'ALLOCATION_REJECTED'; actorId: string; comments: string }
   | { type: 'EDIT_STARTED'; actorId: string }
   | { type: 'SUBMITTED'; actorId: string }
   // Prompt 12-a (SME approval workflow). Faculty submit routes here when an

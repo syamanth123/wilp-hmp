@@ -6,6 +6,7 @@ import { prisma, RoleName, ApprovalStage, ApprovalDecision, HandoutStatus } from
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition, WorkflowError } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
+import { rejectAllocationEffect } from '@/lib/pc-allocation-review';
 
 const baseSchema = z.object({
   requestId: z.string().cuid(),
@@ -22,6 +23,9 @@ function revalidate(requestId: string) {
   revalidatePath('/pc');
   revalidatePath(`/ic/requests/${requestId}`);
   revalidatePath(`/hog/requests/${requestId}`);
+  // Prompt 22: a rejected allocation lands back in HOG's REQUESTED queue list.
+  revalidatePath('/hog/requests');
+  revalidatePath('/hog');
 }
 
 export async function confirmAssignmentAction(formData: FormData) {
@@ -64,6 +68,45 @@ export async function confirmAssignmentAction(formData: FormData) {
   await notifyTransition({
     requestId: parsed.data.requestId,
     event: 'ASSIGNED',
+    actor: { id: actor.id, name: actor.name },
+  });
+
+  revalidate(parsed.data.requestId);
+  return { ok: true };
+}
+
+export async function pcRejectAllocationAction(formData: FormData) {
+  const actor = requireRole(await getSessionUser(), RoleName.PROGRAMME_COMMITTEE);
+  const parsed = reworkSchema.safeParse({
+    requestId: formData.get('requestId'),
+    comments: formData.get('comments') ?? '',
+  });
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'A reject reason is required' };
+
+  const request = await prisma.handoutRequest.findUnique({ where: { id: parsed.data.requestId } });
+  if (!request) return { error: 'Request not found' };
+  if (request.status !== HandoutStatus.ALLOCATED) {
+    return { error: `Cannot reject allocation from status ${request.status}` };
+  }
+
+  try {
+    await transition({
+      requestId: parsed.data.requestId,
+      event: 'ALLOCATION_REJECTED',
+      actor: { id: actor.id, roles: actor.roles },
+      meta: { reason: parsed.data.comments },
+      // Shared with the bulk path so the destructive multi-step can't drift.
+      effects: rejectAllocationEffect(parsed.data.comments, actor.id),
+    });
+  } catch (err) {
+    if (err instanceof WorkflowError) return { error: err.message };
+    throw err;
+  }
+
+  await notifyTransition({
+    requestId: parsed.data.requestId,
+    event: 'ALLOCATION_REJECTED',
     actor: { id: actor.id, name: actor.name },
   });
 

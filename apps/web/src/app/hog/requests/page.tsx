@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { prisma, HandoutStatus } from '@hmp/db';
+import { prisma, HandoutStatus, ApprovalStage, ApprovalDecision } from '@hmp/db';
 import {
+  Badge,
   Card,
   CardContent,
   CardHeader,
@@ -54,6 +55,26 @@ export default async function HOGRequestList({
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Prompt 22: flag REQUESTED rows whose prior allocation PC rejected. On a
+  // REQUESTED request a PC_REVIEW/REWORK approval can only be an allocation
+  // reject (content rework lands in REWORK_REQUESTED, never REQUESTED), so this
+  // is unambiguous. One batched query for the page's REQUESTED rows.
+  const requestedIds = requests
+    .filter((r) => r.status === HandoutStatus.REQUESTED)
+    .map((r) => r.id);
+  const rejectedSet = new Set<string>();
+  if (requestedIds.length > 0) {
+    const rejects = await prisma.approval.findMany({
+      where: {
+        requestId: { in: requestedIds },
+        stage: ApprovalStage.PC_REVIEW,
+        decision: ApprovalDecision.REWORK,
+      },
+      select: { requestId: true },
+    });
+    for (const a of rejects) rejectedSet.add(a.requestId);
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -62,7 +83,7 @@ export default async function HOGRequestList({
           <select
             name="status"
             defaultValue={status ?? ''}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
+            className="bg-background h-9 rounded-md border px-2 text-sm"
           >
             <option value="">All HOG statuses</option>
             {HOG_STATUSES.map((s) => (
@@ -76,7 +97,7 @@ export default async function HOGRequestList({
       </CardHeader>
       <CardContent>
         {requests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No requests in scope.</p>
+          <p className="text-muted-foreground text-sm">No requests in scope.</p>
         ) : (
           <Table>
             <TableHeader>
@@ -94,16 +115,26 @@ export default async function HOGRequestList({
                   <TableCell className="font-mono text-xs">{r.refNo}</TableCell>
                   <TableCell>
                     <div className="font-medium">{r.offering.course.title}</div>
-                    <div className="text-xs text-muted-foreground">{r.offering.course.code}</div>
+                    <div className="text-muted-foreground text-xs">{r.offering.course.code}</div>
                   </TableCell>
                   <TableCell className="text-xs">
                     {r.offering.semester.programme.code} · {r.offering.semester.name}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={r.status} />
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={r.status} />
+                      {rejectedSet.has(r.id) && (
+                        <Badge variant="outline" className="border-amber-400 text-amber-700">
+                          PC-rejected · re-allocate
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
-                    <Link className="text-sm text-primary underline-offset-4 hover:underline" href={`/hog/requests/${r.id}`}>
+                    <Link
+                      className="text-primary text-sm underline-offset-4 hover:underline"
+                      href={`/hog/requests/${r.id}`}
+                    >
                       Open
                     </Link>
                   </TableCell>
@@ -113,7 +144,7 @@ export default async function HOGRequestList({
           </Table>
         )}
         {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+          <div className="text-muted-foreground mt-4 flex items-center justify-between text-sm">
             <span>
               Page {page} of {totalPages} · {total} total
             </span>
