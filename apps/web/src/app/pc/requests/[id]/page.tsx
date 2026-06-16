@@ -56,9 +56,10 @@ export default async function PCRequestDetail({ params }: { params: { id: string
       {request.status === HandoutStatus.ALLOCATED && (
         <Card>
           <CardHeader>
-            <CardTitle>Confirm assignment</CardTitle>
+            <CardTitle>Confirm allocation</CardTitle>
             <CardDescription>
-              Review HOG's allocation and confirm to notify faculty.
+              Review HOG's allocation — confirm to notify faculty, or reject to send it back to HOG
+              for re-allocation.
             </CardDescription>
           </CardHeader>
           <CardContent>

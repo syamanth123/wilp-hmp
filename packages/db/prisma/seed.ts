@@ -399,6 +399,12 @@ async function main() {
       subject: 'You have been assigned {{refNo}}',
       body: 'Please log in to view and edit your assigned handout.',
     },
+    {
+      // Prompt 22: PC rejected HOG's allocation → back to HOG to re-allocate.
+      key: 'handout.allocation_rejected',
+      subject: 'Allocation for {{refNo}} needs revision',
+      body: 'The Programme Committee rejected the faculty/SME allocation for {{refNo}}. Please review the reason and re-allocate.',
+    },
     // handout.submitted is DORMANT post-12-b. The bare SUBMITTED event has no
     // producer in the new workflow — faculty submit fires SME_REVIEW_REQUESTED,
     // and SME approval fires SME_APPROVED (which lands in SUBMITTED status).

@@ -2,45 +2,87 @@
 
 import { useState, useTransition } from 'react';
 import { Button, Label } from '@hmp/ui';
-import { confirmAssignmentAction } from './actions';
+import { confirmAssignmentAction, pcRejectAllocationAction } from './actions';
 
+/**
+ * PC allocation review (Prompt 22). PC confirms HOG's allocation (→ ASSIGNED,
+ * faculty work begins) OR rejects it (→ REQUESTED, back to HOG to re-allocate).
+ * The comment is optional for confirm, REQUIRED for reject.
+ */
 export function AssignmentPanel({ requestId }: { requestId: string }) {
   const [comments, setComments] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [done, setDone] = useState<'confirmed' | 'rejected' | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const submit = () => {
+  const run = (action: typeof confirmAssignmentAction, outcome: 'confirmed' | 'rejected') => {
     setError(null);
     const fd = new FormData();
     fd.set('requestId', requestId);
     fd.set('comments', comments);
     startTransition(async () => {
-      const r = await confirmAssignmentAction(fd);
+      const r = await action(fd);
       if (r?.error) setError(r.error);
-      else setSuccess(true);
+      else setDone(outcome);
     });
   };
 
-  if (success) {
-    return <p className="text-sm text-emerald-600">Assignment confirmed. Status moved to ASSIGNED.</p>;
+  const confirm = () => run(confirmAssignmentAction, 'confirmed');
+  const reject = () => {
+    // Client-side guard for UX — the server enforces it too (reworkSchema).
+    if (comments.trim().length < 3) {
+      setError('A reject reason is required (at least 3 characters).');
+      return;
+    }
+    run(pcRejectAllocationAction, 'rejected');
+  };
+
+  if (done === 'confirmed') {
+    return (
+      <p className="text-sm text-emerald-600" data-testid="assignment-success">
+        Allocation confirmed. Status moved to ASSIGNED — the faculty can now begin work.
+      </p>
+    );
+  }
+  if (done === 'rejected') {
+    return (
+      <p className="text-sm text-amber-600" data-testid="assignment-success">
+        Allocation rejected. Sent back to HOG (status REQUESTED) for re-allocation.
+      </p>
+    );
   }
 
   return (
     <div className="space-y-3">
       <div className="grid gap-2">
-        <Label htmlFor="comments">Comments (optional)</Label>
+        <Label htmlFor="comments">Comments (optional to confirm · required to reject)</Label>
         <textarea
           id="comments"
+          data-testid="assignment-comments"
           value={comments}
           onChange={(e) => setComments(e.target.value)}
-          className="min-h-[80px] rounded-md border bg-background p-2 text-sm"
+          className="bg-background min-h-[80px] rounded-md border p-2 text-sm"
+          placeholder="e.g. SME lacks expertise in distributed systems for this course"
         />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button onClick={submit} disabled={pending}>
-        {pending ? 'Confirming…' : 'Confirm assignment'}
-      </Button>
+      {error && (
+        <p className="text-destructive text-sm" data-testid="assignment-error">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button onClick={confirm} disabled={pending} data-testid="confirm-assignment-btn">
+          {pending ? 'Working…' : 'Confirm allocation'}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={reject}
+          disabled={pending}
+          data-testid="reject-allocation-btn"
+        >
+          Reject allocation
+        </Button>
+      </div>
     </div>
   );
 }

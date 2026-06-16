@@ -56,7 +56,7 @@ test('IC creates → HOG allocates → PC confirms → status ASSIGNED', async (
   await page.goto(`/pc/requests/${requestId}`);
   // `getByText` would match both the card heading and the button — use role
   // to disambiguate.
-  await expect(page.getByRole('button', { name: /confirm assignment/i })).toBeVisible();
-  await page.getByRole('button', { name: /confirm assignment/i }).click();
+  await expect(page.getByRole('button', { name: /confirm allocation/i })).toBeVisible();
+  await page.getByRole('button', { name: /confirm allocation/i }).click();
   await expect(page.getByText(/ASSIGNED/i).first()).toBeVisible({ timeout: 10_000 });
 });

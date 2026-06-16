@@ -12,6 +12,7 @@ export const handoutMachine = setup({
       | { type: 'REQUEST_INITIATED' }
       | { type: 'FACULTY_ALLOCATED' }
       | { type: 'ASSIGNED' }
+      | { type: 'ALLOCATION_REJECTED' }
       | { type: 'EDIT_STARTED' }
       | { type: 'SUBMITTED' }
       | { type: 'SME_REVIEW_REQUESTED' }
@@ -31,7 +32,9 @@ export const handoutMachine = setup({
   states: {
     DRAFT: { on: { REQUEST_INITIATED: 'REQUESTED' } },
     REQUESTED: { on: { FACULTY_ALLOCATED: 'ALLOCATED' } },
-    ALLOCATED: { on: { ASSIGNED: 'ASSIGNED' } },
+    // Prompt 22: PC reviews the allocation here. ASSIGNED = confirm (→ faculty
+    // work begins); ALLOCATION_REJECTED = bounce back to HOG to re-allocate.
+    ALLOCATED: { on: { ASSIGNED: 'ASSIGNED', ALLOCATION_REJECTED: 'REQUESTED' } },
     ASSIGNED: { on: { EDIT_STARTED: 'IN_PROGRESS' } },
     // Prompt 12-a: IN_PROGRESS keeps the legacy SUBMITTED→SUBMITTED edge AND
     // gains SME_REVIEW_REQUESTED→SME_REVIEW. The faculty submit action picks
@@ -72,7 +75,11 @@ export const handoutMachine = setup({
 const TRANSITIONS: Record<HandoutStatus, Partial<Record<string, HandoutStatus>>> = {
   [HandoutStatus.DRAFT]: { REQUEST_INITIATED: HandoutStatus.REQUESTED },
   [HandoutStatus.REQUESTED]: { FACULTY_ALLOCATED: HandoutStatus.ALLOCATED },
-  [HandoutStatus.ALLOCATED]: { ASSIGNED: HandoutStatus.ASSIGNED },
+  // Prompt 22: PC confirm (ASSIGNED) or reject (ALLOCATION_REJECTED → REQUESTED).
+  [HandoutStatus.ALLOCATED]: {
+    ASSIGNED: HandoutStatus.ASSIGNED,
+    ALLOCATION_REJECTED: HandoutStatus.REQUESTED,
+  },
   [HandoutStatus.ASSIGNED]: { EDIT_STARTED: HandoutStatus.IN_PROGRESS },
   // 12-a: legacy SUBMITTED edge preserved; SME_REVIEW_REQUESTED added. The
   // submit action selects the event (SME path is opt-in in 12-a).

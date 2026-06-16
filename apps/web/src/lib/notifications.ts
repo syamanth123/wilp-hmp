@@ -39,6 +39,7 @@ export type WorkflowEventType =
   | 'REQUEST_INITIATED'
   | 'FACULTY_ALLOCATED'
   | 'ASSIGNED'
+  | 'ALLOCATION_REJECTED'
   | 'EDIT_STARTED'
   | 'SUBMITTED'
   // Prompt 12-a (SME approval workflow). Kept in sync with @hmp/workflow's
@@ -63,6 +64,7 @@ export const EVENT_TEMPLATE_KEY: Record<WorkflowEventType, string | null> = {
   REQUEST_INITIATED: 'handout.requested',
   FACULTY_ALLOCATED: 'handout.allocated',
   ASSIGNED: 'handout.assigned',
+  ALLOCATION_REJECTED: 'handout.allocation_rejected',
   EDIT_STARTED: null,
   SUBMITTED: 'handout.submitted',
   // Prompt 12-b: real templates wired (12-a had these null/silent).
@@ -89,6 +91,10 @@ const INLINE_FALLBACK: Record<WorkflowEventType, { subject: string; body: string
   ASSIGNED: {
     subject: 'You have been assigned {{refNo}}',
     body: 'Please log in to view and edit your assigned handout.',
+  },
+  ALLOCATION_REJECTED: {
+    subject: 'Allocation for {{refNo}} needs revision',
+    body: 'The Programme Committee rejected the faculty/SME allocation for {{refNo}}. Please review the reason and re-allocate.',
   },
   EDIT_STARTED: {
     subject: 'Editing started on {{refNo}}',
@@ -232,6 +238,25 @@ async function computeRecipients(
     case 'ASSIGNED':
       add(await usersById(facultyIds));
       break;
+    // Prompt 22: PC rejected the allocation → back to HOG to re-allocate.
+    // Matched-pair principle (audit §1): faculty WAS notified at
+    // FACULTY_ALLOCATED, so retracting that allocation must notify them too.
+    // SME is NOT notified — they weren't notified at allocation (they hear at
+    // SME_REVIEW_REQUESTED later).
+    case 'ALLOCATION_REJECTED': {
+      add(await usersWithRole(RoleName.HOG));
+      // The just-rejected faculty were soft-deactivated INSIDE the reject
+      // transaction, so req.assignments (active=true only) no longer lists
+      // them. Query all assignments for the request to reach whoever was
+      // allocated. (Post-reject the request is REQUESTED with no active
+      // assignments yet, so this returns exactly the rejected set.)
+      const wasAssigned = await prisma.facultyAssignment.findMany({
+        where: { requestId: req.id },
+        select: { facultyId: true },
+      });
+      add(await usersById(wasAssigned.map((a) => a.facultyId)));
+      break;
+    }
     case 'SUBMITTED':
       // Prompt 12-b: DORMANT — no producer fires the bare SUBMITTED event
       // once SME is mandatory (faculty submit fires SME_REVIEW_REQUESTED; SME
