@@ -106,6 +106,73 @@ lifecycle rules don't bleed into each other:
    Exits non-zero on the first hard failure. The lifecycle check is advisory (warns,
    doesn't fail) so the smoke test is also usable against dev MinIO.
 
+## Corpus import (BITS handout corpus — Prompts 11f-a/b1/b2)
+
+One-time (idempotent, re-runnable) ingestion of the prior-semester BITS WILP handout
+corpus into the `HandoutImport` table. Approved rows then feed the faculty editor's
+auto-fetch **Tier 2** — when a faculty member opens an allocation whose course code
+matches an approved import, the editor pre-populates from the corpus content.
+
+The parser + import + admin approval UI all already exist; this is an **operational run**,
+not a code step. The pipeline is failure-tolerant (per-file, non-halting) and idempotent
+(rows keyed on the source file's absolute path; re-running an unchanged file is a no-op,
+a changed file forces re-parse). The corpus is BITS IP — **gitignored, never committed**;
+it lives only on the operator's machine.
+
+### Prerequisites
+
+- `HMP_CORPUS_DIR` — absolute path to the directory of `.docx` handouts. The scan is
+  **flat (non-recursive)** — point it at the directory that directly contains the files
+  (mind nested extract folders, e.g. `…-001\COURSE HANDOUT FIRST SEMESTER 2025-2026`).
+- A reachable `DATABASE_URL` (the import writes `HandoutImport` rows).
+
+### Run
+
+```
+# PowerShell
+$env:HMP_CORPUS_DIR = "<absolute path to the .docx directory>"
+pnpm --filter @hmp/db exec tsx scripts/run-corpus-import.ts
+```
+
+Or trigger it from the UI: **Admin → `/admin/corpus-imports` → "Run import"** (the path
+field defaults to `HMP_CORPUS_DIR`; runs inline, ~20–60 s for ~384 files).
+
+### What it does per file
+
+`.docx` → parsed via `parseDocxToHandout` (three-tier: mammoth-structured → text-fallback
+→ fail). `.doc` / `.pdf` → recorded as `SKIPPED_FORMAT` (mammoth can't read them; no
+LibreOffice conversion). Non-Word files (`.jpg`, `.xlsx`, …) are excluded at the directory
+scan and never get a row. Every outcome is captured in `extractionMethod` +
+`parseWarnings` / `parseErrors` on the row.
+
+### Expected output
+
+A summary (printed by the CLI, shown in the UI, and written to a `corpus.import.run`
+**audit-log row**):
+
+```
+scanned · succeeded (MAMMOTH_STRUCTURED + TEXT_FALLBACK-with-data) · failed
+· skippedFormat (.doc/.pdf) · skippedSize (>3 MB) · skippedModule · unchanged · durationMs
+```
+
+### Post-import admin review
+
+1. Open **`/admin/corpus-imports`** — header pills show the count per `extractionMethod`;
+   filter via `?method=…`, `?approved=…`, `?prefix=…`.
+2. **Bulk-approve** the clean cohort with the widget. Eligibility:
+   `extractionMethod = MAMMOTH_STRUCTURED` **AND** `bitsCourseNumber` present **AND**
+   `parseWarnings ≤ 1` **AND** not already approved. The widget shows a pre-flight count
+   - sample course numbers before committing.
+3. Triage the rest per-row (approve despite warnings / re-parse / reject). Rows whose
+   course code has no matching `Course` row show a **"Course row not found — create it?"**
+   link that prefills `/admin/programmes` — imports are kept regardless; the match
+   happens later when the `Course` is created.
+4. Only `approvedForReuse = true` rows with non-null `data` surface to faculty auto-fetch.
+
+### Troubleshooting
+
+_(populated from the first real run — add observed failure clusters + fixes here.)_
+
 ## Scheduled jobs
 
 Schedule a daily HTTPS POST to `/api/cron/reminders` with `Authorization: Bearer <CRON_SECRET>`.
