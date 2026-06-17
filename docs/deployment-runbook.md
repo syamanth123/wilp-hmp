@@ -169,9 +169,39 @@ scanned · succeeded (MAMMOTH_STRUCTURED + TEXT_FALLBACK-with-data) · failed
    happens later when the `Course` is created.
 4. Only `approvedForReuse = true` rows with non-null `data` surface to faculty auto-fetch.
 
+### First real run (First Semester 2025-2026 corpus, 2026-06-17)
+
+418 files scanned in **16.6 s**. Authoritative breakdown (from the DB / admin grid):
+
+| outcome                      | count | note                                                           |
+| ---------------------------- | ----- | -------------------------------------------------------------- |
+| `MAMMOTH_STRUCTURED`         | 294   | structured + course code; **226 bulk-approved** (warnings ≤ 1) |
+| `SKIPPED_SIZE` (>3 MB)       | 84    | known gap — see below                                          |
+| `SKIPPED_FORMAT` (.doc/.pdf) | 34    | 33 `.doc` + 1 `.pdf`                                           |
+| `SKIPPED_NARRATIVE_PROSE`    | 5     | deferred template variant                                      |
+| `FAILED`                     | 1     | the only genuine parser failure                                |
+
+Smoke test: `SE ZG501` auto-fetch Tier 2 returned its corpus handout (banner
+`Imported corpus handout: SE ZG501`, 3 objectives / 3 LOs / 2 text books / 16 Part B
+sessions / 2 eval components — real content, not placeholders). ~16 s / 418 files is a
+useful sizing benchmark for future imports.
+
 ### Troubleshooting
 
-_(populated from the first real run — add observed failure clusters + fixes here.)_
+- **84 `.docx` skipped on the 3 MB size cap (~22% of the corpus).** Not failures —
+  image-heavy files skipped _before_ parsing. **Recoverable** as a separate idempotent
+  pass via the `maxBytes` override, but the 3 MB cap is a deliberate parser-safety
+  threshold (see audit doc §5) — **do not raise it without a Phase 1 survey of what fails
+  at higher sizes.** Faculty can also re-upload an affected handout as a trimmed `.docx`.
+- **CLI summary undercounts by the `SKIPPED_NARRATIVE_PROSE` count** (the tally `switch`
+  has no case for it). The rows ARE imported — cross-check **`/admin/corpus-imports`** for
+  authoritative per-method numbers, not the console summary.
+- **Multi-match (cross-listed codes):** Tier 2 picks the **most-recently-imported** row
+  (`findFirst` / `importedAt desc`) — no chooser, latest wins silently. Re-import order
+  therefore determines which corpus row a cross-listed course inherits.
+- **Path is scanned flat.** If the run reports `scanned: 0`, `HMP_CORPUS_DIR` is pointing
+  one level above the files (a nested extract folder) — point it at the directory that
+  directly contains the `.docx`.
 
 ## Scheduled jobs
 
