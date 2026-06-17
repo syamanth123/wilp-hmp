@@ -89,6 +89,9 @@ importers:
       diff:
         specifier: ^5.2.0
         version: 5.2.2
+      docx:
+        specifier: ^9.7.1
+        version: 9.7.1
       ioredis:
         specifier: ^5.4.1
         version: 5.10.1

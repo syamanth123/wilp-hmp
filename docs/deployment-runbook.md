@@ -203,6 +203,38 @@ useful sizing benchmark for future imports.
   one level above the files (a nested extract folder) — point it at the directory that
   directly contains the `.docx`.
 
+## Word + PDF export (Prompt 23-b)
+
+Faculty/IC/HOG download approved/submitted handouts as **.docx** (always available) or
+**.pdf** (requires LibreOffice). Route: `GET /api/handouts/<requestId>/export/<docx|pdf>`.
+
+### Prerequisites
+
+- **Word (.docx):** none — generated in-process via the `docx` library.
+- **PDF:** **LibreOffice headless** + a metric-compatible Arial font. On the EC2 host:
+
+  ```
+  sudo apt-get update && sudo apt-get install -y libreoffice fonts-liberation
+  ```
+
+  `fonts-liberation` provides Liberation Sans (metric-compatible with Arial) so PDFs
+  render with correct line/page breaks even though Arial itself isn't redistributable on
+  Linux. Verify: `soffice --version`.
+
+- **`SOFFICE_BIN`** (optional) — path to the LibreOffice binary if not on `PATH`
+  (default `soffice`).
+
+### Behaviour / operations
+
+- Each PDF conversion spawns LibreOffice with a **per-invocation `-env:UserInstallation`**
+  (unique temp profile) so concurrent conversions don't collide on the profile lock and
+  hang. A **30s timeout** kills a stalled conversion. Temp files are cleaned up after.
+- If LibreOffice is **absent**, PDF requests return **503** (`pdf_unavailable`,
+  `kind: missing-binary`); Word still works. This is the local-dev default (no LibreOffice,
+  like MinIO) — install it on EC2 for PDF.
+- Export requires **structured handout data**; legacy handouts (pre-Prompt-11, `data:null`)
+  return 404 and are not exportable.
+
 ## Scheduled jobs
 
 Schedule a daily HTTPS POST to `/api/cron/reminders` with `Authorization: Bearer <CRON_SECRET>`.

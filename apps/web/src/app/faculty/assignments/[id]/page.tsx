@@ -20,6 +20,8 @@ import { CommentThread } from '@/components/comment-thread';
 import { loadHandoutForFaculty, listVersions } from '@/lib/handout-versioning';
 import { QualityReportCard } from '@/components/quality-report-card';
 import { AttachmentsPanel } from '@/components/attachments-panel';
+import { DownloadMenu } from '@/components/download-menu';
+import { canExportHandout } from '@/lib/export/access';
 import { loadAttachments } from '@/lib/attachments';
 import { AcceptPanel } from './accept-panel';
 import { StartEditingPanel } from './start-editing-panel';
@@ -118,7 +120,12 @@ export default async function FacultyAssignmentDetail({
                 : 'pending acceptance'}
             </p>
           </div>
-          <StatusBadge status={status} />
+          <div className="flex items-center gap-3">
+            <StatusBadge status={status} />
+            {canExportHandout({ roles: me.roles, status, isOwnerFaculty: true }) && (
+              <DownloadMenu requestId={request.id} />
+            )}
+          </div>
         </CardHeader>
       </Card>
 
