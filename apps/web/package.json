@@ -28,6 +28,7 @@
     "@tiptap/starter-kit": "^2.6.6",
     "bcryptjs": "^2.4.3",
     "diff": "^5.2.0",
+    "docx": "^9.7.1",
     "ioredis": "^5.4.1",
     "next": "^14.2.13",
     "next-auth": "5.0.0-beta.20",

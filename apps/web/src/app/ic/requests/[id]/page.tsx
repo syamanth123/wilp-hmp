@@ -3,6 +3,8 @@ import { prisma, HandoutStatus, LmsPublishMode, resolveHandoutHtml } from '@hmp/
 import { getPresignedDownloadUrl } from '@hmp/integrations';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
+import { DownloadMenu } from '@/components/download-menu';
+import { PRIVILEGED_STATUSES } from '@/lib/export/access';
 import { StatusTimeline } from '@/components/status-timeline';
 
 // Workflow detail pages MUST be force-dynamic. Without it, Next.js production
@@ -76,7 +78,12 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
               {request.offering.course.code} — {request.offering.course.title}
             </CardDescription>
           </div>
-          <StatusBadge status={request.status} />
+          <div className="flex items-center gap-3">
+            <StatusBadge status={request.status} />
+            {PRIVILEGED_STATUSES.includes(request.status) && (
+              <DownloadMenu requestId={request.id} />
+            )}
+          </div>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
           <Field label="Programme">

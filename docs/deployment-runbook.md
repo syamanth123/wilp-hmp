@@ -106,6 +106,135 @@ lifecycle rules don't bleed into each other:
    Exits non-zero on the first hard failure. The lifecycle check is advisory (warns,
    doesn't fail) so the smoke test is also usable against dev MinIO.
 
+## Corpus import (BITS handout corpus — Prompts 11f-a/b1/b2)
+
+One-time (idempotent, re-runnable) ingestion of the prior-semester BITS WILP handout
+corpus into the `HandoutImport` table. Approved rows then feed the faculty editor's
+auto-fetch **Tier 2** — when a faculty member opens an allocation whose course code
+matches an approved import, the editor pre-populates from the corpus content.
+
+The parser + import + admin approval UI all already exist; this is an **operational run**,
+not a code step. The pipeline is failure-tolerant (per-file, non-halting) and idempotent
+(rows keyed on the source file's absolute path; re-running an unchanged file is a no-op,
+a changed file forces re-parse). The corpus is BITS IP — **gitignored, never committed**;
+it lives only on the operator's machine.
+
+### Prerequisites
+
+- `HMP_CORPUS_DIR` — absolute path to the directory of `.docx` handouts. The scan is
+  **flat (non-recursive)** — point it at the directory that directly contains the files
+  (mind nested extract folders, e.g. `…-001\COURSE HANDOUT FIRST SEMESTER 2025-2026`).
+- A reachable `DATABASE_URL` (the import writes `HandoutImport` rows).
+
+### Run
+
+```
+# PowerShell
+$env:HMP_CORPUS_DIR = "<absolute path to the .docx directory>"
+pnpm --filter @hmp/db exec tsx scripts/run-corpus-import.ts
+```
+
+Or trigger it from the UI: **Admin → `/admin/corpus-imports` → "Run import"** (the path
+field defaults to `HMP_CORPUS_DIR`; runs inline, ~20–60 s for ~384 files).
+
+### What it does per file
+
+`.docx` → parsed via `parseDocxToHandout` (three-tier: mammoth-structured → text-fallback
+→ fail). `.doc` / `.pdf` → recorded as `SKIPPED_FORMAT` (mammoth can't read them; no
+LibreOffice conversion). Non-Word files (`.jpg`, `.xlsx`, …) are excluded at the directory
+scan and never get a row. Every outcome is captured in `extractionMethod` +
+`parseWarnings` / `parseErrors` on the row.
+
+### Expected output
+
+A summary (printed by the CLI, shown in the UI, and written to a `corpus.import.run`
+**audit-log row**):
+
+```
+scanned · succeeded (MAMMOTH_STRUCTURED + TEXT_FALLBACK-with-data) · failed
+· skippedFormat (.doc/.pdf) · skippedSize (>3 MB) · skippedModule · unchanged · durationMs
+```
+
+### Post-import admin review
+
+1. Open **`/admin/corpus-imports`** — header pills show the count per `extractionMethod`;
+   filter via `?method=…`, `?approved=…`, `?prefix=…`.
+2. **Bulk-approve** the clean cohort with the widget. Eligibility:
+   `extractionMethod = MAMMOTH_STRUCTURED` **AND** `bitsCourseNumber` present **AND**
+   `parseWarnings ≤ 1` **AND** not already approved. The widget shows a pre-flight count
+   - sample course numbers before committing.
+3. Triage the rest per-row (approve despite warnings / re-parse / reject). Rows whose
+   course code has no matching `Course` row show a **"Course row not found — create it?"**
+   link that prefills `/admin/programmes` — imports are kept regardless; the match
+   happens later when the `Course` is created.
+4. Only `approvedForReuse = true` rows with non-null `data` surface to faculty auto-fetch.
+
+### First real run (First Semester 2025-2026 corpus, 2026-06-17)
+
+418 files scanned in **16.6 s**. Authoritative breakdown (from the DB / admin grid):
+
+| outcome                      | count | note                                                           |
+| ---------------------------- | ----- | -------------------------------------------------------------- |
+| `MAMMOTH_STRUCTURED`         | 294   | structured + course code; **226 bulk-approved** (warnings ≤ 1) |
+| `SKIPPED_SIZE` (>3 MB)       | 84    | known gap — see below                                          |
+| `SKIPPED_FORMAT` (.doc/.pdf) | 34    | 33 `.doc` + 1 `.pdf`                                           |
+| `SKIPPED_NARRATIVE_PROSE`    | 5     | deferred template variant                                      |
+| `FAILED`                     | 1     | the only genuine parser failure                                |
+
+Smoke test: `SE ZG501` auto-fetch Tier 2 returned its corpus handout (banner
+`Imported corpus handout: SE ZG501`, 3 objectives / 3 LOs / 2 text books / 16 Part B
+sessions / 2 eval components — real content, not placeholders). ~16 s / 418 files is a
+useful sizing benchmark for future imports.
+
+### Troubleshooting
+
+- **84 `.docx` skipped on the 3 MB size cap (~22% of the corpus).** Not failures —
+  image-heavy files skipped _before_ parsing. **Recoverable** as a separate idempotent
+  pass via the `maxBytes` override, but the 3 MB cap is a deliberate parser-safety
+  threshold (see audit doc §5) — **do not raise it without a Phase 1 survey of what fails
+  at higher sizes.** Faculty can also re-upload an affected handout as a trimmed `.docx`.
+- **CLI summary undercounts by the `SKIPPED_NARRATIVE_PROSE` count** (the tally `switch`
+  has no case for it). The rows ARE imported — cross-check **`/admin/corpus-imports`** for
+  authoritative per-method numbers, not the console summary.
+- **Multi-match (cross-listed codes):** Tier 2 picks the **most-recently-imported** row
+  (`findFirst` / `importedAt desc`) — no chooser, latest wins silently. Re-import order
+  therefore determines which corpus row a cross-listed course inherits.
+- **Path is scanned flat.** If the run reports `scanned: 0`, `HMP_CORPUS_DIR` is pointing
+  one level above the files (a nested extract folder) — point it at the directory that
+  directly contains the `.docx`.
+
+## Word + PDF export (Prompt 23-b)
+
+Faculty/IC/HOG download approved/submitted handouts as **.docx** (always available) or
+**.pdf** (requires LibreOffice). Route: `GET /api/handouts/<requestId>/export/<docx|pdf>`.
+
+### Prerequisites
+
+- **Word (.docx):** none — generated in-process via the `docx` library.
+- **PDF:** **LibreOffice headless** + a metric-compatible Arial font. On the EC2 host:
+
+  ```
+  sudo apt-get update && sudo apt-get install -y libreoffice fonts-liberation
+  ```
+
+  `fonts-liberation` provides Liberation Sans (metric-compatible with Arial) so PDFs
+  render with correct line/page breaks even though Arial itself isn't redistributable on
+  Linux. Verify: `soffice --version`.
+
+- **`SOFFICE_BIN`** (optional) — path to the LibreOffice binary if not on `PATH`
+  (default `soffice`).
+
+### Behaviour / operations
+
+- Each PDF conversion spawns LibreOffice with a **per-invocation `-env:UserInstallation`**
+  (unique temp profile) so concurrent conversions don't collide on the profile lock and
+  hang. A **30s timeout** kills a stalled conversion. Temp files are cleaned up after.
+- If LibreOffice is **absent**, PDF requests return **503** (`pdf_unavailable`,
+  `kind: missing-binary`); Word still works. This is the local-dev default (no LibreOffice,
+  like MinIO) — install it on EC2 for PDF.
+- Export requires **structured handout data**; legacy handouts (pre-Prompt-11, `data:null`)
+  return 404 and are not exportable.
+
 ## Scheduled jobs
 
 Schedule a daily HTTPS POST to `/api/cron/reminders` with `Authorization: Bearer <CRON_SECRET>`.
