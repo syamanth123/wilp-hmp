@@ -5,7 +5,7 @@ import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { canExportHandout } from '@/lib/export/access';
 import { buildHandoutDocx } from '@/lib/export/build-docx';
-import { docxToPdf, PdfConversionError } from '@/lib/export/docx-to-pdf';
+import { docxToPdf, SofficeError } from '@/lib/export/docx-to-pdf';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,7 +86,7 @@ export async function GET(
     try {
       body = await docxToPdf(docx);
     } catch (err) {
-      const kind = err instanceof PdfConversionError ? err.kind : 'conversion-failed';
+      const kind = err instanceof SofficeError ? err.kind : 'conversion-failed';
       // Log detail server-side; return a generic message (no path leakage).
       console.error('[export] PDF conversion failed', { requestId, kind, err });
       const status = kind === 'missing-binary' ? 503 : 500;

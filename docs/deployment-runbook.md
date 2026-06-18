@@ -125,6 +125,22 @@ it lives only on the operator's machine.
   **flat (non-recursive)** — point it at the directory that directly contains the files
   (mind nested extract folders, e.g. `…-001\COURSE HANDOUT FIRST SEMESTER 2025-2026`).
 - A reachable `DATABASE_URL` (the import writes `HandoutImport` rows).
+- **`CORPUS_IMPORT_MAX_BYTES`** (Prompt 24, optional) — parse size cap in bytes; default
+  **8 MB**. Files above the cap are `SKIPPED_SIZE`. 8 MB was chosen from the actual corpus
+  (largest real file 5.5 MB, bloat in inert embedded fonts mammoth doesn't read). Raise it
+  only after checking what larger files contain — see audit doc §1 "Parser safety caps".
+- **LibreOffice** (Prompt 24, for `.doc` legacy files) — the import auto-converts `.doc`
+  → `.docx` in-flight via LibreOffice (same binary as PDF export below). Without it, `.doc`
+  files record `SKIPPED_FORMAT`; `.docx` import is unaffected.
+
+### Admin manual upload (Prompt 24)
+
+A single handout (`.docx` or `.doc`, ≤ 50 MB) can be imported from the UI without a full
+directory scan: **Admin → `/admin/corpus-imports` → "Upload handout"**. The file runs
+through the same pipeline (`.doc` auto-converts), lands as an **unapproved** `HandoutImport`
+row, and the result shows one of three states — clean / imported-with-warnings / error.
+Review the row in the grid, then approve. Use this for edge cases not in the corpus folder
+or stubborn files that need re-uploading.
 
 ### Run
 
