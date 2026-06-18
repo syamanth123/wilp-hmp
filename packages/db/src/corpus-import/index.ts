@@ -19,4 +19,14 @@ export {
   type ParseResult,
 } from './parser';
 
-export { runCorpusImport, type ImportSummary, type ImportOptions } from './import-action';
+export {
+  runCorpusImport,
+  processSingleHandoutFile,
+  parseFileWithConversion,
+  upsertImportRow,
+  type ImportSummary,
+  type ImportOptions,
+  type SingleImportResult,
+} from './import-action';
+
+export { ensureDocxFormat, type EnsuredDocx } from './ensure-docx';

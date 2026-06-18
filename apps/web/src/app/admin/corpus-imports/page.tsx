@@ -15,6 +15,7 @@ import {
 } from '@hmp/ui';
 import { requireRole, getSessionUser } from '@hmp/auth';
 import { RunImportForm } from './run-import-form';
+import { UploadHandoutForm } from './upload-handout-form';
 import { RowActions } from './row-actions';
 import { BulkApproveWidget } from './bulk-approve-widget';
 import { basename } from 'node:path';
@@ -116,6 +117,9 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
         </CardHeader>
         <CardContent className="space-y-4">
           <RunImportForm defaultPath={defaultCorpusPath} />
+          <div className="border-t pt-3">
+            <UploadHandoutForm />
+          </div>
           <div className="border-t pt-3">
             <BulkApproveWidget />
           </div>

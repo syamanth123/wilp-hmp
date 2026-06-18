@@ -1,7 +1,9 @@
 import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, extname } from 'node:path';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { parseDocxToHandout } from './parser';
+import { parseDocxToHandout, type ParseResult, type CorpusExtractionMethod } from './parser';
+import { ensureDocxFormat } from './ensure-docx';
+import { SofficeError } from '../soffice';
 
 /**
  * Idempotent corpus import (Prompt 11f-a). Scans a directory for `.docx`,
@@ -29,7 +31,7 @@ export interface ImportSummary {
 }
 
 export interface ImportOptions {
-  /** Optional override for the size cap (default 3 MB). */
+  /** Optional override for the size cap (default `CORPUS_IMPORT_MAX_BYTES` or 8 MB). */
   maxBytes?: number;
   /**
    * Cap the number of files scanned. Useful for tests / dry-runs against
@@ -44,6 +46,86 @@ export interface ImportOptions {
 }
 
 const SKIP_PREFIXES = ['~$', '.']; // Word lock files, hidden files
+
+/**
+ * Parse a source file, converting `.doc` → `.docx` first (Prompt 24). Shared by
+ * the batch loop AND the single-file admin path so the conversion + error
+ * mapping can't drift. A `.doc` whose conversion fails maps to SKIPPED_FORMAT
+ * (LibreOffice missing) or FAILED (conversion error) — never throws to the
+ * caller, so a bad file can't halt a batch.
+ */
+export async function parseFileWithConversion(
+  sourceFile: string,
+  fileBytes: number,
+  maxBytes?: number,
+): Promise<ParseResult> {
+  if (extname(sourceFile).toLowerCase() !== '.doc') {
+    return parseDocxToHandout({ filePath: sourceFile, fileBytes, maxBytes });
+  }
+  let ensured;
+  try {
+    ensured = await ensureDocxFormat(sourceFile);
+  } catch (err) {
+    if (err instanceof SofficeError) {
+      const missing = err.kind === 'missing-binary';
+      return {
+        data: null,
+        warnings: [],
+        errors: [
+          missing
+            ? 'LibreOffice not available to convert .doc — install libreoffice or set SOFFICE_BIN.'
+            : `.doc → .docx conversion failed (${err.kind}).`,
+        ],
+        bitsCourseNumber: null,
+        alternateCodes: [],
+        extractionMethod: missing ? 'SKIPPED_FORMAT' : 'FAILED',
+      };
+    }
+    throw err;
+  }
+  try {
+    const st = await stat(ensured.path);
+    return await parseDocxToHandout({ filePath: ensured.path, fileBytes: st.size, maxBytes });
+  } finally {
+    await ensured.cleanup();
+  }
+}
+
+/**
+ * Shared HandoutImport upsert (Prompt 24 — extracted so the batch + single-file
+ * paths can't drift in field handling / conflict resolution). `approvedForReuse`
+ * + approver fields are intentionally NOT touched on update: an admin's approval
+ * decision persists across re-imports.
+ */
+export async function upsertImportRow(
+  prisma: PrismaClient,
+  args: {
+    sourceFile: string;
+    sourceFileBytes: number;
+    sourceModifiedAt: Date;
+    result: ParseResult;
+  },
+): Promise<string> {
+  const { sourceFile, sourceFileBytes, sourceModifiedAt, result } = args;
+  const data = result.data ? (result.data as unknown as Prisma.InputJsonValue) : Prisma.JsonNull;
+  const common = {
+    sourceFileBytes,
+    sourceModifiedAt,
+    bitsCourseNumber: result.bitsCourseNumber,
+    alternateCodes: result.alternateCodes,
+    data,
+    parseWarnings: result.warnings,
+    parseErrors: result.errors,
+    extractionMethod: result.extractionMethod,
+  };
+  const row = await prisma.handoutImport.upsert({
+    where: { sourceFile },
+    create: { sourceFile, ...common },
+    update: common,
+    select: { id: true },
+  });
+  return row.id;
+}
 
 export async function runCorpusImport(
   prisma: PrismaClient,
@@ -88,40 +170,10 @@ export async function runCorpusImport(
       continue;
     }
 
-    // Parse (or skip per pre-flight)
-    const result = await parseDocxToHandout({
-      filePath: fullPath,
-      fileBytes: sourceFileBytes,
-      maxBytes: options.maxBytes,
-    });
+    // Parse (.doc auto-converts to .docx first; or skip per pre-flight).
+    const result = await parseFileWithConversion(fullPath, sourceFileBytes, options.maxBytes);
 
-    await prisma.handoutImport.upsert({
-      where: { sourceFile },
-      create: {
-        sourceFile,
-        sourceFileBytes,
-        sourceModifiedAt,
-        bitsCourseNumber: result.bitsCourseNumber,
-        alternateCodes: result.alternateCodes,
-        data: result.data ? (result.data as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
-        parseWarnings: result.warnings,
-        parseErrors: result.errors,
-        extractionMethod: result.extractionMethod,
-      },
-      update: {
-        sourceFileBytes,
-        sourceModifiedAt,
-        bitsCourseNumber: result.bitsCourseNumber,
-        alternateCodes: result.alternateCodes,
-        data: result.data ? (result.data as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
-        parseWarnings: result.warnings,
-        parseErrors: result.errors,
-        extractionMethod: result.extractionMethod,
-        // approvedForReuse / approvedById / approvedAt are NOT reset on
-        // re-parse; admin's approval decision persists across re-imports
-        // unless explicitly revoked via the 11f-b approval UI.
-      },
-    });
+    await upsertImportRow(prisma, { sourceFile, sourceFileBytes, sourceModifiedAt, result });
 
     // Tally
     switch (result.extractionMethod) {
@@ -149,4 +201,42 @@ export async function runCorpusImport(
 
   summary.durationMs = Date.now() - startedAt;
   return summary;
+}
+
+export interface SingleImportResult {
+  importId: string;
+  extractionMethod: CorpusExtractionMethod;
+  hasData: boolean;
+  warnings: string[];
+  errors: string[];
+  bitsCourseNumber: string | null;
+}
+
+/**
+ * Import ONE handout file (Prompt 24 — admin manual upload). Single-purpose:
+ * no directory scan, no idempotency-by-mtime (each upload re-imports). Routes
+ * through the SAME `parseFileWithConversion` + `upsertImportRow` as the batch
+ * path so they can't drift. The DB key is the ORIGINAL filename (re-uploading
+ * the same name updates its row); `filePath` is the temp file to parse (its
+ * extension drives `.doc` conversion).
+ */
+export async function processSingleHandoutFile(
+  prisma: PrismaClient,
+  args: { filePath: string; originalName: string; sizeBytes: number; maxBytes?: number },
+): Promise<SingleImportResult> {
+  const result = await parseFileWithConversion(args.filePath, args.sizeBytes, args.maxBytes);
+  const importId = await upsertImportRow(prisma, {
+    sourceFile: args.originalName,
+    sourceFileBytes: args.sizeBytes,
+    sourceModifiedAt: new Date(),
+    result,
+  });
+  return {
+    importId,
+    extractionMethod: result.extractionMethod,
+    hasData: result.data != null,
+    warnings: result.warnings,
+    errors: result.errors,
+    bitsCourseNumber: result.bitsCourseNumber,
+  };
 }

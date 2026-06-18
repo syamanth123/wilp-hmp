@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, copyFileSync, rmSync, utimesSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PrismaClient } from '@prisma/client';
-import { runCorpusImport } from '../corpus-import/import-action';
+import { runCorpusImport, processSingleHandoutFile } from '../corpus-import/import-action';
 
 /**
  * Integration test for runCorpusImport (Prompt 11f-a). Copies the 5
@@ -182,6 +182,25 @@ suite('runCorpusImport — integration', () => {
       expect(after!.approvedAt).not.toBeNull();
     },
   );
+
+  // Prompt 24 — single-file admin import. Lives here (vs a new test file with its
+  // own PrismaClient) to avoid adding parallel-DB contention to the integration
+  // suite (the documented Prompt 15 race). Reuses this suite's prisma + cleanup.
+  integ('processSingleHandoutFile imports one .docx → unapproved row (Prompt 24)', async () => {
+    const key = `${TEST_PREFIX}-single.docx`;
+    const tmp = join(tempCorpus, key);
+    copyFileSync(join(fixturesDir, 'f1-standard.docx'), tmp);
+    const res = await processSingleHandoutFile(prisma, {
+      filePath: tmp,
+      originalName: key,
+      sizeBytes: 100_000,
+    });
+    expect(res.importId).toBeTruthy();
+    expect(['MAMMOTH_STRUCTURED', 'TEXT_FALLBACK', 'FAILED']).toContain(res.extractionMethod);
+    const row = await prisma.handoutImport.findUnique({ where: { sourceFile: key } });
+    expect(row).not.toBeNull();
+    expect(row?.approvedForReuse).toBe(false); // imports land unapproved
+  });
 });
 
 afterAll(async () => {

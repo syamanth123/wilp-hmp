@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BitsHandoutV1 } from '@hmp/db';
 import { buildHandoutDocx } from '../build-docx';
-import { docxToPdf, libreOfficeAvailable, PdfConversionError } from '../docx-to-pdf';
+import { docxToPdf, libreOfficeAvailable, SofficeError } from '../docx-to-pdf';
 
 /**
  * PDF conversion is infra-dependent (LibreOffice headless). Probe-skips when
@@ -74,11 +74,11 @@ describe('docxToPdf (LibreOffice headless)', () => {
     expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-'); // PDF magic
   }, 60_000);
 
-  it('PdfConversionError carries a typed kind for the route to branch on', () => {
+  it('SofficeError carries a typed kind for the route to branch on', () => {
     // The route maps kind==='missing-binary' → 503, else → 500. Lock the contract.
-    const e = new PdfConversionError('x', 'missing-binary', { code: 'ENOENT' });
+    const e = new SofficeError('x', 'missing-binary', { code: 'ENOENT' });
     expect(e).toBeInstanceOf(Error);
-    expect(e.name).toBe('PdfConversionError');
+    expect(e.name).toBe('SofficeError');
     expect(e.kind).toBe('missing-binary');
   });
 });

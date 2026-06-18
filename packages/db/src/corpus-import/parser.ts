@@ -75,7 +75,15 @@ export interface ParseResult {
   extractionMethod: CorpusExtractionMethod;
 }
 
-const DEFAULT_MAX_BYTES = 3 * 1024 * 1024;
+// Size cap for parse pre-flight (Prompt 24). Default 8 MB — the Phase 1 corpus
+// investigation found the skipped cohort is 83 files in 3-5 MB + 1 at 5.5 MB,
+// 0 above, with the bloat in inert embedded fonts mammoth never reads; 8 MB
+// gives ~45% headroom over the largest real file with no parser-safety risk.
+// Env-configurable so a future corpus with different characteristics can adjust
+// without a code change. NOTE: `Number('') / Number('0') / Number(NaN)` are all
+// falsy → fall back to 8 MB; there is no "set 0 to disable" use case (a 0-byte
+// cap would skip everything, which the directory scan already wouldn't want).
+const DEFAULT_MAX_BYTES = Number(process.env.CORPUS_IMPORT_MAX_BYTES) || 8 * 1024 * 1024;
 
 export async function parseDocxToHandout(input: ParseInput): Promise<ParseResult> {
   // ---- Pre-flight: format check ----
