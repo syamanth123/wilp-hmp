@@ -137,6 +137,21 @@ describe('renderBitsHandout — options', () => {
     expect(html).toContain('Part A — Course Identification');
   });
 
+  it('logoSrc renders the letterhead <img> inside the header; absent → no <img>', () => {
+    const withLogo = renderBitsHandout(fixture, { logoSrc: '/bits-header.png' });
+    expect(withLogo).toContain('<img class="bits-handout-logo" src="/bits-header.png"');
+    const without = renderBitsHandout(fixture);
+    expect(without).not.toContain('bits-handout-logo" src=');
+  });
+
+  it('logoSrc is ignored when the institutional header is omitted', () => {
+    const html = renderBitsHandout(fixture, {
+      omitInstitutionalHeader: true,
+      logoSrc: '/bits-header.png',
+    });
+    expect(html).not.toContain('<img class="bits-handout-logo"');
+  });
+
   it('cssScope: "none" emits no <style> tag', () => {
     const html = renderBitsHandout(fixture, { cssScope: 'none' });
     expect(html).not.toContain('<style>');

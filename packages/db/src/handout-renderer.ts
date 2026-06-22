@@ -26,6 +26,15 @@ export interface RenderOptions {
    * context; standalone exports leave it `false` for a complete document.
    */
   omitInstitutionalHeader?: boolean;
+  /**
+   * URL/href of the BITS letterhead logo to show at the top of the
+   * institutional header (Prompt 24-follow-up: canonical look in-app). In-app
+   * callers pass `/bits-header.png` (the multi-campus banner in `public/`);
+   * standalone consumers (the Mode B export ZIP) omit it so no broken `<img>`
+   * appears in a context where that URL won't resolve. Ignored when
+   * `omitInstitutionalHeader` is true.
+   */
+  logoSrc?: string;
 }
 
 // === Sanitization (applies to every rich-text field — see Prompt 11c
@@ -100,7 +109,8 @@ function renderReferences(refs: readonly string[]): string {
 // pixel-perfect Word"). ~80 lines of focused structural styling. ===
 
 const CSS = `
-.bits-handout { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.4; color: #222; max-width: 920px; margin: 0 auto; padding: 16px; }
+.bits-handout { font-family: Arial, Helvetica, sans-serif; line-height: 1.4; color: #222; max-width: 920px; margin: 0 auto; padding: 16px; }
+.bits-handout .bits-handout-logo { display: block; margin: 0 auto 10px; max-height: 120px; max-width: 90%; height: auto; }
 .bits-handout h1 { font-size: 1.4em; text-align: center; margin: 0; font-weight: 600; }
 .bits-handout h2 { font-size: 1.15em; border-bottom: 1px solid #555; padding-bottom: 4px; margin-top: 22px; }
 .bits-handout h3 { font-size: 1.0em; margin-top: 14px; margin-bottom: 6px; }
@@ -121,9 +131,12 @@ const CSS = `
 
 // === Section renderers ===
 
-function renderHeader(m: BitsHandoutV1['metadata']): string {
+function renderHeader(m: BitsHandoutV1['metadata'], logoSrc?: string): string {
+  const logo = logoSrc
+    ? `<img class="bits-handout-logo" src="${esc(logoSrc)}" alt="Birla Institute of Technology & Science, Pilani">\n  `
+    : '';
   return `<div class="bits-handout-header">
-  <h1>${esc(m.institutionHeader)}</h1>
+  ${logo}<h1>${esc(m.institutionHeader)}</h1>
   <div>${esc(m.divisionHeader)}</div>
   <div>${esc(m.semester)}</div>
   <div><strong>${esc(m.documentTitle)}</strong></div>
@@ -351,7 +364,7 @@ export function renderBitsHandout(data: BitsHandoutV1, options?: RenderOptions):
   const parts: string[] = [];
   if (cssScope === 'inline') parts.push(`<style>${CSS}</style>`);
   parts.push('<div class="bits-handout">');
-  if (!omitHeader) parts.push(renderHeader(data.metadata));
+  if (!omitHeader) parts.push(renderHeader(data.metadata, options?.logoSrc));
   parts.push(renderPartA(data.partA));
   parts.push(renderPartB(data.partB.sessions));
   if (data.experientialLearning) parts.push(renderExperiential(data.experientialLearning));

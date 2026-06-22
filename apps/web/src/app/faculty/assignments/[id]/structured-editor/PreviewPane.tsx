@@ -13,7 +13,10 @@ interface Props {
  * you see here is exactly what gets published." (Prompt 11d plan §7.)
  */
 export function PreviewPane({ data }: Props) {
-  const html = useMemo(() => renderBitsHandout(data, { cssScope: 'inline' }), [data]);
+  const html = useMemo(
+    () => renderBitsHandout(data, { cssScope: 'inline', logoSrc: '/bits-header.png' }),
+    [data],
+  );
   return (
     <div className="bg-background rounded-md border p-2" data-testid="bits-preview">
       <div dangerouslySetInnerHTML={{ __html: html }} />
