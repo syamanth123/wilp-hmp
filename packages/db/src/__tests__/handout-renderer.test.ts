@@ -144,6 +144,27 @@ describe('renderBitsHandout — options', () => {
     expect(without).not.toContain('bits-handout-logo" src=');
   });
 
+  it('watermarkSrc emits a sibling watermark layer (not ::before) + the background rule', () => {
+    const html = renderBitsHandout(fixture, { watermarkSrc: '/bits-watermark.png' });
+    expect(html).toContain('<div class="bits-handout-watermark"'); // explicit layer, not ::before
+    expect(html).not.toContain('::before'); // the white-bg-over-::before bug is gone
+    expect(html).toContain('background-image: url("/bits-watermark.png")');
+    expect(html).toContain('opacity: 0.14'); // screen ghost; print bumps to 0.12
+    // No watermark src → no watermark div.
+    expect(renderBitsHandout(fixture)).not.toContain('bits-handout-watermark"');
+  });
+
+  it('emits the print stylesheet (@page A4 + watermark print opacity)', () => {
+    const html = renderBitsHandout(fixture);
+    expect(html).toContain('@page { size: A4; margin: 1in; }');
+    expect(html).toContain('@media print');
+  });
+
+  it('footer carries the canonical WILP division line', () => {
+    const html = renderBitsHandout(fixture);
+    expect(html).toContain('BITS Pilani Work Integrated Learning Programmes Division');
+  });
+
   it('logoSrc is ignored when the institutional header is omitted', () => {
     const html = renderBitsHandout(fixture, {
       omitInstitutionalHeader: true,

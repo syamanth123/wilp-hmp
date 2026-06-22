@@ -14,7 +14,12 @@ interface Props {
  */
 export function PreviewPane({ data }: Props) {
   const html = useMemo(
-    () => renderBitsHandout(data, { cssScope: 'inline', logoSrc: '/bits-header.png' }),
+    () =>
+      renderBitsHandout(data, {
+        cssScope: 'inline',
+        logoSrc: '/bits-header.png',
+        watermarkSrc: '/bits-watermark.png',
+      }),
     [data],
   );
   return (

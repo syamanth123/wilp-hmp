@@ -243,7 +243,10 @@ export default async function FacultyAssignmentDetail({
             <HandoutViewer
               html={
                 currentVersion
-                  ? resolveHandoutHtml(currentVersion, { logoSrc: '/bits-header.png' })
+                  ? resolveHandoutHtml(currentVersion, {
+                      logoSrc: '/bits-header.png',
+                      watermarkSrc: '/bits-watermark.png',
+                    })
                   : null
               }
             />
