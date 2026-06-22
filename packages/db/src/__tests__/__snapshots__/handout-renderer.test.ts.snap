@@ -8,62 +8,55 @@ exports[`renderBitsHandout — snapshot (regression catch) > the rendered output
   <div>First Semester 2025-2026</div>
   <div><strong>Digital Learning Handout</strong></div>
 </div>
-<h2>Part A — Course Identification</h2>
-<table><tbody>
-<tr><th>Course Title</th><td>Automotive Diagnostics and Interfaces</td></tr>
-<tr><th>Course No(s)</th><td>AE ZG631 / AEL ZG631</td></tr>
-<tr><th>Credit Model</th><td>3-1-1</td></tr>
-<tr><th>Instructors</th><td>KOTHA SRINIVASA REDDY</td></tr>
-<tr><th>Date</th><td>6 Jan2025</td></tr>
-</tbody></table>
-<h3>Course Description</h3>
+<table class="bits-handout-coursedetails"><tbody><tr><th>Course No(s)</th><td>AE ZG631 / AEL ZG631</td></tr><tr><th>Course Title</th><td>Automotive Diagnostics and Interfaces</td></tr><tr><th>Credit Model</th><td>3-1-1</td></tr><tr><th>Instructor-in-Charge</th><td>KOTHA SRINIVASA REDDY</td></tr><tr><th>Semester</th><td>First Semester 2025-2026</td></tr><tr><th>Date</th><td>6 Jan2025</td></tr></tbody></table>
+<h2>1. Course Description</h2>
 <div class="bits-handout-prose"><p>Sensors used in today's vehicles, such as temperature, pressure, position, distance, velocity, torque and flow; Designing and building analogue interfaces, regulation and control problem with reference to power electronic converters; converter models for feedback: basic converter dynamics, fast switching, piece-wise linear models, discrete-time models, On board diagnostics II (OBD II); Voltage mode and current mode controls for DC-DC converters, comparator based control for rectifier systems, proportional and proportional-integral control applications; Control design based on linearization: transfer functions, compensation and filtering, compensated feedback control systems; Hysteresis control basics, and application to DC-DC converters and inverters; Automotive diagnostics, electronic interfaces, sensors and interfacing, introduction to microsystems packaging, microcomputer control systems, reliability, diagnostics, and testing of vehicles</p></div>
-<h2>Course Objectives</h2>
-<table>
+<h2>2. Scope and Objectives</h2>
+<table class="bits-handout-coded">
   <thead><tr><th>CO</th><th>Description</th></tr></thead>
   <tbody><tr><td>CO1</td><td>To study the different automotive sensors and their interfacing</td></tr><tr><td>CO2</td><td>Understand the different on-board diagnostics tools</td></tr><tr><td>CO3</td><td>To study the diagnostics of different vehicle subsystems</td></tr><tr><td>CO4</td><td>To study the different DC-DC converters used in automotive applications</td></tr><tr><td>CO5</td><td>To model and design the power electronic converters</td></tr></tbody>
 </table>
-<h2>Text Books</h2>
-<table>
-  <thead><tr><th>Code</th><th>Citation</th></tr></thead>
-  <tbody><tr><td>T1</td><td>Tom Denton 2021, Routledge, Advanced Automotive Fault Diagnosis 5th ed</td></tr><tr><td>T2</td><td>Randall Shaffer 2007, Charles River Media, Fundamentals of Power Electronics with Matlab</td></tr></tbody>
-</table>
-<h2>Reference Books</h2>
-<table>
-  <thead><tr><th>Code</th><th>Citation</th></tr></thead>
-  <tbody><tr><td>R1</td><td>William B. Ribbens 2017, Butterworth-Heinemann, Understanding Automotive electronics 8th ed</td></tr><tr><td>R2</td><td>Robert Bosch GmbH (Ed.) 2007, Springer-Vieweg, Bosch Automotive Electrics and Automotive Electronics 5th ed</td></tr><tr><td>R3</td><td>Santini, Al - Automotive Electricity and Electronics-Cengage Learning, Inc. (2013)</td></tr></tbody>
-</table>
-<h2>Learning Outcomes</h2>
-<table>
+<h2>3. Learning Outcomes</h2>
+<table class="bits-handout-coded">
   <thead><tr><th>LO</th><th>Description</th></tr></thead>
   <tbody><tr><td>LO1</td><td>Diagnose electrical and mechanical systems in automobiles</td></tr><tr><td>LO2</td><td>Introduce the power electronics interfaces of ECUs with actuators</td></tr><tr><td>LO3</td><td>Develop modeling methods for converters and study closed loop control</td></tr><tr><td>LO4</td><td>Introduction to microcomputer control of converters</td></tr></tbody>
 </table>
-<h2>Part B — Learning Plan</h2>
-<table>
+<h2>4. Text Books</h2>
+<table class="bits-handout-books">
+  <thead><tr><th>Code</th><th>Citation</th></tr></thead>
+  <tbody><tr><td>T1</td><td>Tom Denton 2021, Routledge, Advanced Automotive Fault Diagnosis 5th ed</td></tr><tr><td>T2</td><td>Randall Shaffer 2007, Charles River Media, Fundamentals of Power Electronics with Matlab</td></tr></tbody>
+</table>
+<h2>5. Reference Material</h2>
+<table class="bits-handout-books">
+  <thead><tr><th>Code</th><th>Citation</th></tr></thead>
+  <tbody><tr><td>R1</td><td>William B. Ribbens 2017, Butterworth-Heinemann, Understanding Automotive electronics 8th ed</td></tr><tr><td>R2</td><td>Robert Bosch GmbH (Ed.) 2007, Springer-Vieweg, Bosch Automotive Electrics and Automotive Electronics 5th ed</td></tr><tr><td>R3</td><td>Santini, Al - Automotive Electricity and Electronics-Cengage Learning, Inc. (2013)</td></tr></tbody>
+</table>
+<h2>6. Course Plan</h2>
+<table class="bits-handout-courseplan">
   <thead><tr><th>Session</th><th>Topic</th><th>Sub-topics</th><th>References</th></tr></thead>
   <tbody><tr><td>1</td><td>Introduction to automotive diagnostics</td><td><ul class="bits-handout-subtopics"><li>Introduction to diagnostics and prognostics</li><li>Diagnostics Techniques</li></ul></td><td>T1 Chap 1, 2<br>R1 Chap 11</td></tr><tr><td>2</td><td>Diagnostics tools and equipment</td><td><ul class="bits-handout-subtopics"><li>Oscilloscope diagnostics</li><li>Sensors and actuators</li><li>Sensor diagnostics</li></ul></td><td>T1 Chap 3, 4</td></tr><tr><td>3</td><td>On-board diagnostics</td><td><ul class="bits-handout-subtopics"><li>OBD, OBD2, OBD3, UDS</li><li>Trouble codes</li></ul></td><td>T1 Chap 5</td></tr><tr><td>4</td><td>Vehicle level diagnostics</td><td>Electrical systems and diagnostics</td><td>T1 Chap 8</td></tr><tr><td>5-6</td><td>Engine Diagnostics</td><td><ul class="bits-handout-subtopics"><li>Fuel system diagnostics</li><li>Ignition diagnostics</li></ul></td><td>T1 Chap 6</td></tr><tr><td>7-8</td><td>Chassis Diagnostics &amp; transmission diagnostics</td><td><ul class="bits-handout-subtopics"><li>Brake diagnostics</li><li>Suspension Diagnostics</li></ul></td><td>T1 Chap 7</td></tr><tr><td>9</td><td>Review</td><td></td><td><span class="bits-handout-empty">—</span></td></tr><tr><td>10</td><td>Mechanical and Electrical diagnostics</td><td><ul class="bits-handout-subtopics"><li>Electrical components and circuits</li><li>Lighting</li><li>Central Control</li><li>Cruise control</li></ul></td><td>T1 Chap 9</td></tr><tr><td>11</td><td>Review</td><td></td><td><span class="bits-handout-empty">—</span></td></tr><tr><td>12-13</td><td>Power electronic converters in automobiles</td><td><ul class="bits-handout-subtopics"><li>Analysis of DC-DC power converters – buck/boost/buck-boost</li><li>Isolated converters - forward and flyback topologies</li><li>DC-AC converter topologies</li><li>Pulse width modulation methods</li><li>Control methods</li><li>Simulation</li></ul></td><td>Lecture slides</td></tr><tr><td>14</td><td>Converter modelling and analysis</td><td><ul class="bits-handout-subtopics"><li>Input-output relations</li><li>Differential equations and linearization</li><li>State space representation</li><li>Transfer functions, poles, zeros and block representation</li><li>State space averaging method</li></ul></td><td>Lecture slides</td></tr><tr><td>15</td><td>State space analysis</td><td><ul class="bits-handout-subtopics"><li>PID control</li><li>Voltage &amp; current control design</li><li>Closed loop control &amp; simulation, digital power electronics</li></ul></td><td>Lecture slides</td></tr><tr><td>16</td><td>Peripherals/interfaces for microcomputer control of converters</td><td><ul class="bits-handout-subtopics"><li>Gate drivers and driver design</li><li>Protection circuits in converters</li><li>Reliability, redundancy, diagnosis, packaging and testing</li><li>ECU packaging</li><li>Automated test methods and test standards</li><li>Universal Diagnostic Services (UDS)</li></ul></td><td>Lecture slides</td></tr></tbody>
 </table>
-<h2>Experiential Learning</h2>
+<h2>7. Experiential Learning</h2>
 <h3>Lab Infrastructure</h3>
 <ul class="bits-handout-bullets"><li>Virtual Lab: Electude Virtual Simulation – 2 hours of lab lecture and 12 hours of practice (currently the student can access over a period of three (3) weeks); Matlab software tool – 4 hours of lab lecture and 6 hours of practice. Access: through their own system with wilp email id (Matlab); through Electude platform (credentials via mail).</li><li>Remote Lab: 2 hours using Physical experiments – 2 hours of VL Electude assignment. Access: at Integrated Automotive Engineering lab, Hyderabad campus.</li><li>Assignment/Quiz – 4 hours.</li></ul>
 <h3>List of Experiments</h3>
-<table>
+<table class="bits-handout-experiments">
   <thead><tr><th>#</th><th>Title</th><th>Module Reference</th></tr></thead>
   <tbody><tr><td>1</td><td>Introduction to the lab</td><td>The students will be introduced to the lab team, software to be used, list of experiments and evaluation components. Sensors, Actuators, Diagnosis Tools &amp; Vehicle Simulator — the measurement and actuation of the system will be implemented using ELECTUDE.</td></tr><tr><td>2</td><td>Diagnostics to detect</td><td>Wiper motor, Ideal RPM, Etc. Model and simulate diagnostic error lamp.</td></tr><tr><td>3</td><td>VCDS tool, Pico scope, Multi-meter and Current clamp (Remote lab)</td><td>Log data from the vehicle and use diagnostic tool to identify DTC code and perform required action. Case studies on detecting issues related to wiper motors, ideal RPM, etc.</td></tr><tr><td>4</td><td>Simulation of buck, boost converter and inverter using MATLAB Simulink</td><td>The open loop and closed operation of buck and boost converters will be implemented using MATLAB Simulink.</td></tr></tbody>
 </table>
-<h2>Evaluation Scheme</h2>
+<h2>8. Evaluation Scheme</h2>
 <p><em>EC = Evaluation Component; AN = After Noon Session; FN = Fore Noon Session</em></p>
-<table>
+<table class="bits-handout-evaluation">
   <thead><tr><th>EC</th><th>Name</th><th>Type</th><th>Weight</th><th>Duration</th><th>Scheduled</th></tr></thead>
   <tbody><tr><td>EC - 1</td><td>Quiz</td><td>Online</td><td>10%</td><td></td><td>September 01-10, 2025</td></tr><tr><td></td><td>Virtual lab</td><td>Online</td><td>20%</td><td></td><td>November 01-10, 2025</td></tr><tr><td>EC - 2</td><td>Mid-Semester exam</td><td>Closed book</td><td>30%</td><td>2 hours</td><td>21/09/2025 (AN)</td></tr><tr><td>EC - 3</td><td>Comprehensive exam</td><td>Open book</td><td>40%</td><td>2 ½ hours</td><td>30/11/2025 (AN)</td></tr></tbody>
 </table>
-<h2>Important Notes</h2>
+<h2>9. Important Notes &amp; Links</h2>
 <h3>Important Links</h3>
 <p>eLearn Portal: <a href="https://elearn.bits-pilani.ac.in">https://elearn.bits-pilani.ac.in</a></p>
 <p>Students must visit the eLearn portal regularly and stay updated with the latest announcements and deadlines.</p>
 <h3>Contact Sessions</h3>
 <p>Students should attend the online lectures as per the schedule provided on the eLearn portal.</p>
-<h2>Evaluation Guidelines</h2>
+<h2>10. Evaluation Guidelines</h2>
 <div class="bits-handout-prose"><p>EC-1 consists of either two Assignments or three Quizzes. Students will attempt them through the course pages on the eLearn portal. Announcements will be made on the portal in a timely manner.</p><p>For Closed Book tests: No books or reference material of any kind will be permitted.</p><p>For Open Book exams: “open book” means text/ reference books (publisher copy only) and does not include any other learning material. No other learning material will be permitted during the open book examinations. For Detailed Guidelines refer to the attached document. (EC3 Guidelines)</p><p>If a student is unable to appear for the Regular Test/Exam due to genuine exigencies, the student should follow the procedure to apply for the Make-Up Test/Exam, which will be made available on the eLearn portal. The Make-Up Test/Exam will be conducted only at selected exam centres on the dates to be announced later.</p><p>It shall be the responsibility of the individual student to be regular in maintaining the self-study schedule as given in the course handout, attend the online lectures, and take all the prescribed evaluation components such as Assignments/Quizzes, Mid-Semester Tests and Comprehensive Exams according to the evaluation scheme provided in the handout.</p></div>
 <div class="bits-handout-footer"><div><strong>BITS Pilani Work Integrated Learning Programmes Division</strong></div><div>Digital Learning Handout · First Semester 2025-2026 · 6 Jan2025</div></div>
 </div>"
