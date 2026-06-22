@@ -10,13 +10,20 @@ import { docxToPdf, SofficeError } from '@/lib/export/docx-to-pdf';
 export const dynamic = 'force-dynamic';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const LOGO_PATH = join(process.cwd(), 'src', 'lib', 'export', 'assets', 'bits-header.png');
+const ASSETS = join(process.cwd(), 'src', 'lib', 'export', 'assets');
+const LOGO_PATH = join(ASSETS, 'bits-header.png');
+const WATERMARK_PATH = join(ASSETS, 'bits-watermark.png'); // pre-faded 12%-alpha crest
 
-// Read the banner once per process (small PNG; embedded server-side, not served).
+// Read the assets once per process (small PNGs; embedded server-side, not served).
 let logoCache: Buffer | null = null;
+let watermarkCache: Buffer | null = null;
 async function getLogo(): Promise<Buffer> {
   if (!logoCache) logoCache = await readFile(LOGO_PATH);
   return logoCache;
+}
+async function getWatermark(): Promise<Buffer> {
+  if (!watermarkCache) watermarkCache = await readFile(WATERMARK_PATH);
+  return watermarkCache;
 }
 
 function safe(s: string): string {
@@ -72,8 +79,8 @@ export async function GET(
     return Response.json({ error: 'unparseable_handout' }, { status: 422 });
   }
 
-  const logo = await getLogo();
-  const docx = await buildHandoutDocx(parsed.data, logo);
+  const [logo, watermark] = await Promise.all([getLogo(), getWatermark()]);
+  const docx = await buildHandoutDocx(parsed.data, logo, watermark);
 
   const courseCode = parsed.data.partA.courseNumbers[0] ?? 'handout';
   // refNo already carries the `HMP-YYYY-####` prefix — don't double it.
