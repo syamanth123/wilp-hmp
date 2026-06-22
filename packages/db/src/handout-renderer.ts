@@ -118,7 +118,7 @@ function renderReferences(refs: readonly string[]): string {
 
 const CSS = `
 .bits-handout-page { position: relative; background: #fff; max-width: 920px; margin: 0 auto; }
-.bits-handout-watermark { position: absolute; inset: 0; z-index: 0; pointer-events: none; background-repeat: no-repeat; background-position: center; background-size: 55%; opacity: 0.14; }
+.bits-handout-watermark { position: absolute; inset: 0; z-index: 0; pointer-events: none; background-repeat: repeat-y; background-position: top center; background-size: 75% auto; opacity: 0.14; }
 .bits-handout { font-family: Arial, Helvetica, sans-serif; line-height: 1.4; color: #222; max-width: 920px; margin: 0 auto; padding: 16px; position: relative; z-index: 1; }
 .bits-handout .bits-handout-logo { display: block; margin: 0 auto 10px; max-height: 120px; max-width: 90%; height: auto; }
 .bits-handout h1 { font-size: 1.4em; text-align: center; margin: 0; font-weight: 600; }
