@@ -181,7 +181,6 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <HandoutViewer
               html={resolveHandoutHtml(handout.currentVersion, {
                 logoSrc: '/bits-header.png',
-                watermarkSrc: '/bits-watermark.png',
               })}
             />
             <VersionList handoutId={handout.id} />

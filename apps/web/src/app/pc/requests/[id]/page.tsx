@@ -92,7 +92,6 @@ export default async function PCRequestDetail({ params }: { params: { id: string
             <HandoutViewer
               html={resolveHandoutHtml(handout.currentVersion, {
                 logoSrc: '/bits-header.png',
-                watermarkSrc: '/bits-watermark.png',
               })}
             />
             <VersionList handoutId={handout.id} />

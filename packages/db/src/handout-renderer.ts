@@ -35,15 +35,14 @@ export interface RenderOptions {
    * `omitInstitutionalHeader` is true.
    */
   logoSrc?: string;
-  /**
-   * URL/href (or base64 data URI) of the BITS crest to render as a faint,
-   * centered watermark behind the handout content (Prompt 24-follow-up).
-   * In-app callers pass `/bits-watermark.png`; the standalone Taxila export
-   * inlines it as a data URI so the ZIP travels portably. Only emitted with
-   * `cssScope: 'inline'` (needs the `<style>` block).
-   */
-  watermarkSrc?: string;
 }
+
+// Watermark is intentionally NOT rendered in HTML. A faint per-page crest is a
+// property of the paginated PDF (Word/LibreOffice export), where it's
+// header-anchored and repeats per page. HTML in-app reading shows logo +
+// letterhead + content only; the branded paginated artifact is the Download →
+// PDF. (Earlier a tiled HTML watermark was tried and removed — HTML can't
+// paginate, so a per-page watermark in HTML was the wrong model.)
 
 // === Sanitization (applies to every rich-text field — see Prompt 11c
 // "two things to confirm" #1: same allowlist across all four fields).
@@ -117,9 +116,7 @@ function renderReferences(refs: readonly string[]): string {
 // pixel-perfect Word"). ~80 lines of focused structural styling. ===
 
 const CSS = `
-.bits-handout-page { position: relative; background: #fff; max-width: 920px; margin: 0 auto; }
-.bits-handout-watermark { position: absolute; inset: 0; z-index: 0; pointer-events: none; background-repeat: repeat-y; background-position: top center; background-size: 75% auto; opacity: 0.14; }
-.bits-handout { font-family: Arial, Helvetica, sans-serif; line-height: 1.4; color: #222; max-width: 920px; margin: 0 auto; padding: 16px; position: relative; z-index: 1; }
+.bits-handout { font-family: Arial, Helvetica, sans-serif; line-height: 1.4; color: #222; max-width: 920px; margin: 0 auto; padding: 16px; }
 .bits-handout .bits-handout-logo { display: block; margin: 0 auto 10px; max-height: 120px; max-width: 90%; height: auto; }
 .bits-handout h1 { font-size: 1.4em; text-align: center; margin: 0; font-weight: 600; }
 .bits-handout h2 { font-size: 1.15em; border-bottom: 1px solid #555; padding-bottom: 4px; margin-top: 22px; }
@@ -148,22 +145,9 @@ const CSS = `
 const PRINT_CSS = `
 @page { size: A4; margin: 1in; }
 @media print {
-  .bits-handout-page, .bits-handout { max-width: none; }
-  .bits-handout { padding: 0; }
+  .bits-handout { max-width: none; padding: 0; }
   .bits-handout tr { page-break-inside: avoid; }
-  .bits-handout .bits-handout-header { display: table-header-group; }
-  .bits-handout-watermark { opacity: 0.12 !important; }
 }`.trim();
-
-/**
- * Watermark as an explicit sibling layer (NOT `::before`) — a white content
- * background otherwise paints over a `::before` on the outer wrapper. The
- * `.bits-handout-watermark` div sits below `.bits-handout` (z-index 1) but above
- * the page background, so the crest reads as a faint ghost behind the text.
- */
-function watermarkCss(src: string): string {
-  return `.bits-handout-watermark { background-image: url("${src}"); }`;
-}
 
 // === Section renderers ===
 
@@ -399,16 +383,7 @@ export function renderBitsHandout(data: BitsHandoutV1, options?: RenderOptions):
   const cssScope = options?.cssScope ?? 'inline';
   const omitHeader = options?.omitInstitutionalHeader ?? false;
   const parts: string[] = [];
-  if (cssScope === 'inline') {
-    const wm = options?.watermarkSrc ? `\n${watermarkCss(options.watermarkSrc)}` : '';
-    parts.push(`<style>${CSS}${wm}\n${PRINT_CSS}</style>`);
-  }
-  // Watermark is a sibling layer under the content (NOT ::before) so a white
-  // content background can't paint over it. Only emitted when a watermark src
-  // is supplied; the page wrapper is always present for consistent structure.
-  parts.push('<div class="bits-handout-page">');
-  if (options?.watermarkSrc)
-    parts.push('<div class="bits-handout-watermark" aria-hidden="true"></div>');
+  if (cssScope === 'inline') parts.push(`<style>${CSS}\n${PRINT_CSS}</style>`);
   parts.push('<div class="bits-handout">');
   if (!omitHeader) parts.push(renderHeader(data.metadata, options?.logoSrc));
   parts.push(renderPartA(data.partA));
@@ -419,7 +394,6 @@ export function renderBitsHandout(data: BitsHandoutV1, options?: RenderOptions):
   parts.push('<h2>Evaluation Guidelines</h2>');
   parts.push(`<div class="bits-handout-prose">${sanitize(data.evaluationGuidelines)}</div>`);
   parts.push(renderFooter(data.metadata, data.partA));
-  parts.push('</div>'); // .bits-handout
-  parts.push('</div>'); // .bits-handout-page
+  parts.push('</div>');
   return parts.join('\n');
 }

@@ -88,10 +88,7 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
           <HandoutViewer
             html={
               currentVersion
-                ? resolveHandoutHtml(currentVersion, {
-                    logoSrc: '/bits-header.png',
-                    watermarkSrc: '/bits-watermark.png',
-                  })
+                ? resolveHandoutHtml(currentVersion, { logoSrc: '/bits-header.png' })
                 : null
             }
           />

@@ -177,7 +177,6 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
             <HandoutViewer
               html={resolveHandoutHtml(handout.currentVersion, {
                 logoSrc: '/bits-header.png',
-                watermarkSrc: '/bits-watermark.png',
               })}
             />
             <VersionList handoutId={handout.id} />
