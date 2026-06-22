@@ -284,6 +284,23 @@ describe('renderBitsHandout — canonical numbered sections + Course Details (Pr
     expect(html).not.toContain('8. Evaluation Scheme');
   });
 
+  it('tables use fixed layout + per-table column widths (containment)', () => {
+    const html = renderBitsHandout(fixture);
+    expect(html).toContain('table-layout: fixed');
+    expect(html).toContain('overflow-wrap: break-word');
+    for (const cls of [
+      'bits-handout-coursedetails',
+      'bits-handout-coded',
+      'bits-handout-books',
+      'bits-handout-courseplan',
+      'bits-handout-evaluation',
+      'bits-handout-experiments',
+    ]) {
+      expect(html, `missing table class: ${cls}`).toContain(cls);
+    }
+    expect(html).toContain('.bits-handout-courseplan thead th:nth-child(2) { width: 34%; }');
+  });
+
   it('a minimal handout (only required sections populated) numbers coherently', () => {
     const h = clone();
     h.partA.learningOutcomes = [];

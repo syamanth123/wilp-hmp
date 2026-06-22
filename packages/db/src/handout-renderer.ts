@@ -123,9 +123,33 @@ const CSS = `
 .bits-handout h3 { font-size: 1.0em; margin-top: 14px; margin-bottom: 6px; }
 .bits-handout .bits-handout-header { text-align: center; margin-bottom: 18px; }
 .bits-handout .bits-handout-header > div { margin-top: 2px; }
-.bits-handout table { border-collapse: collapse; border: 1px solid #555; width: 100%; margin-top: 8px; font-size: 0.95em; }
-.bits-handout th, .bits-handout td { border: 1px solid #888; padding: 6px 10px; vertical-align: top; text-align: left; }
+.bits-handout table { border-collapse: collapse; border: 1px solid #555; width: 100%; margin-top: 8px; font-size: 0.95em; table-layout: fixed; }
+.bits-handout th, .bits-handout td { border: 1px solid #888; padding: 6px 8px; vertical-align: top; text-align: left; overflow-wrap: break-word; word-break: break-word; }
 .bits-handout th { background: #eee; font-weight: 600; }
+/* Per-table column widths (table-layout: fixed contains long cells within the
+   page width instead of widening the whole doc — Prompt 24-follow-up). */
+.bits-handout-coursedetails th { width: 28%; }
+.bits-handout-coded thead th:nth-child(1) { width: 12%; }
+.bits-handout-books thead th:nth-child(1) { width: 12%; }
+.bits-handout-courseplan thead th:nth-child(1) { width: 10%; }
+.bits-handout-courseplan thead th:nth-child(2) { width: 34%; }
+.bits-handout-courseplan thead th:nth-child(3) { width: 31%; }
+.bits-handout-courseplan thead th:nth-child(4) { width: 25%; }
+.bits-handout-evaluation thead th:nth-child(1) { width: 9%; }
+.bits-handout-evaluation thead th:nth-child(2) { width: 25%; }
+.bits-handout-evaluation thead th:nth-child(3) { width: 16%; }
+.bits-handout-evaluation thead th:nth-child(4) { width: 12%; }
+.bits-handout-evaluation thead th:nth-child(5) { width: 14%; }
+.bits-handout-evaluation thead th:nth-child(6) { width: 24%; }
+.bits-handout-experiments thead th:nth-child(1) { width: 8%; }
+.bits-handout-experiments thead th:nth-child(2) { width: 40%; }
+.bits-handout-experiments thead th:nth-child(3) { width: 52%; }
+.bits-handout-expcomponents thead th:nth-child(1) { width: 16%; }
+.bits-handout-expcomponents thead th:nth-child(2) { width: 22%; }
+.bits-handout-expcomponents thead th:nth-child(3) { width: 20%; }
+.bits-handout-expcomponents thead th:nth-child(4) { width: 16%; }
+.bits-handout-expcomponents thead th:nth-child(5) { width: 8%; }
+.bits-handout-expcomponents thead th:nth-child(6) { width: 18%; }
 .bits-handout .bits-handout-prose { margin: 6px 0; }
 .bits-handout .bits-handout-prose p { margin: 6px 0; }
 .bits-handout ul.bits-handout-subtopics { margin: 0; padding-left: 18px; }
