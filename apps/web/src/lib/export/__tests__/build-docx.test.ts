@@ -6,6 +6,7 @@ import type { BitsHandoutV1 } from '@hmp/db';
 import { buildHandoutDocx } from '../build-docx';
 
 const LOGO = readFileSync(join(__dirname, '..', 'assets', 'bits-header.png'));
+const WATERMARK = readFileSync(join(__dirname, '..', 'assets', 'bits-watermark.png'));
 
 const FULL: BitsHandoutV1 = {
   schemaVersion: 1,
@@ -94,7 +95,7 @@ describe('buildHandoutDocx — full BITS section walk', () => {
   let documentXml: string;
 
   beforeAll(async () => {
-    const buf = await buildHandoutDocx(FULL, LOGO);
+    const buf = await buildHandoutDocx(FULL, LOGO, WATERMARK);
     zip = new AdmZip(buf);
     documentXml = zip.readAsText('word/document.xml');
   });
@@ -104,6 +105,33 @@ describe('buildHandoutDocx — full BITS section walk', () => {
     expect(names).toContain('word/document.xml');
     expect(names.some((n) => /word\/header\d*\.xml/.test(n))).toBe(true);
     expect(names.some((n) => n.startsWith('word/media/'))).toBe(true); // banner embedded
+  });
+
+  it('embeds the watermark behind text in the header, repeating per page', () => {
+    const names = zip.getEntries().map((e) => e.entryName);
+    // Two distinct images now travel in the docx: the letterhead logo + the
+    // faded watermark crest.
+    const media = names.filter((n) => n.startsWith('word/media/'));
+    expect(media.length).toBeGreaterThanOrEqual(2);
+    // The watermark is a floating image BEHIND the document text, declared in a
+    // header part (headers repeat per page). `behindDoc="1"` is the OOXML marker.
+    const headerXml = zip
+      .getEntries()
+      .filter((e) => /word\/header\d*\.xml/.test(e.entryName))
+      .map((e) => zip.readAsText(e.entryName))
+      .join('\n');
+    expect(headerXml).toContain('behindDoc="1"');
+
+    // Omitting the watermark → no behind-text floating image (logo only).
+    return buildHandoutDocx(FULL, LOGO).then((noWm) => {
+      const z = new AdmZip(noWm);
+      const hx = z
+        .getEntries()
+        .filter((e) => /word\/header\d*\.xml/.test(e.entryName))
+        .map((e) => z.readAsText(e.entryName))
+        .join('\n');
+      expect(hx).not.toContain('behindDoc="1"');
+    });
   });
 
   it('includes every BITS section heading (mirrors renderBitsHandout walk)', () => {

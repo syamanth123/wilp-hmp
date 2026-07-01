@@ -133,8 +133,41 @@ describe('renderBitsHandout — options', () => {
     // Assert the rendered DIV is omitted (the CSS rule itself contains the
     // class name, so look for the actual element).
     expect(html).not.toContain('<div class="bits-handout-header">');
-    expect(html).toContain('Automotive Diagnostics and Interfaces'); // Part A still present
-    expect(html).toContain('Part A — Course Identification');
+    expect(html).toContain('Automotive Diagnostics and Interfaces'); // Course Details still present
+    expect(html).toContain('1. Course Description'); // numbered sections still render
+  });
+
+  it('logoSrc renders the letterhead <img> inside the header; absent → no <img>', () => {
+    const withLogo = renderBitsHandout(fixture, { logoSrc: '/bits-header.png' });
+    expect(withLogo).toContain('<img class="bits-handout-logo" src="/bits-header.png"');
+    const without = renderBitsHandout(fixture);
+    expect(without).not.toContain('bits-handout-logo" src=');
+  });
+
+  it('HTML render carries NO watermark — branding lives in the PDF, not HTML', () => {
+    const html = renderBitsHandout(fixture, { cssScope: 'inline', logoSrc: '/bits-header.png' });
+    expect(html).not.toContain('watermark');
+    expect(html).not.toContain('::before');
+    expect(html).not.toContain('bits-handout-page'); // page wrapper removed with the watermark
+  });
+
+  it('emits the print stylesheet (@page A4)', () => {
+    const html = renderBitsHandout(fixture);
+    expect(html).toContain('@page { size: A4; margin: 1in; }');
+    expect(html).toContain('@media print');
+  });
+
+  it('footer carries the canonical WILP division line', () => {
+    const html = renderBitsHandout(fixture);
+    expect(html).toContain('BITS Pilani Work Integrated Learning Programmes Division');
+  });
+
+  it('logoSrc is ignored when the institutional header is omitted', () => {
+    const html = renderBitsHandout(fixture, {
+      omitInstitutionalHeader: true,
+      logoSrc: '/bits-header.png',
+    });
+    expect(html).not.toContain('<img class="bits-handout-logo"');
   });
 
   it('cssScope: "none" emits no <style> tag', () => {
@@ -163,17 +196,15 @@ describe('renderBitsHandout — graceful handling of optional / empty sections',
     const html = renderBitsHandout(h as BitsHandoutV1);
     expect(html).not.toContain('Experiential Learning');
     expect(html).toContain('Evaluation Scheme'); // following section still renders
-    expect(html).toContain('Part A');
+    expect(html).toContain('Course Description'); // earlier sections still render
   });
 
-  it('empty referenceBooks: heading renders with placeholder; no table body', () => {
+  it('empty referenceBooks: the Reference Material section is skipped entirely', () => {
     const h = clone();
     h.partA.referenceBooks = [];
     const html = renderBitsHandout(h);
-    expect(html).toContain('Reference Books');
-    expect(html).toContain('No reference books listed.');
-    const refSection = html.split('<h2>Reference Books</h2>')[1]!.split('<h2>')[0]!;
-    expect(refSection).not.toContain('<table>');
+    expect(html).not.toContain('Reference Material'); // skip-if-empty: no heading, no placeholder
+    expect(html).toContain('Text Books'); // the populated neighbour still renders
   });
 
   it('single-item subTopics: renders inline (no <ul>)', () => {
@@ -198,7 +229,7 @@ describe('renderBitsHandout — graceful handling of optional / empty sections',
     expect(html).toContain('Introduction to automotive diagnostics');
   });
 
-  it('experientialLearning present but all inner arrays empty: placeholder renders', () => {
+  it('experientialLearning present but all inner arrays empty: section is skipped', () => {
     const h = clone();
     h.experientialLearning!.components = [];
     h.experientialLearning!.experiments = [];
@@ -206,8 +237,82 @@ describe('renderBitsHandout — graceful handling of optional / empty sections',
     h.experientialLearning!.overallScope = [];
     h.experientialLearning!.overallObjective = '';
     const html = renderBitsHandout(h);
-    expect(html).toContain('Experiential Learning');
-    expect(html).toContain('No experiential components listed.');
+    expect(html).not.toContain('Experiential Learning'); // no content → no section/number
+  });
+});
+
+describe('renderBitsHandout — canonical numbered sections + Course Details (Prompt 24-follow-up)', () => {
+  it('Course Details table replaces the Part A identification table (no duplicate)', () => {
+    const html = renderBitsHandout(fixture);
+    expect(html).not.toContain('Part A — Course Identification');
+    expect(html).toContain('bits-handout-coursedetails');
+    expect(html).toContain('Instructor-in-Charge'); // first listed instructor by convention
+    expect(html).toContain('AE ZG631'); // course identity still present
+  });
+
+  it('renders the 10 canonical sections in contiguous numbered order (golden fixture)', () => {
+    const html = renderBitsHandout(fixture);
+    const order = [
+      '1. Course Description',
+      '2. Scope and Objectives',
+      '3. Learning Outcomes',
+      '4. Text Books',
+      '5. Reference Material',
+      '6. Course Plan',
+      '7. Experiential Learning',
+      '8. Evaluation Scheme',
+      '9. Important Notes &amp; Links',
+      '10. Evaluation Guidelines',
+    ];
+    let cursor = -1;
+    for (const heading of order) {
+      const at = html.indexOf(heading);
+      expect(at, `missing/out-of-order: ${heading}`).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+  });
+
+  it('skip-if-empty renumbers contiguously: removing Experiential collapses 7→ onward', () => {
+    const h = clone() as Record<string, unknown>;
+    delete h.experientialLearning;
+    const html = renderBitsHandout(h as BitsHandoutV1);
+    expect(html).not.toContain('Experiential Learning');
+    // Course Plan stays 6; Evaluation Scheme moves up to 7 (no gap), and there is
+    // no "8. Evaluation Scheme" left behind.
+    expect(html).toContain('6. Course Plan');
+    expect(html).toContain('7. Evaluation Scheme');
+    expect(html).not.toContain('8. Evaluation Scheme');
+  });
+
+  it('tables use fixed layout + per-table column widths (containment)', () => {
+    const html = renderBitsHandout(fixture);
+    expect(html).toContain('table-layout: fixed');
+    expect(html).toContain('overflow-wrap: break-word');
+    for (const cls of [
+      'bits-handout-coursedetails',
+      'bits-handout-coded',
+      'bits-handout-books',
+      'bits-handout-courseplan',
+      'bits-handout-evaluation',
+      'bits-handout-experiments',
+    ]) {
+      expect(html, `missing table class: ${cls}`).toContain(cls);
+    }
+    expect(html).toContain('.bits-handout-courseplan thead th:nth-child(2) { width: 34%; }');
+  });
+
+  it('a minimal handout (only required sections populated) numbers coherently', () => {
+    const h = clone();
+    h.partA.learningOutcomes = [];
+    h.partA.referenceBooks = [];
+    h.partA.courseObjectives = [];
+    delete (h as Record<string, unknown>).experientialLearning;
+    const html = renderBitsHandout(h);
+    expect(html).toContain('1. Course Description');
+    expect(html).toContain('2. Text Books'); // 2/3/4/5 collapsed away → Text Books is now 2
+    expect(html).not.toContain('Scope and Objectives');
+    expect(html).not.toContain('Learning Outcomes');
+    expect(html).not.toContain('Reference Material');
   });
 });
 

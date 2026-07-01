@@ -14,6 +14,10 @@ import {
   ImageRun,
   PageNumber,
   ShadingType,
+  HorizontalPositionRelativeFrom,
+  HorizontalPositionAlign,
+  VerticalPositionRelativeFrom,
+  VerticalPositionAlign,
 } from 'docx';
 import type { BitsHandoutV1 } from '@hmp/db';
 import { htmlToParagraphs } from './html-to-docx';
@@ -277,17 +281,45 @@ function importantNotes(
   return out;
 }
 
-function buildHeader(m: BitsHandoutV1['metadata'], logo: Buffer): Header {
+function buildHeader(m: BitsHandoutV1['metadata'], logo: Buffer, watermark?: Buffer): Header {
   const titleLine = (text: string, bold = false, size = 22) =>
     new Paragraph({
       alignment: AlignmentType.CENTER,
       children: [new TextRun({ text, bold, font: ARIAL, size })],
     });
+  // The watermark is a floating image anchored to the PAGE centre and placed
+  // BEHIND the text. Declared in the header, so it repeats on every page. The
+  // asset is pre-faded to 12% alpha (docx has no image-opacity), so no extra
+  // transparency handling is needed here.
+  const watermarkChildren = watermark
+    ? [
+        new ImageRun({
+          type: 'png',
+          data: watermark,
+          transformation: { width: 360, height: 180 },
+          floating: {
+            horizontalPosition: {
+              relative: HorizontalPositionRelativeFrom.PAGE,
+              align: HorizontalPositionAlign.CENTER,
+            },
+            verticalPosition: {
+              relative: VerticalPositionRelativeFrom.PAGE,
+              align: VerticalPositionAlign.CENTER,
+            },
+            behindDocument: true,
+            allowOverlap: true,
+          },
+        }),
+      ]
+    : [];
   return new Header({
     children: [
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new ImageRun({ type: 'png', data: logo, transformation: LOGO })],
+        children: [
+          ...watermarkChildren,
+          new ImageRun({ type: 'png', data: logo, transformation: LOGO }),
+        ],
       }),
       titleLine(m.institutionHeader, true, 24),
       titleLine(m.divisionHeader),
@@ -324,8 +356,14 @@ function buildFooter(m: BitsHandoutV1['metadata'], partA: BitsHandoutV1['partA']
  * Build a BITS-canonical Word document from structured handout data.
  * @param data parsed `BitsHandoutV1`
  * @param logo PNG bytes of the multi-campus BITS banner (read by the caller)
+ * @param watermark optional pre-faded (12% alpha) crest PNG — placed behind
+ *   text, page-centred, repeating per page via the header. Read by the caller.
  */
-export async function buildHandoutDocx(data: BitsHandoutV1, logo: Buffer): Promise<Buffer> {
+export async function buildHandoutDocx(
+  data: BitsHandoutV1,
+  logo: Buffer,
+  watermark?: Buffer,
+): Promise<Buffer> {
   const body: (Paragraph | Table)[] = [];
 
   // Part A
@@ -378,7 +416,7 @@ export async function buildHandoutDocx(data: BitsHandoutV1, logo: Buffer): Promi
             margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
           },
         },
-        headers: { default: buildHeader(data.metadata, logo) },
+        headers: { default: buildHeader(data.metadata, logo, watermark) },
         footers: { default: buildFooter(data.metadata, data.partA) },
         children: body,
       },

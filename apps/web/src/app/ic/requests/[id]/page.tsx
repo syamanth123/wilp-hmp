@@ -180,7 +180,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
           <CardContent className="space-y-4">
             <HandoutViewer
               html={resolveHandoutHtml(handout.currentVersion, {
-                omitInstitutionalHeader: true,
+                logoSrc: '/bits-header.png',
               })}
             />
             <VersionList handoutId={handout.id} />

@@ -26,7 +26,23 @@ export interface RenderOptions {
    * context; standalone exports leave it `false` for a complete document.
    */
   omitInstitutionalHeader?: boolean;
+  /**
+   * URL/href of the BITS letterhead logo to show at the top of the
+   * institutional header (Prompt 24-follow-up: canonical look in-app). In-app
+   * callers pass `/bits-header.png` (the multi-campus banner in `public/`);
+   * standalone consumers (the Mode B export ZIP) omit it so no broken `<img>`
+   * appears in a context where that URL won't resolve. Ignored when
+   * `omitInstitutionalHeader` is true.
+   */
+  logoSrc?: string;
 }
+
+// Watermark is intentionally NOT rendered in HTML. A faint per-page crest is a
+// property of the paginated PDF (Word/LibreOffice export), where it's
+// header-anchored and repeats per page. HTML in-app reading shows logo +
+// letterhead + content only; the branded paginated artifact is the Download →
+// PDF. (Earlier a tiled HTML watermark was tried and removed — HTML can't
+// paginate, so a per-page watermark in HTML was the wrong model.)
 
 // === Sanitization (applies to every rich-text field — see Prompt 11c
 // "two things to confirm" #1: same allowlist across all four fields).
@@ -100,15 +116,40 @@ function renderReferences(refs: readonly string[]): string {
 // pixel-perfect Word"). ~80 lines of focused structural styling. ===
 
 const CSS = `
-.bits-handout { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.4; color: #222; max-width: 920px; margin: 0 auto; padding: 16px; }
+.bits-handout { font-family: Arial, Helvetica, sans-serif; line-height: 1.4; color: #222; max-width: 920px; margin: 0 auto; padding: 16px; }
+.bits-handout .bits-handout-logo { display: block; margin: 0 auto 10px; max-height: 120px; max-width: 90%; height: auto; }
 .bits-handout h1 { font-size: 1.4em; text-align: center; margin: 0; font-weight: 600; }
 .bits-handout h2 { font-size: 1.15em; border-bottom: 1px solid #555; padding-bottom: 4px; margin-top: 22px; }
 .bits-handout h3 { font-size: 1.0em; margin-top: 14px; margin-bottom: 6px; }
 .bits-handout .bits-handout-header { text-align: center; margin-bottom: 18px; }
 .bits-handout .bits-handout-header > div { margin-top: 2px; }
-.bits-handout table { border-collapse: collapse; border: 1px solid #555; width: 100%; margin-top: 8px; font-size: 0.95em; }
-.bits-handout th, .bits-handout td { border: 1px solid #888; padding: 6px 10px; vertical-align: top; text-align: left; }
+.bits-handout table { border-collapse: collapse; border: 1px solid #555; width: 100%; margin-top: 8px; font-size: 0.95em; table-layout: fixed; }
+.bits-handout th, .bits-handout td { border: 1px solid #888; padding: 6px 8px; vertical-align: top; text-align: left; overflow-wrap: break-word; word-break: break-word; }
 .bits-handout th { background: #eee; font-weight: 600; }
+/* Per-table column widths (table-layout: fixed contains long cells within the
+   page width instead of widening the whole doc — Prompt 24-follow-up). */
+.bits-handout-coursedetails th { width: 28%; }
+.bits-handout-coded thead th:nth-child(1) { width: 12%; }
+.bits-handout-books thead th:nth-child(1) { width: 12%; }
+.bits-handout-courseplan thead th:nth-child(1) { width: 10%; }
+.bits-handout-courseplan thead th:nth-child(2) { width: 34%; }
+.bits-handout-courseplan thead th:nth-child(3) { width: 31%; }
+.bits-handout-courseplan thead th:nth-child(4) { width: 25%; }
+.bits-handout-evaluation thead th:nth-child(1) { width: 9%; }
+.bits-handout-evaluation thead th:nth-child(2) { width: 25%; }
+.bits-handout-evaluation thead th:nth-child(3) { width: 16%; }
+.bits-handout-evaluation thead th:nth-child(4) { width: 12%; }
+.bits-handout-evaluation thead th:nth-child(5) { width: 14%; }
+.bits-handout-evaluation thead th:nth-child(6) { width: 24%; }
+.bits-handout-experiments thead th:nth-child(1) { width: 8%; }
+.bits-handout-experiments thead th:nth-child(2) { width: 40%; }
+.bits-handout-experiments thead th:nth-child(3) { width: 52%; }
+.bits-handout-expcomponents thead th:nth-child(1) { width: 16%; }
+.bits-handout-expcomponents thead th:nth-child(2) { width: 22%; }
+.bits-handout-expcomponents thead th:nth-child(3) { width: 20%; }
+.bits-handout-expcomponents thead th:nth-child(4) { width: 16%; }
+.bits-handout-expcomponents thead th:nth-child(5) { width: 8%; }
+.bits-handout-expcomponents thead th:nth-child(6) { width: 18%; }
 .bits-handout .bits-handout-prose { margin: 6px 0; }
 .bits-handout .bits-handout-prose p { margin: 6px 0; }
 .bits-handout ul.bits-handout-subtopics { margin: 0; padding-left: 18px; }
@@ -119,82 +160,107 @@ const CSS = `
 .bits-handout .bits-handout-footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ccc; font-size: 0.85em; color: #555; text-align: center; }
 `.trim();
 
+/**
+ * Print rules (Prompt 24-follow-up): A4 + 1in margins, keep tables intact where
+ * they fit, repeat the letterhead per page, and lift the watermark slightly
+ * (browsers print backgrounds lighter). Goal: Ctrl-P from the Preview tab ≈ the
+ * Download → PDF output.
+ */
+const PRINT_CSS = `
+@page { size: A4; margin: 1in; }
+@media print {
+  .bits-handout { max-width: none; padding: 0; }
+  .bits-handout tr { page-break-inside: avoid; }
+}`.trim();
+
 // === Section renderers ===
 
-function renderHeader(m: BitsHandoutV1['metadata']): string {
+function renderHeader(m: BitsHandoutV1['metadata'], logoSrc?: string): string {
+  const logo = logoSrc
+    ? `<img class="bits-handout-logo" src="${esc(logoSrc)}" alt="Birla Institute of Technology & Science, Pilani">\n  `
+    : '';
   return `<div class="bits-handout-header">
-  <h1>${esc(m.institutionHeader)}</h1>
+  ${logo}<h1>${esc(m.institutionHeader)}</h1>
   <div>${esc(m.divisionHeader)}</div>
   <div>${esc(m.semester)}</div>
   <div><strong>${esc(m.documentTitle)}</strong></div>
 </div>`;
 }
 
-function renderPartA(partA: BitsHandoutV1['partA']): string {
+/** True if HTML has any visible text once tags/entities are stripped. Drives
+ * skip-if-empty so blank sections don't get a number/heading. */
+function hasText(html: string): boolean {
+  return (
+    html
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .trim().length > 0
+  );
+}
+
+/**
+ * Unnumbered Course Details table directly under the letterhead — replaces the
+ * old "Part A — Course Identification" table (Prompt 24-follow-up). The schema
+ * carries `instructors[]` only (no separate in-charge field); by BITS
+ * convention the FIRST listed instructor is the Instructor-in-Charge, so no
+ * schema change is needed.
+ */
+function renderCourseDetails(partA: BitsHandoutV1['partA'], m: BitsHandoutV1['metadata']): string {
   const cm = partA.creditModel;
-  const hourBreakdown =
+  const hours =
     cm.classroomHours != null || cm.tutorialHours != null || cm.preparationHours != null
       ? ` (Classroom ${cm.classroomHours ?? 0}h · Tutorial ${cm.tutorialHours ?? 0}h · Preparation ${cm.preparationHours ?? 0}h)`
       : '';
-  const out: string[] = [];
-  out.push('<h2>Part A — Course Identification</h2>');
-  out.push('<table><tbody>');
-  out.push(`<tr><th>Course Title</th><td>${esc(partA.courseTitle)}</td></tr>`);
-  out.push(`<tr><th>Course No(s)</th><td>${partA.courseNumbers.map(esc).join(' / ')}</td></tr>`);
-  if (partA.creditUnits != null) {
-    out.push(`<tr><th>Credit Units</th><td>${partA.creditUnits}</td></tr>`);
+  const rows: Array<[string, string]> = [
+    ['Course No(s)', partA.courseNumbers.map(esc).join(' / ')],
+    ['Course Title', esc(partA.courseTitle)],
+  ];
+  if (partA.creditUnits != null) rows.push(['Credit Units', String(partA.creditUnits)]);
+  rows.push(['Credit Model', `${esc(cm.description)}${esc(hours)}`]);
+  if (partA.instructors.length > 0) {
+    rows.push(['Instructor-in-Charge', esc(partA.instructors[0]!)]);
+    if (partA.instructors.length > 1) {
+      rows.push(['Instructor(s)', partA.instructors.map(esc).join(', ')]);
+    }
   }
-  out.push(`<tr><th>Credit Model</th><td>${esc(cm.description)}${esc(hourBreakdown)}</td></tr>`);
-  out.push(`<tr><th>Instructors</th><td>${partA.instructors.map(esc).join(', ')}</td></tr>`);
-  if (partA.versionNo != null) {
-    out.push(`<tr><th>Version No</th><td>${partA.versionNo}</td></tr>`);
-  }
-  out.push(`<tr><th>Date</th><td>${esc(partA.date)}</td></tr>`);
-  out.push('</tbody></table>');
-  out.push('<h3>Course Description</h3>');
-  out.push(`<div class="bits-handout-prose">${sanitize(partA.courseDescription)}</div>`);
-  if (partA.laboratoryComponent) {
+  rows.push(['Semester', esc(m.semester)]);
+  if (partA.versionNo != null) rows.push(['Version No', String(partA.versionNo)]);
+  if (partA.date) rows.push(['Date', esc(partA.date)]);
+  const body = rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
+  return `<table class="bits-handout-coursedetails"><tbody>${body}</tbody></table>`;
+}
+
+/** Course Description + optional Laboratory Component (section 1 body). */
+function courseDescriptionBody(partA: BitsHandoutV1['partA']): string {
+  const out = [`<div class="bits-handout-prose">${sanitize(partA.courseDescription)}</div>`];
+  if (partA.laboratoryComponent && hasText(partA.laboratoryComponent)) {
     out.push('<h3>Laboratory Component</h3>');
     out.push(`<div class="bits-handout-prose">${sanitize(partA.laboratoryComponent)}</div>`);
   }
-  out.push(renderCodedTable('Course Objectives', 'CO', partA.courseObjectives, 'Description'));
-  out.push(renderCodedTable('Text Books', 'Code', partA.textBooks, 'Citation'));
-  out.push(
-    renderCodedTable(
-      'Reference Books',
-      'Code',
-      partA.referenceBooks,
-      'Citation',
-      'No reference books listed.',
-    ),
-  );
-  out.push(renderCodedTable('Learning Outcomes', 'LO', partA.learningOutcomes, 'Description'));
   return out.join('\n');
 }
 
-function renderCodedTable(
-  title: string,
+/** Body-only coded table (CO / LO / Text / Reference). The numbered `<h2>` is
+ * added by the assembly; callers gate on `rows.length` for skip-if-empty. */
+function codedTableBody(
   codeLabel: string,
-  rows: ReadonlyArray<{ code: string; description?: string; citation?: string }>,
   rightLabel: string,
-  emptyMessage?: string,
+  rows: ReadonlyArray<{ code: string; description?: string; citation?: string }>,
+  cls: string,
 ): string {
-  if (rows.length === 0) {
-    return `<h2>${esc(title)}</h2><p class="bits-handout-empty">${esc(emptyMessage ?? 'None listed.')}</p>`;
-  }
   const body = rows
     .map(
       (r) => `<tr><td>${esc(r.code)}</td><td>${esc(r.description ?? r.citation ?? '')}</td></tr>`,
     )
     .join('');
-  return `<h2>${esc(title)}</h2>
-<table>
+  return `<table class="${cls}">
   <thead><tr><th>${esc(codeLabel)}</th><th>${esc(rightLabel)}</th></tr></thead>
   <tbody>${body}</tbody>
 </table>`;
 }
 
-function renderPartB(sessions: BitsHandoutV1['partB']['sessions']): string {
+/** Body-only Course Plan table (the numbered `<h2>` is added by the assembly). */
+function partBBody(sessions: BitsHandoutV1['partB']['sessions']): string {
   const rows = sessions
     .map(
       (s) =>
@@ -203,15 +269,27 @@ function renderPartB(sessions: BitsHandoutV1['partB']['sessions']): string {
         )}</td><td>${renderReferences(s.references)}</td></tr>`,
     )
     .join('');
-  return `<h2>Part B — Learning Plan</h2>
-<table>
+  return `<table class="bits-handout-courseplan">
   <thead><tr><th>Session</th><th>Topic</th><th>Sub-topics</th><th>References</th></tr></thead>
   <tbody>${rows}</tbody>
 </table>`;
 }
 
-function renderExperiential(el: NonNullable<BitsHandoutV1['experientialLearning']>): string {
-  const parts: string[] = ['<h2>Experiential Learning</h2>'];
+/** True if an experientialLearning object carries any content worth a section. */
+function experientialHasContent(el: NonNullable<BitsHandoutV1['experientialLearning']>): boolean {
+  return (
+    hasText(el.overallObjective) ||
+    el.overallScope.length > 0 ||
+    el.components.length > 0 ||
+    el.labInfrastructure.length > 0 ||
+    el.experiments.length > 0
+  );
+}
+
+/** Body-only Experiential Learning (the numbered `<h2>` is added by the
+ * assembly; only called when `experientialHasContent` is true). */
+function experientialBody(el: NonNullable<BitsHandoutV1['experientialLearning']>): string {
+  const parts: string[] = [];
   if (el.overallObjective.trim()) {
     parts.push('<h3>Objective</h3>');
     parts.push(`<div class="bits-handout-prose">${sanitize(el.overallObjective)}</div>`);
@@ -232,7 +310,7 @@ function renderExperiential(el: NonNullable<BitsHandoutV1['experientialLearning'
           )}</td><td>${esc(c.numberOfExercises)}</td><td>${esc(c.scope)}</td></tr>`,
       )
       .join('');
-    parts.push(`<table>
+    parts.push(`<table class="bits-handout-expcomponents">
   <thead><tr><th>Name</th><th>Objective</th><th>Outcome</th><th>Lab Infrastructure</th><th># Exercises</th><th>Scope</th></tr></thead>
   <tbody>${cRows}</tbody>
 </table>`);
@@ -251,26 +329,19 @@ function renderExperiential(el: NonNullable<BitsHandoutV1['experientialLearning'
           `<tr><td>${esc(e.experimentNumber)}</td><td>${esc(e.title)}</td><td>${esc(e.moduleReference)}</td></tr>`,
       )
       .join('');
-    parts.push(`<table>
+    parts.push(`<table class="bits-handout-experiments">
   <thead><tr><th>#</th><th>Title</th><th>Module Reference</th></tr></thead>
   <tbody>${eRows}</tbody>
 </table>`);
   }
-  if (parts.length === 1) {
-    // Section header only — everything was empty. Preserve structural rhythm
-    // with a placeholder rather than an orphan heading.
-    parts.push('<p class="bits-handout-empty">No experiential components listed.</p>');
-  }
   return parts.join('\n');
 }
 
-function renderEvaluation(ev: BitsHandoutV1['evaluation']): string {
-  const out: string[] = ['<h2>Evaluation Scheme</h2>'];
+/** Body-only Evaluation Scheme (the numbered `<h2>` is added by the assembly;
+ * only called when components is non-empty). */
+function evaluationBody(ev: BitsHandoutV1['evaluation']): string {
+  const out: string[] = [];
   if (ev.legend) out.push(`<p><em>${esc(ev.legend)}</em></p>`);
-  if (ev.components.length === 0) {
-    out.push('<p class="bits-handout-empty">No evaluation components listed.</p>');
-    return out.join('\n');
-  }
   const flat = ev.components.flatMap((c) =>
     c.subComponents.length === 0
       ? [{ ec: c.ecNumber, name: '—', type: '—', weight: 0, duration: '—', scheduledAt: '—' }]
@@ -291,18 +362,20 @@ function renderEvaluation(ev: BitsHandoutV1['evaluation']): string {
         )}</td><td>${esc(r.scheduledAt)}</td></tr>`,
     )
     .join('');
-  out.push(`<table>
+  out.push(`<table class="bits-handout-evaluation">
   <thead><tr><th>EC</th><th>Name</th><th>Type</th><th>Weight</th><th>Duration</th><th>Scheduled</th></tr></thead>
   <tbody>${rows}</tbody>
 </table>`);
   return out.join('\n');
 }
 
-function renderImportantNotes(
+/** Body-only Important Notes & Links (the numbered `<h2>` is added by the
+ * assembly). Always carries at least the eLearn portal link. */
+function importantNotesBody(
   ev: BitsHandoutV1['evaluation'],
   links: BitsHandoutV1['importantLinks'],
 ): string {
-  const parts: string[] = ['<h2>Important Notes</h2>'];
+  const parts: string[] = [];
   if (ev.midSemSyllabus) {
     parts.push('<h3>Syllabus for Mid-Semester Test</h3>');
     parts.push(`<div class="bits-handout-prose">${sanitize(ev.midSemSyllabus)}</div>`);
@@ -333,7 +406,8 @@ function renderFooter(m: BitsHandoutV1['metadata'], partA: BitsHandoutV1['partA'
   segs.push(esc(m.semester));
   if (partA.versionNo != null) segs.push(`Version ${partA.versionNo}`);
   if (partA.date) segs.push(esc(partA.date));
-  return `<div class="bits-handout-footer">${segs.join(' · ')}</div>`;
+  // Canonical footer line + the per-handout metadata line beneath it.
+  return `<div class="bits-handout-footer"><div><strong>BITS Pilani Work Integrated Learning Programmes Division</strong></div><div>${segs.join(' · ')}</div></div>`;
 }
 
 /**
@@ -348,18 +422,61 @@ function renderFooter(m: BitsHandoutV1['metadata'], partA: BitsHandoutV1['partA'
 export function renderBitsHandout(data: BitsHandoutV1, options?: RenderOptions): string {
   const cssScope = options?.cssScope ?? 'inline';
   const omitHeader = options?.omitInstitutionalHeader ?? false;
+  const { partA, partB, evaluation, importantLinks, experientialLearning, metadata } = data;
   const parts: string[] = [];
-  if (cssScope === 'inline') parts.push(`<style>${CSS}</style>`);
+  if (cssScope === 'inline') parts.push(`<style>${CSS}\n${PRINT_CSS}</style>`);
   parts.push('<div class="bits-handout">');
-  if (!omitHeader) parts.push(renderHeader(data.metadata));
-  parts.push(renderPartA(data.partA));
-  parts.push(renderPartB(data.partB.sessions));
-  if (data.experientialLearning) parts.push(renderExperiential(data.experientialLearning));
-  parts.push(renderEvaluation(data.evaluation));
-  parts.push(renderImportantNotes(data.evaluation, data.importantLinks));
-  parts.push('<h2>Evaluation Guidelines</h2>');
-  parts.push(`<div class="bits-handout-prose">${sanitize(data.evaluationGuidelines)}</div>`);
-  parts.push(renderFooter(data.metadata, data.partA));
+  if (!omitHeader) parts.push(renderHeader(metadata, options?.logoSrc));
+
+  // Unnumbered Course Details table under the letterhead.
+  parts.push(renderCourseDetails(partA, metadata));
+
+  // Numbered canonical sections. A section is emitted ONLY if it has content;
+  // the counter increments per emitted section, so numbering is always
+  // contiguous (skip-if-empty never leaves a gap like "7." with nothing after).
+  let n = 0;
+  const section = (title: string, body: string) => {
+    n += 1;
+    parts.push(`<h2>${n}. ${esc(title)}</h2>\n${body}`);
+  };
+
+  const guidelines = sanitize(data.evaluationGuidelines);
+  const notes = importantNotesBody(evaluation, importantLinks);
+
+  if (
+    hasText(partA.courseDescription) ||
+    (partA.laboratoryComponent && hasText(partA.laboratoryComponent))
+  )
+    section('Course Description', courseDescriptionBody(partA));
+  if (partA.courseObjectives.length)
+    section(
+      'Scope and Objectives',
+      codedTableBody('CO', 'Description', partA.courseObjectives, 'bits-handout-coded'),
+    );
+  if (partA.learningOutcomes.length)
+    section(
+      'Learning Outcomes',
+      codedTableBody('LO', 'Description', partA.learningOutcomes, 'bits-handout-coded'),
+    );
+  if (partA.textBooks.length)
+    section(
+      'Text Books',
+      codedTableBody('Code', 'Citation', partA.textBooks, 'bits-handout-books'),
+    );
+  if (partA.referenceBooks.length)
+    section(
+      'Reference Material',
+      codedTableBody('Code', 'Citation', partA.referenceBooks, 'bits-handout-books'),
+    );
+  if (partB.sessions.length) section('Course Plan', partBBody(partB.sessions));
+  if (experientialLearning && experientialHasContent(experientialLearning))
+    section('Experiential Learning', experientialBody(experientialLearning));
+  if (evaluation.components.length) section('Evaluation Scheme', evaluationBody(evaluation));
+  if (hasText(notes)) section('Important Notes & Links', notes);
+  if (hasText(guidelines))
+    section('Evaluation Guidelines', `<div class="bits-handout-prose">${guidelines}</div>`);
+
+  parts.push(renderFooter(metadata, partA));
   parts.push('</div>');
   return parts.join('\n');
 }

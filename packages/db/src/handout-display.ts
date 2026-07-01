@@ -18,9 +18,10 @@ import { renderBitsHandout, type RenderOptions } from './handout-renderer';
  * importable function from anywhere.
  *
  * Default options match the standalone-document case (institutional header
- * included, inline CSS). In-app callers explicitly pass
- * `{ omitInstitutionalHeader: true }` because the app layout already shows
- * the request header.
+ * included, inline CSS). In-app callers pass `{ logoSrc: '/bits-header.png' }`
+ * so every role's Handout card shows the BITS letterhead (logo + institution
+ * + division + document title) inline — the canonical look lives with the
+ * content, not just the app chrome around it.
  */
 export function resolveHandoutHtml(
   version: { data: unknown; contentHtml: string | null },
