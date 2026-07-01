@@ -27,6 +27,7 @@ export { normalizeBitsCourseNumber, bitsCourseNumberSchema, getDiscipline } from
 export { renderBitsHandout, type RenderOptions } from './handout-renderer';
 export { resolveHandoutHtml } from './handout-display';
 export { makeRowId, backfillRowIds } from './handout-row-ids';
+export { ordinalCode, type OrdinalPrefix } from './handout-ordinals';
 export {
   BITS_RICH_TEXT_ALLOWED_TAGS,
   BITS_RICH_TEXT_ALLOWED_ATTR,

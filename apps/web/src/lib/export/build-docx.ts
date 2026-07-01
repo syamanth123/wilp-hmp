@@ -20,6 +20,7 @@ import {
   VerticalPositionAlign,
 } from 'docx';
 import type { BitsHandoutV1 } from '@hmp/db';
+import { ordinalCode, type OrdinalPrefix } from '@hmp/db';
 import { htmlToParagraphs } from './html-to-docx';
 
 /**
@@ -140,7 +141,8 @@ function codedTable(
   title: string,
   leftLabel: string,
   rightLabel: string,
-  rows: ReadonlyArray<{ code: string; description?: string; citation?: string }>,
+  rows: ReadonlyArray<{ description?: string; citation?: string }>,
+  codePrefix: OrdinalPrefix,
   emptyMessage?: string,
 ): (Paragraph | Table)[] {
   if (rows.length === 0) return [heading(title), emptyNote(emptyMessage ?? 'None listed.')];
@@ -148,7 +150,9 @@ function codedTable(
     heading(title),
     gridTable(
       [leftLabel, rightLabel],
-      rows.map((r) => [r.code, r.description ?? r.citation ?? '']),
+      // Codes are DERIVED FROM POSITION (shared ordinalCode), not read from the
+      // stored `code` — so preview and export always agree. See @hmp/db.
+      rows.map((r, i) => [ordinalCode(codePrefix, i), r.description ?? r.citation ?? '']),
     ),
   ];
 }
@@ -377,18 +381,23 @@ export async function buildHandoutDocx(
       ...htmlToParagraphs(data.partA.laboratoryComponent),
     );
   }
-  body.push(...codedTable('Course Objectives', 'CO', 'Description', data.partA.courseObjectives));
-  body.push(...codedTable('Text Books', 'Code', 'Citation', data.partA.textBooks));
+  body.push(
+    ...codedTable('Course Objectives', 'CO', 'Description', data.partA.courseObjectives, 'CO'),
+  );
+  body.push(...codedTable('Text Books', 'Code', 'Citation', data.partA.textBooks, 'T'));
   body.push(
     ...codedTable(
       'Reference Books',
       'Code',
       'Citation',
       data.partA.referenceBooks,
+      'R',
       'No reference books listed.',
     ),
   );
-  body.push(...codedTable('Learning Outcomes', 'LO', 'Description', data.partA.learningOutcomes));
+  body.push(
+    ...codedTable('Learning Outcomes', 'LO', 'Description', data.partA.learningOutcomes, 'LO'),
+  );
 
   // Part B
   body.push(...partBSection(data.partB.sessions));

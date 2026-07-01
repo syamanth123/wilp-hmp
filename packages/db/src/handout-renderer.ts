@@ -1,5 +1,6 @@
 import sanitizeHtml from 'sanitize-html';
 import type { BitsHandoutV1 } from './handout-schema';
+import { ordinalCode, type OrdinalPrefix } from './handout-ordinals';
 import {
   BITS_RICH_TEXT_ALLOWED_TAGS,
   BITS_RICH_TEXT_ALLOWED_ATTR,
@@ -245,12 +246,14 @@ function courseDescriptionBody(partA: BitsHandoutV1['partA']): string {
 function codedTableBody(
   codeLabel: string,
   rightLabel: string,
-  rows: ReadonlyArray<{ code: string; description?: string; citation?: string }>,
+  rows: ReadonlyArray<{ description?: string; citation?: string }>,
   cls: string,
+  codePrefix: OrdinalPrefix,
 ): string {
   const body = rows
     .map(
-      (r) => `<tr><td>${esc(r.code)}</td><td>${esc(r.description ?? r.citation ?? '')}</td></tr>`,
+      (r, i) =>
+        `<tr><td>${esc(ordinalCode(codePrefix, i))}</td><td>${esc(r.description ?? r.citation ?? '')}</td></tr>`,
     )
     .join('');
   return `<table class="${cls}">
@@ -451,22 +454,22 @@ export function renderBitsHandout(data: BitsHandoutV1, options?: RenderOptions):
   if (partA.courseObjectives.length)
     section(
       'Scope and Objectives',
-      codedTableBody('CO', 'Description', partA.courseObjectives, 'bits-handout-coded'),
+      codedTableBody('CO', 'Description', partA.courseObjectives, 'bits-handout-coded', 'CO'),
     );
   if (partA.learningOutcomes.length)
     section(
       'Learning Outcomes',
-      codedTableBody('LO', 'Description', partA.learningOutcomes, 'bits-handout-coded'),
+      codedTableBody('LO', 'Description', partA.learningOutcomes, 'bits-handout-coded', 'LO'),
     );
   if (partA.textBooks.length)
     section(
       'Text Books',
-      codedTableBody('Code', 'Citation', partA.textBooks, 'bits-handout-books'),
+      codedTableBody('Code', 'Citation', partA.textBooks, 'bits-handout-books', 'T'),
     );
   if (partA.referenceBooks.length)
     section(
       'Reference Material',
-      codedTableBody('Code', 'Citation', partA.referenceBooks, 'bits-handout-books'),
+      codedTableBody('Code', 'Citation', partA.referenceBooks, 'bits-handout-books', 'R'),
     );
   if (partB.sessions.length) section('Course Plan', partBBody(partB.sessions));
   if (experientialLearning && experientialHasContent(experientialLearning))
