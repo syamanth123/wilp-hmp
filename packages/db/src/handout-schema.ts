@@ -23,20 +23,39 @@ import { z } from 'zod';
 
 export const LATEST_SCHEMA_VERSION = 1 as const;
 
+// Opaque, stable per-row identifier for every REPEATABLE entity. The structured
+// editor's drag-to-reorder needs a stable id per draggable (@dnd-kit): the array
+// index changes the instant two rows swap, which makes the dragged item flicker
+// / jump back mid-drag. A code like "CO1"/"EC-1" can't serve as the id either —
+// those are position-derived display ordinals (they renumber on reorder), and a
+// mutating id is exactly what @dnd-kit forbids.
+//
+// OPTIONAL on purpose: pre-existing `HandoutVersion.data` blobs have no ids, and
+// they must still parse. Adding an optional field is additive / backward-
+// compatible, so this stays schema V1 (no discriminant bump — the "never
+// silently upgrade" rule is about BREAKING shape changes). Ids are minted lazily
+// by the editor on write-mode mount via `backfillRowIds` and persisted on the
+// next save; the renderer ignores `id` entirely, so read paths need nothing.
+const rowId = z.string().optional();
+
 // --- Part A leaf schemas (coded list items) ---
 const courseObjective = z.object({
+  id: rowId,
   code: z.string().regex(/^CO\d+$/),
   description: z.string(),
 });
 const textBook = z.object({
+  id: rowId,
   code: z.string().regex(/^T\d+$/),
   citation: z.string(),
 });
 const referenceBook = z.object({
+  id: rowId,
   code: z.string().regex(/^R\d+$/),
   citation: z.string(),
 });
 const learningOutcome = z.object({
+  id: rowId,
   code: z.string().regex(/^LO\d+$/),
   description: z.string(),
 });
@@ -91,6 +110,7 @@ const partA = z.object({
 
 // --- Part B (session plan) ---
 const session = z.object({
+  id: rowId,
   // String, not number — Part B combines contact sessions into RANGES
   // ("5-6", "7-8", "12-13" in AEL ZG631). A number can't hold a range, and
   // splitting "5-6" into rows 5 and 6 would fabricate sessions the source does
@@ -111,6 +131,7 @@ const partB = z.object({
 
 // --- Experiential learning ---
 const experientialComponent = z.object({
+  id: rowId,
   name: z.string(),
   objective: z.string(),
   outcome: z.string(),
@@ -119,6 +140,7 @@ const experientialComponent = z.object({
   scope: z.string(),
 });
 const experiment = z.object({
+  id: rowId,
   experimentNumber: z.string(), // string — sample has "6.", "8." (trailing periods)
   title: z.string(),
   moduleReference: z.string(),
@@ -133,6 +155,7 @@ const experientialLearning = z.object({
 
 // --- Evaluation scheme ---
 const evaluationSubComponent = z.object({
+  id: rowId,
   name: z.string(),
   type: z.string(),
   weight: z.number().min(0).max(100),
@@ -140,6 +163,7 @@ const evaluationSubComponent = z.object({
   scheduledAt: z.string().optional(),
 });
 const evaluationComponent = z.object({
+  id: rowId,
   ecNumber: z.string(), // e.g. "EC-1"
   subComponents: z.array(evaluationSubComponent),
 });
