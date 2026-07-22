@@ -57,6 +57,8 @@ cd /home/ubuntu/wilp-hmp
 ./deploy/deploy.sh
 ```
 
+> **Before the first production run:** run `shellcheck deploy/deploy.sh` on the EC2 instance (`sudo apt install shellcheck` if absent). It surfaces quoting bugs and shell pitfalls that `bash -n` misses — cheap insurance on a script that runs `git reset --hard` + `prisma migrate deploy`. If it flags anything genuinely wrong, fix it in a follow-up commit **before** running the deploy — don't run past shellcheck errors on faith.
+
 It is **idempotent**, **fails fast** (`set -euo pipefail`), and writes a full timestamped log to `/home/ubuntu/logs/deploy-<ts>.log`. Each major step is prefixed `==> [HH:MM:SS]`, and it ends with a single **`DEPLOY SUCCESSFUL`** or **`DEPLOY FAILED at step: <name>`** line so a non-developer can read the outcome.
 
 **What it does:** preconditions (user, repo, `.env.production` keys present, `node`/`pnpm`/`pm2`/`soffice` on PATH, Node ≥ 20.6) → `git fetch` + `reset --hard origin/main` (prints old→new SHA) → `pnpm install --frozen-lockfile` → `prisma generate` → `prisma migrate deploy` → `pnpm build` → `pm2 reload … --update-env` → verifies **both** `hmp-web` and `hmp-worker` are `online` → web health check (`/api/health`, falling back to `/` since that route doesn't exist yet — a 404 on `/api/health` is expected) → worker health (online ≥ 30 s + no Redis/Postgres connection errors in its log) → scans recent logs for `ERROR`/`FATAL`.

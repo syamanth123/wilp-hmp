@@ -193,6 +193,9 @@ else
 fi
 
 step "Reload PM2 (graceful, --update-env)"
+# Surface the deployed commit to GET /api/health (ecosystem.config.cjs reads it).
+export GIT_SHA="$(git rev-parse --short HEAD)"
+info "GIT_SHA=${GIT_SHA}"
 pm2 reload "${ECOSYSTEM}" --update-env
 
 # ── Process status ───────────────────────────────────────────────────────────

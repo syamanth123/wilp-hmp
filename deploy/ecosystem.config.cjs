@@ -48,6 +48,9 @@ module.exports = {
       time: true, // timestamp each log line (ops readability)
       env: {
         NODE_ENV: 'production',
+        // Surfaced by GET /api/health as `version`. deploy.sh exports this
+        // before `pm2 reload --update-env`; 'unknown' if started by hand.
+        GIT_SHA: process.env.GIT_SHA || 'unknown',
         // DATABASE_URL, REDIS_URL, NEXTAUTH_*, APP_BASE_URL, SMTP_*, S3_REGION,
         // bucket names, etc. come from apps/web/.env.production (Next auto-loads).
       },
