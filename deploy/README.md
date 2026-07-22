@@ -1,0 +1,57 @@
+# HMP production deploy (single EC2 host)
+
+Reference layout: **t3a.medium / Ubuntu**, **RDS PostgreSQL 16**, **S3** (two buckets or one), local or ElastiCache **Redis**, **LibreOffice** for PDF export, **Nginx** + **PM2**. Deploy path assumed `/opt/hmp` (adjust in `ecosystem.config.cjs` + `nginx.conf`).
+
+## Host prerequisites
+
+```bash
+# Node 20+ (24 recommended — the worker uses node --env-file), pnpm, pm2
+sudo apt-get update
+sudo apt-get install -y libreoffice nginx        # LibreOffice = PDF export; else /export/pdf 503s
+npm i -g pnpm pm2
+```
+
+- **EC2 instance role** attached, granting the S3 policy documented above `getS3Client` in `packages/integrations/src/storage.ts` (Get/Put on both buckets, Delete+PutObjectTagging on attachments, ListBucket for the HeadBucket probe). **No static S3 keys** — the app uses the instance role via the SDK default chain.
+- Both S3 buckets **pre-created** (CreateBucket is not granted). `S3_ENDPOINT` stays **unset** (it's MinIO-only).
+
+## One-time setup
+
+```bash
+cd /opt/hmp
+pnpm install                                   # include devDependencies — the worker runs via tsx
+cp apps/web/.env.production.template apps/web/.env.production
+#   → fill every <PLACEHOLDER>. Leave S3_ACCESS_KEY / S3_SECRET_KEY EMPTY (instance role).
+#   → generate NEXTAUTH_SECRET (openssl rand -base64 32) and the admin bcrypt hash.
+
+pnpm --filter @hmp/web build
+
+# Migrations — reproduces schema.prisma exactly (verified via fresh-DB replay).
+DATABASE_URL="<same as .env.production>" pnpm --filter @hmp/db exec prisma migrate deploy
+
+# Production seed — RBAC/templates/config + ONE admin from env. NOT the dev seed.
+ADMIN_EMAIL="<...>" ADMIN_INITIAL_PASSWORD_HASH="<bcrypt>" \
+  NODE_ENV=production pnpm --filter @hmp/db db:seed:prod
+```
+
+> The dev seed (`db:seed`) refuses to run when `NODE_ENV=production` — it creates demo users with a default password. Always use `db:seed:prod` on the server.
+
+## Start services
+
+```bash
+pm2 start /opt/hmp/deploy/ecosystem.config.cjs   # hmp-web (:3000) + hmp-worker
+pm2 save                                        # persist across reboots
+pm2 startup                                      # generate the systemd unit (follow its output)
+
+sudo cp /opt/hmp/deploy/nginx.conf /etc/nginx/sites-available/hmp
+sudo ln -s /etc/nginx/sites-available/hmp /etc/nginx/sites-enabled/hmp
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d your-domain            # TLS (or skip for bare-IP http testing)
+```
+
+## Notes / gotchas
+
+- **Worker env:** the worker is TypeScript run via `tsx`; it does **not** load `.env` itself (dotenv isn't a dependency). `ecosystem.config.cjs` uses `node --env-file=apps/web/.env.production` so it reads the same file as the web app. This is why `pnpm install` must include devDependencies (for `tsx`).
+- **WORKERS_ENABLED=true** is set for both processes' behaviour: the web app _enqueues_ jobs to Redis, and `hmp-worker` _consumes_ them. Without the worker running, notifications/AI jobs never process (the web app falls back to inline synchronous execution only if `WORKERS_ENABLED` is unset).
+- **Capacity (t3a.medium, 4 GB):** web + worker + LibreOffice is tight. Watch memory under concurrent PDF exports; if pressured, move Redis to ElastiCache or split the worker to a second host.
+- **Security headers** (HSTS, CSP nonce, etc.) come from the Next app/middleware — Nginx forwards them and must **not** re-add CSP (it would break the per-request nonce).
+- **`X-Forwarded-Proto`** is set in `nginx.conf` — required for NextAuth's `trustHost` + secure cookies behind TLS termination.
