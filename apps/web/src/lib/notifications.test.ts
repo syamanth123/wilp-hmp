@@ -1,11 +1,48 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { SME_APPROVAL_TEMPLATES, PUBLISH_NOTIFICATION_TEMPLATES } from '@hmp/db';
 import {
   renderTemplate,
   EVENT_TEMPLATE_KEY,
   publishNotificationTokens,
+  absoluteEmailLink,
   type PublishTokenArgs,
 } from './notifications';
+
+describe('absoluteEmailLink (email links must be absolute + clickable)', () => {
+  const { APP_BASE_URL, NEXTAUTH_URL } = process.env;
+  afterEach(() => {
+    process.env.APP_BASE_URL = APP_BASE_URL;
+    process.env.NEXTAUTH_URL = NEXTAUTH_URL;
+  });
+
+  it('prefixes APP_BASE_URL when set', () => {
+    process.env.APP_BASE_URL = 'https://hmp.bits.example';
+    delete process.env.NEXTAUTH_URL;
+    expect(absoluteEmailLink('/pc/requests/abc')).toBe('https://hmp.bits.example/pc/requests/abc');
+  });
+
+  it('falls back to NEXTAUTH_URL when APP_BASE_URL is unset', () => {
+    delete process.env.APP_BASE_URL;
+    process.env.NEXTAUTH_URL = 'https://auth.example';
+    expect(absoluteEmailLink('/ic/requests/xyz')).toBe('https://auth.example/ic/requests/xyz');
+  });
+
+  it('strips a trailing slash on the base and never doubles the join', () => {
+    process.env.APP_BASE_URL = 'https://hmp.example/';
+    expect(absoluteEmailLink('/notifications')).toBe('https://hmp.example/notifications');
+  });
+
+  it('leaves an already-absolute link untouched', () => {
+    process.env.APP_BASE_URL = 'https://hmp.example';
+    expect(absoluteEmailLink('https://other.example/x')).toBe('https://other.example/x');
+  });
+
+  it('returns the relative link unchanged when no base is configured (dev)', () => {
+    delete process.env.APP_BASE_URL;
+    delete process.env.NEXTAUTH_URL;
+    expect(absoluteEmailLink('/pc/requests/abc')).toBe('/pc/requests/abc');
+  });
+});
 
 describe('renderTemplate', () => {
   it('substitutes simple tokens', () => {

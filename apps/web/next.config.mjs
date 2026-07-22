@@ -3,7 +3,10 @@ const nextConfig = {
   reactStrictMode: true,
   eslint: { ignoreDuringBuilds: true },
   experimental: {
-    serverActions: { bodySizeLimit: '5mb' },
+    // 10mb: headroom above the 8mb CORPUS_IMPORT_MAX_BYTES (corpus import runs
+    // through a server action) and matched to the nginx client_max_body_size in
+    // the deploy config so the proxy and app agree on the ceiling.
+    serverActions: { bodySizeLimit: '10mb' },
   },
   transpilePackages: ['@hmp/db', '@hmp/auth', '@hmp/ui', '@hmp/workflow'],
   // Static security headers applied to ALL routes incl. /api (Prompt 20). CSP is

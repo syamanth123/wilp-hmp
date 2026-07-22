@@ -13,9 +13,10 @@
  *
  * NOTE: `{{link}}` is intentionally NOT used in any body. `deliver()` appends a
  * per-recipient "Open in HMP" anchor to every email and stores the link column
- * for in-portal, so a body link token would be redundant — and would render a
- * non-clickable relative path (linkFor returns `/pc/requests/ID`, not an
- * absolute URL). See docs/dev-handoff-audit.md §5 (relative-link known gap).
+ * for in-portal, so a body link token would be redundant. The email anchor is
+ * absolutized via `absoluteEmailLink()` (APP_BASE_URL / NEXTAUTH_URL prefix), so
+ * it's clickable in a mail client; the stored in-portal link stays relative
+ * (same-origin). See docs/dev-handoff-audit.md (relative-link gap — resolved).
  */
 export interface NotificationTemplateSeed {
   key: string;

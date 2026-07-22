@@ -342,6 +342,22 @@ function linkFor(role: RoleName, requestId: string): string {
   return (LINK_PREFIX_BY_ROLE[role] ?? ((id: string) => `/ic/requests/${id}`))(requestId);
 }
 
+/**
+ * Absolute URL for links embedded in EMAIL. `linkFor` returns a relative path
+ * (`/pc/requests/ID`) which resolves fine for the in-portal channel but is NOT
+ * clickable in a mail client. Prefer `APP_BASE_URL`; fall back to `NEXTAUTH_URL`
+ * so a deploy that set only the auth URL still emits a working link rather than
+ * a broken relative one. If neither is set (local dev), the link is returned
+ * unchanged. Closes the deployment-hardening gap noted in
+ * docs/dev-handoff-audit.md.
+ */
+export function absoluteEmailLink(link: string): string {
+  if (/^https?:\/\//i.test(link)) return link; // already absolute — leave it
+  const base = (process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? '').replace(/\/+$/, '');
+  if (!base) return link;
+  return `${base}${link.startsWith('/') ? '' : '/'}${link}`;
+}
+
 async function deliver(params: {
   userId: string;
   email: string;
@@ -373,7 +389,7 @@ async function deliver(params: {
           data: { status: NotificationStatus.SENT, sentAt: new Date() },
         });
       } else if (channel === NotificationChannel.EMAIL) {
-        const html = `<p>${body}</p><p><a href="${link}">Open in HMP</a></p>`;
+        const html = `<p>${body}</p><p><a href="${absoluteEmailLink(link)}">Open in HMP</a></p>`;
         const result = await sendMail({ to: email, subject, html, text: body });
         if (result.ok) {
           await prisma.notification.update({
