@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { handlers } from '@hmp/auth';
-import { rateLimit, tooManyRequests, RATE_LIMITS } from '@/lib/rate-limit';
+import { rateLimit, tooManyRequests, RATE_LIMITS, loginRateLimit } from '@/lib/rate-limit';
 
 // Login rate limiting (Prompt 20), Node runtime (NOT middleware — Edge can't
 // use ioredis; NOT @hmp/auth's authorize() — importing ioredis there would drag
@@ -20,8 +20,18 @@ export async function POST(req: NextRequest): Promise<Response> {
   // When SAML SSO lands in Prompt 19, verify this doesn't throttle SAML callbacks.
   if (req.nextUrl.pathname.endsWith('/callback/credentials')) {
     const ip = (req.headers.get('x-forwarded-for')?.split(',')[0] ?? 'unknown').trim() || 'unknown';
-    const { limit, windowSec } = RATE_LIMITS.login;
-    const rl = await rateLimit(`login:${ip}`, limit, windowSec);
+    // Parse a CLONE so the original body stays readable by the NextAuth handler.
+    // When the email is present, apply BOTH limits (same counters as the form
+    // path); otherwise fall back to per-IP only.
+    let email = '';
+    try {
+      email = String((await req.clone().formData()).get('email') ?? '');
+    } catch {
+      /* not form-encoded — per-IP only */
+    }
+    const rl = email
+      ? await loginRateLimit(ip, email)
+      : await rateLimit(`login:ip:${ip}`, RATE_LIMITS.loginIp.limit, RATE_LIMITS.loginIp.windowSec);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   }
   return authPost(req);

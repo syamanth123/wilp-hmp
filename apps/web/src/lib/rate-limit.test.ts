@@ -1,20 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { redisMock, auditMock } = vi.hoisted(() => ({
-  redisMock: { incr: vi.fn(), expire: vi.fn(), ttl: vi.fn(), on: vi.fn() },
+  redisMock: { incr: vi.fn(), expire: vi.fn(), ttl: vi.fn(), del: vi.fn(), on: vi.fn() },
   auditMock: vi.fn(),
 }));
 
 vi.mock('ioredis', () => ({ Redis: vi.fn(() => redisMock) }));
 vi.mock('@/lib/audit', () => ({ audit: auditMock }));
 
-import { rateLimit, tooManyRequests } from './rate-limit';
+import { rateLimit, tooManyRequests, loginRateLimit, clearLoginUsername } from './rate-limit';
 
 beforeEach(() => {
   process.env.REDIS_URL = 'redis://localhost:6379';
   redisMock.incr.mockReset();
   redisMock.expire.mockReset().mockResolvedValue(1);
   redisMock.ttl.mockReset().mockResolvedValue(120);
+  redisMock.del.mockReset().mockResolvedValue(1);
   auditMock.mockReset().mockResolvedValue(undefined);
 });
 
@@ -75,6 +76,35 @@ describe('rateLimit', () => {
     expect(r.ok).toBe(true);
     expect(r.degraded).toBe(true);
     expect(redisMock.incr).not.toHaveBeenCalled();
+  });
+});
+
+describe('loginRateLimit — per-IP + per-username', () => {
+  it('per-IP limit fires at the 31st attempt (loose, NAT-tolerant)', async () => {
+    // ip counter over 30, username counter low
+    redisMock.incr.mockImplementation((k: string) => Promise.resolve(k.includes(':ip:') ? 31 : 1));
+    const r = await loginRateLimit('1.2.3.4', 'a@bits.ac.in');
+    expect(r.ok).toBe(false);
+  });
+
+  it('per-username limit fires at the 6th attempt regardless of IP variety', async () => {
+    // username counter over 5, ip counter low (attacker rotating IPs)
+    redisMock.incr.mockImplementation((k: string) => Promise.resolve(k.includes(':user:') ? 6 : 1));
+    const r = await loginRateLimit('9.9.9.9', 'target@bits.ac.in');
+    expect(r.ok).toBe(false);
+  });
+
+  it('allows when both counters are under their limits', async () => {
+    redisMock.incr.mockResolvedValue(1);
+    const r = await loginRateLimit('1.2.3.4', 'a@bits.ac.in');
+    expect(r.ok).toBe(true);
+  });
+
+  it('clearLoginUsername resets ONLY the per-username key (lowercased/trimmed), not per-IP', async () => {
+    await clearLoginUsername('  Foo@Bits.AC.in ');
+    expect(redisMock.del).toHaveBeenCalledWith('rl:login:user:foo@bits.ac.in');
+    expect(redisMock.del).not.toHaveBeenCalledWith(expect.stringContaining(':ip:'));
+    expect(redisMock.del).toHaveBeenCalledTimes(1);
   });
 });
 

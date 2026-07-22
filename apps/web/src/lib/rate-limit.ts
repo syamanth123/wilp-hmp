@@ -44,7 +44,13 @@ export interface RateLimitResult {
 
 /** Canonical per-endpoint limits (one place to tune). */
 export const RATE_LIMITS = {
-  login: { limit: 5, windowSec: 15 * 60 }, // 5 / 15 min per IP
+  // Login uses TWO independent limits (Prompt 6 hardening). A LOOSE per-IP cap
+  // tolerates a shared campus NAT (hundreds of WILP faculty behind one BITS
+  // public IP), while a TIGHT per-username cap stops targeted brute-force and
+  // bounds username enumeration to 5 guesses / account / 15 min. If NAT lockouts
+  // appear in the first week, raising loginIp is expected and low-risk.
+  loginIp: { limit: 30, windowSec: 15 * 60 }, // 30 / 15 min per IP
+  loginUser: { limit: 5, windowSec: 15 * 60 }, // 5 / 15 min per username
   upload: { limit: 10, windowSec: 60 * 60 }, // 10 / hour per user
   ai: { limit: 20, windowSec: 60 * 60 }, // 20 / hour per user
 } as const;
@@ -89,6 +95,51 @@ export async function rateLimit(
     console.warn('[rate-limit] redis unavailable — failing open', key, err);
     return { ok: true, remaining: limit, retryAfterSec: 0, degraded: true };
   }
+}
+
+/** Clear a counter. Best-effort (fail-open): a failed delete just means the
+ * counter expires on its own window. */
+export async function resetRateLimit(key: string): Promise<void> {
+  const redis = getClient();
+  if (!redis) return;
+  try {
+    await redis.del(`rl:${key}`);
+  } catch {
+    /* counter will expire naturally */
+  }
+}
+
+const loginUserKey = (email: string): string => `login:user:${email.trim().toLowerCase()}`;
+
+/**
+ * Login rate limit (Prompt 6): per-IP (NAT-tolerant) AND per-username
+ * (brute-force + enumeration), both incremented on every attempt. Either
+ * tripping blocks. Returns a single `ok` so the caller can't reveal WHICH limit
+ * fired — the generic "too many attempts" message must not leak the vector to a
+ * prober. Email is lowercased/trimmed so `Foo@x` and `foo@x` share a counter.
+ */
+export async function loginRateLimit(
+  ip: string,
+  email: string,
+): Promise<{ ok: boolean; retryAfterSec: number }> {
+  const [ipRes, userRes] = await Promise.all([
+    rateLimit(`login:ip:${ip}`, RATE_LIMITS.loginIp.limit, RATE_LIMITS.loginIp.windowSec),
+    rateLimit(loginUserKey(email), RATE_LIMITS.loginUser.limit, RATE_LIMITS.loginUser.windowSec),
+  ]);
+  if (!ipRes.ok || !userRes.ok) {
+    return { ok: false, retryAfterSec: Math.max(ipRes.retryAfterSec, userRes.retryAfterSec) };
+  }
+  return { ok: true, retryAfterSec: 0 };
+}
+
+/**
+ * On a SUCCESSFUL login, clear the per-username counter so a legitimate user
+ * isn't left in a hostile state. The per-IP counter is deliberately NOT reset —
+ * a valid login from a shared NAT must not refund the budget for an attacker
+ * behind the same IP.
+ */
+export async function clearLoginUsername(email: string): Promise<void> {
+  await resetRateLimit(loginUserKey(email));
 }
 
 /** 429 response with a Retry-After header (for HTTP Route Handlers + auth route). */
