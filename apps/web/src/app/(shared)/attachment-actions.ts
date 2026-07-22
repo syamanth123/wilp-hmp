@@ -6,6 +6,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { getS3Client, deleteObject } from '@hmp/integrations';
 import { audit } from '@/lib/audit';
 import { ATTACHMENTS_BUCKET } from '@/lib/attachments';
+import { ATTACHMENTS_DISABLED } from '@/lib/attachments-feature';
 
 // Attachments can be deleted only by their uploader, and only while the handout
 // is still editable — once it's APPROVED / PUBLISHED / ARCHIVED the record is
@@ -19,6 +20,9 @@ const LOCKED_STATUSES: HandoutStatus[] = [
 export async function deleteAttachmentAction(
   formData: FormData,
 ): Promise<{ ok: true } | { error: string }> {
+  if (ATTACHMENTS_DISABLED) {
+    return { error: 'File attachments are not enabled in this deployment.' };
+  }
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const id = String(formData.get('attachmentId') ?? '');
   if (!id) return { error: 'Missing attachment id' };

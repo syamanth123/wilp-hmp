@@ -78,6 +78,19 @@ SKIP_LOG_CHECK=1 ./deploy/deploy.sh                 # first deploy, if the log s
 
 **Rollback contract:** the script **never auto-rolls-back**. A failed `prisma migrate deploy` can leave the DB partially migrated, and only the operator should decide how to resolve that. On any failure after the working tree is moved, it **prints** the exact rollback block (reset to the previous SHA, reinstall/generate/build, `pm2 reload`, then **`pm2 list` to confirm both `hmp-web` and `hmp-worker` are `online`**) — with an explicit warning to check `prisma migrate status` before resetting if the migration step was the one that failed.
 
+## Post-launch scope re-enablement
+
+Two launch-scope decisions (Prompt 6 hardening) are deliberately reversible:
+
+**Attachments** are disabled for launch — `ATTACHMENTS_DISABLED` in `apps/web/src/lib/attachments-feature.ts`. The upload route returns **501**, the delete action is guarded, and the faculty upload UI is hidden; the full implementation is **preserved, not deleted**. To re-enable when re-scoped:
+
+1. Confirm the scope change with IT — the spec sheet committed "handouts only"; attachments move S3 sizing from ~5 GB Year-1 to GB–TB scale, with cost and possibly vendor-quote impact. Not a silent flip.
+2. Provision + size `HANDOUT_ATTACHMENTS_BUCKET` (lifecycle/archive tiering) and confirm the instance-role S3 policy covers it.
+3. Flip `ATTACHMENTS_DISABLED` to `false` and restore the faculty page's `canUpload` to `EDITABLE.has(status)`.
+4. Verify capacity headroom (uploads add memory + bandwidth on the shared box).
+
+**Login rate limits** — per-IP 30/15min + per-username 5/15min (`RATE_LIMITS` in `apps/web/src/lib/rate-limit.ts`). If legitimate users behind a shared campus NAT hit lockouts in the first week, **raising `loginIp.limit` is expected and low-risk** (e.g. → 60) — the per-username limit still bounds brute-force. Leave `loginUser` tight. Tune + redeploy.
+
 ## Notes / gotchas
 
 - **Worker env:** the worker is TypeScript run via `tsx`; it does **not** load `.env` itself (dotenv isn't a dependency). `ecosystem.config.cjs` uses `node --env-file=apps/web/.env.production` so it reads the same file as the web app. This is why `pnpm install` must include devDependencies (for `tsx`).

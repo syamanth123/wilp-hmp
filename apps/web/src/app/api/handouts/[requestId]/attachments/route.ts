@@ -4,6 +4,7 @@ import { getS3Client, uploadAndPresign } from '@hmp/integrations';
 import { audit } from '@/lib/audit';
 import { validateAttachment } from '@/lib/attachment-validation';
 import { rateLimit, tooManyRequests, RATE_LIMITS } from '@/lib/rate-limit';
+import { ATTACHMENTS_DISABLED } from '@/lib/attachments-feature';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,16 @@ const UPLOADABLE_STATUSES: HandoutStatus[] = [
  * handout is editable (IN_PROGRESS / REWORK_REQUESTED).
  */
 export async function POST(req: Request, { params }: { params: { requestId: string } }) {
+  if (ATTACHMENTS_DISABLED) {
+    return Response.json(
+      {
+        error: 'attachments_disabled',
+        message: 'File attachments are not enabled in this deployment.',
+      },
+      { status: 501 },
+    );
+  }
+
   // CSRF defense-in-depth (Prompt 20): reject a cross-origin POST. The session
   // cookie is SameSite=Lax (NextAuth default) so a cross-site POST wouldn't
   // carry it anyway; this is a belt-and-suspenders Origin/Host check. No token

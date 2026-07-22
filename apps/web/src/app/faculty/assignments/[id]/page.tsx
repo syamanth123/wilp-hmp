@@ -306,7 +306,11 @@ export default async function FacultyAssignmentDetail({
           <AttachmentsPanel
             requestId={request.id}
             initial={attachments}
-            canUpload={EDITABLE.has(status)}
+            // Attachments deferred for launch (Prompt 6 hardening) — upload UI
+            // stays hidden regardless of status. The upload route also returns
+            // 501. Re-enable via ATTACHMENTS_DISABLED in @/lib/attachments-feature
+            // (and restore this to EDITABLE.has(status)) when re-scoped.
+            canUpload={false}
             currentUserId={me.id}
           />
         </CardContent>
