@@ -42,8 +42,10 @@ let cachedClient: S3Client | null = null;
  * The instance role needs exactly these S3 permissions (buckets pre-provisioned
  * by IT; CreateBucket is intentionally NOT granted). Replace the bucket names.
  * NOTE: this exceeds a bare Get/Put/Delete — PutObjectTagging drives attachment
- * archival, ListBucket lets ensureBucket's HeadBucket probe succeed, and Delete
- * is on the ATTACHMENTS bucket (the attachment-delete flow), not exports.
+ * archival and ListBucket lets ensureBucket's HeadBucket probe succeed. IT
+ * provisioned a SINGLE bucket (handout-09-07-2026) for launch, so both env vars
+ * (HANDOUT_ATTACHMENTS_BUCKET + LMS_EXPORTS_BUCKET) point at it and the policy
+ * collapses to one resource; attachments vs exports are separated by key prefix.
  *
  *   {
  *     "Version": "2012-10-17",
@@ -51,26 +53,14 @@ let cachedClient: S3Client | null = null;
  *       {
  *         "Sid": "HmpObjectReadWrite",
  *         "Effect": "Allow",
- *         "Action": ["s3:GetObject", "s3:PutObject"],
- *         "Resource": [
- *           "arn:aws:s3:::handout-09-07-2026/*",
- *           "arn:aws:s3:::<LMS_EXPORTS_BUCKET>/*"
- *         ]
- *       },
- *       {
- *         "Sid": "HmpAttachmentsDeleteAndTag",
- *         "Effect": "Allow",
- *         "Action": ["s3:DeleteObject", "s3:PutObjectTagging"],
+ *         "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:PutObjectTagging"],
  *         "Resource": ["arn:aws:s3:::handout-09-07-2026/*"]
  *       },
  *       {
  *         "Sid": "HmpHeadBucketProbe",
  *         "Effect": "Allow",
  *         "Action": ["s3:ListBucket"],
- *         "Resource": [
- *           "arn:aws:s3:::handout-09-07-2026",
- *           "arn:aws:s3:::<LMS_EXPORTS_BUCKET>"
- *         ]
+ *         "Resource": ["arn:aws:s3:::handout-09-07-2026"]
  *       }
  *     ]
  *   }

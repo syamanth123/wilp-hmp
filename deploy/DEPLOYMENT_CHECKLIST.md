@@ -20,7 +20,7 @@ Have all of this ready **before** you SSH in.
 - [ ] **IAM instance role** attached to the EC2 instance — verify in AWS Console → EC2 → the instance → _Security_ tab → _IAM Role_. **No static S3 keys needed** (the app uses the role).
 - [ ] **SSH key** — `Handout.ppk` (converted from the `.pem` via PuTTYgen), held in PuTTY.
 - [ ] **RDS endpoint URL** — e.g. `hmp-prod.xxxxxx.ap-south-1.rds.amazonaws.com`.
-- [ ] **S3 bucket names — both**: `hmp-prod-attachments` (→ `HANDOUT_ATTACHMENTS_BUCKET`) and `hmp-prod-exports` (→ `LMS_EXPORTS_BUCKET`). Both are required in config **even though attachments are disabled at launch** — the exports bucket is used by the Word/PDF download path.
+- [ ] **S3 bucket — `handout-09-07-2026`** (IT provisioned a **single** bucket for launch). Both env vars — `HANDOUT_ATTACHMENTS_BUCKET` and `LMS_EXPORTS_BUCKET` — point at this same bucket; the code namespaces objects by key prefix, so one bucket serves both the (disabled-at-launch) attachments and the Word/PDF export path.
 - [ ] **SMTP credentials** — host, port, user, password, from-address for notification email.
 
 ### 1b. Environment values decided
@@ -124,9 +124,9 @@ Required (app will not run without these):
 - [ ] `DATABASE_URL` — RDS endpoint + rotated password + `?schema=public&sslmode=require`
 - [ ] `NEXTAUTH_URL`, `APP_BASE_URL` — the production https URL
 - [ ] `NEXTAUTH_SECRET` — fresh: `openssl rand -base64 32` (do **not** reuse the dev value)
-- [ ] `REDIS_URL` — `redis://localhost:6379` (local Redis)
-- [ ] `S3_REGION`, `HANDOUT_ATTACHMENTS_BUCKET`, `LMS_EXPORTS_BUCKET`
-- [ ] `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+- [ ] `REDIS_URL` — **`redis://localhost:6379`** — local Redis running on the EC2 box (no ElastiCache at launch; installed + enabled in Phase 2b).
+- [ ] `S3_REGION`; `HANDOUT_ATTACHMENTS_BUCKET` **and** `LMS_EXPORTS_BUCKET` — set **both to `handout-09-07-2026`** (single provisioned bucket)
+- [ ] `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` — **if SMTP creds aren't available yet, leaving these blank is safe**: notification email will fail server-side (logged, non-fatal) but the app runs normally. Verify email delivery separately post-launch.
 - [ ] `SOFFICE_BIN=soffice`, `NODE_ENV=production`
 - [ ] `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD_HASH` (the bcrypt hash from 1b)
 - [ ] `HMP_CORPUS_DIR` — the path from 3a
@@ -155,10 +155,10 @@ node -e "for(const l of require('fs').readFileSync('apps/web/.env.production','u
 
 ### 3d. Verify the IAM instance role (no keys)
 
-- [ ] In AWS Console, confirm the instance role's policy matches the JSON in the `getS3Client` doc comment (`packages/integrations/src/storage.ts`): `s3:GetObject`/`s3:PutObject` on both buckets, `s3:DeleteObject`+`s3:PutObjectTagging` on attachments, `s3:ListBucket` on both.
+- [ ] In AWS Console, confirm the instance role's policy matches the JSON in the `getS3Client` doc comment (`packages/integrations/src/storage.ts`): on the single `handout-09-07-2026` bucket — `s3:GetObject`/`s3:PutObject`/`s3:DeleteObject`/`s3:PutObjectTagging` on the objects, `s3:ListBucket` on the bucket.
 - [ ] Test from the EC2 box (**no keys in env**):
   ```bash
-  aws s3 ls s3://hmp-prod-exports/       # expect: succeeds (empty listing is fine)
+  aws s3 ls s3://handout-09-07-2026/     # expect: succeeds (empty listing is fine)
   ```
   Success here proves the instance role works. A `403`/credentials error means the role isn't attached or the policy is wrong — fix before continuing.
 
