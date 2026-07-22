@@ -31,19 +31,63 @@ let cachedClient: S3Client | null = null;
  * Returns a process-wide S3 client configured from env. Memoized so we don't
  * rebuild the client (and its connection pool) on every call. Pass
  * `fresh: true` in tests that need a clean client per case.
+ *
+ * Credentials: when S3_ACCESS_KEY + S3_SECRET_KEY are BOTH set, they're passed
+ * explicitly (MinIO / static-key deploys). When unset, the `credentials` field
+ * is OMITTED so the AWS SDK's default provider chain runs — which on EC2 picks
+ * up the attached instance role via IMDS. (Passing empty-string credentials, as
+ * before, disabled that chain and forced static keys.) Recommended production
+ * posture: no static keys on the box; attach an instance role.
+ *
+ * The instance role needs exactly these S3 permissions (buckets pre-provisioned
+ * by IT; CreateBucket is intentionally NOT granted). Replace the bucket names.
+ * NOTE: this exceeds a bare Get/Put/Delete — PutObjectTagging drives attachment
+ * archival, ListBucket lets ensureBucket's HeadBucket probe succeed, and Delete
+ * is on the ATTACHMENTS bucket (the attachment-delete flow), not exports.
+ *
+ *   {
+ *     "Version": "2012-10-17",
+ *     "Statement": [
+ *       {
+ *         "Sid": "HmpObjectReadWrite",
+ *         "Effect": "Allow",
+ *         "Action": ["s3:GetObject", "s3:PutObject"],
+ *         "Resource": [
+ *           "arn:aws:s3:::handout-09-07-2026/*",
+ *           "arn:aws:s3:::<LMS_EXPORTS_BUCKET>/*"
+ *         ]
+ *       },
+ *       {
+ *         "Sid": "HmpAttachmentsDeleteAndTag",
+ *         "Effect": "Allow",
+ *         "Action": ["s3:DeleteObject", "s3:PutObjectTagging"],
+ *         "Resource": ["arn:aws:s3:::handout-09-07-2026/*"]
+ *       },
+ *       {
+ *         "Sid": "HmpHeadBucketProbe",
+ *         "Effect": "Allow",
+ *         "Action": ["s3:ListBucket"],
+ *         "Resource": [
+ *           "arn:aws:s3:::handout-09-07-2026",
+ *           "arn:aws:s3:::<LMS_EXPORTS_BUCKET>"
+ *         ]
+ *       }
+ *     ]
+ *   }
  */
 export function getS3Client(fresh = false): S3Client {
   if (cachedClient && !fresh) return cachedClient;
+  const accessKeyId = process.env.S3_ACCESS_KEY;
+  const secretAccessKey = process.env.S3_SECRET_KEY;
   const client = new S3Client({
     region: process.env.S3_REGION ?? 'us-east-1',
     // endpoint is only set for MinIO / S3-compatible stores; real AWS uses the
     // region default when S3_ENDPOINT is unset.
     ...(process.env.S3_ENDPOINT ? { endpoint: process.env.S3_ENDPOINT } : {}),
     forcePathStyle: true,
-    credentials: {
-      accessKeyId: process.env.S3_ACCESS_KEY ?? '',
-      secretAccessKey: process.env.S3_SECRET_KEY ?? '',
-    },
+    // Explicit creds only when both are present; otherwise omit so the default
+    // provider chain (incl. EC2 instance role) applies. See the doc comment.
+    ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
   });
   if (!fresh) cachedClient = client;
   return client;
