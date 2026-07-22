@@ -1,6 +1,6 @@
 # HMP production deploy (single EC2 host)
 
-Reference layout: **t3a.medium / Ubuntu**, **RDS PostgreSQL 16**, **S3** (two buckets or one), local or ElastiCache **Redis**, **LibreOffice** for PDF export, **Nginx** + **PM2**. Deploy path assumed `/opt/hmp` (adjust in `ecosystem.config.cjs` + `nginx.conf`).
+Reference layout: **t3a.medium / Ubuntu**, **RDS PostgreSQL 16**, **S3** (two buckets or one), local or ElastiCache **Redis**, **LibreOffice** for PDF export, **Nginx** + **PM2**. Deploy path assumed `/home/ubuntu/wilp-hmp` (adjust in `ecosystem.config.cjs` + `nginx.conf`).
 
 ## Host prerequisites
 
@@ -17,7 +17,7 @@ npm i -g pnpm pm2
 ## One-time setup
 
 ```bash
-cd /opt/hmp
+cd /home/ubuntu/wilp-hmp
 pnpm install                                   # include devDependencies — the worker runs via tsx
 cp apps/web/.env.production.template apps/web/.env.production
 #   → fill every <PLACEHOLDER>. Leave S3_ACCESS_KEY / S3_SECRET_KEY EMPTY (instance role).
@@ -38,11 +38,11 @@ ADMIN_EMAIL="<...>" ADMIN_INITIAL_PASSWORD_HASH="<bcrypt>" \
 ## Start services
 
 ```bash
-pm2 start /opt/hmp/deploy/ecosystem.config.cjs   # hmp-web (:3000) + hmp-worker
+pm2 start /home/ubuntu/wilp-hmp/deploy/ecosystem.config.cjs   # hmp-web (:3000) + hmp-worker
 pm2 save                                        # persist across reboots
 pm2 startup                                      # generate the systemd unit (follow its output)
 
-sudo cp /opt/hmp/deploy/nginx.conf /etc/nginx/sites-available/hmp
+sudo cp /home/ubuntu/wilp-hmp/deploy/nginx.conf /etc/nginx/sites-available/hmp
 sudo ln -s /etc/nginx/sites-available/hmp /etc/nginx/sites-enabled/hmp
 sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d your-domain            # TLS (or skip for bare-IP http testing)
