@@ -48,6 +48,34 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d your-domain            # TLS (or skip for bare-IP http testing)
 ```
 
+## Updating — `deploy.sh`
+
+After the one-time setup, every subsequent deploy (and re-deploys) run through one script:
+
+```bash
+cd /home/ubuntu/wilp-hmp
+./deploy/deploy.sh
+```
+
+It is **idempotent**, **fails fast** (`set -euo pipefail`), and writes a full timestamped log to `/home/ubuntu/logs/deploy-<ts>.log`. Each major step is prefixed `==> [HH:MM:SS]`, and it ends with a single **`DEPLOY SUCCESSFUL`** or **`DEPLOY FAILED at step: <name>`** line so a non-developer can read the outcome.
+
+**What it does:** preconditions (user, repo, `.env.production` keys present, `node`/`pnpm`/`pm2`/`soffice` on PATH, Node ≥ 20.6) → `git fetch` + `reset --hard origin/main` (prints old→new SHA) → `pnpm install --frozen-lockfile` → `prisma generate` → `prisma migrate deploy` → `pnpm build` → `pm2 reload … --update-env` → verifies **both** `hmp-web` and `hmp-worker` are `online` → web health check (`/api/health`, falling back to `/` since that route doesn't exist yet — a 404 on `/api/health` is expected) → worker health (online ≥ 30 s + no Redis/Postgres connection errors in its log) → scans recent logs for `ERROR`/`FATAL`.
+
+**Flags** (fast partial redeploys — each requires `YES_I_KNOW=1` as deliberate friction):
+
+| Flag             | Skips                   | Use when                          |
+| ---------------- | ----------------------- | --------------------------------- |
+| `--skip-deps`    | `pnpm install`          | only code changed, deps unchanged |
+| `--skip-build`   | `pnpm build`            | env-only change                   |
+| `--skip-migrate` | `prisma migrate deploy` | code hotfix, **no** schema change |
+
+```bash
+YES_I_KNOW=1 ./deploy/deploy.sh --skip-migrate     # e.g. a code-only hotfix
+SKIP_LOG_CHECK=1 ./deploy/deploy.sh                 # first deploy, if the log scan is noisy
+```
+
+**Rollback contract:** the script **never auto-rolls-back**. A failed `prisma migrate deploy` can leave the DB partially migrated, and only the operator should decide how to resolve that. On any failure after the working tree is moved, it **prints** the exact rollback block (reset to the previous SHA, reinstall/generate/build, `pm2 reload`, then **`pm2 list` to confirm both `hmp-web` and `hmp-worker` are `online`**) — with an explicit warning to check `prisma migrate status` before resetting if the migration step was the one that failed.
+
 ## Notes / gotchas
 
 - **Worker env:** the worker is TypeScript run via `tsx`; it does **not** load `.env` itself (dotenv isn't a dependency). `ecosystem.config.cjs` uses `node --env-file=apps/web/.env.production` so it reads the same file as the web app. This is why `pnpm install` must include devDependencies (for `tsx`).
