@@ -31,3 +31,6 @@ tools/minio/data/
 data/
 apps/web/.env
 packages/db/.env
+# Course Dibba: unredacted source files (faculty sheet with real emails/phones).
+# Never committed — tests use synthetic fixtures under packages/db/src/__fixtures__/.
+local-data/
