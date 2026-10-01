@@ -1,0 +1,3 @@
+table 28 HB28 MBA (Hospital & Health Systems Mana: header "SL7(SAT FN)" disagrees with standard slot map (SL7 vs SAT FN)
+table 28 HB28 MBA (Hospital & Health Systems Mana: header "SL8(SAT AN)" disagrees with standard slot map (SL8 vs SAT AN)
+table 32 HB59 MBA (Finance): header "SL8(SAT EN)" disagrees with standard slot map (SL8 vs SAT EV)
