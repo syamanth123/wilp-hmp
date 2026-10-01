@@ -87,6 +87,16 @@ describe('parseSlotHeader', () => {
     expect(r.slotNo).toBe(3);
     expect(r.warning).toMatch(/inferred from column position/);
   });
+
+  it('echoes at most 60 characters of a header cell into the warning (warnings are stored in full)', () => {
+    const long = 'X'.repeat(200);
+    expect(parseSlotHeader(long, 2).warning).toBe(
+      `slot inferred from column position for header "${'X'.repeat(60)}"`,
+    );
+    expect(parseSlotHeader(`SL7(SAT FN) ${long}`, 7).warning).toBe(
+      `header "${`SL7(SAT FN) ${long}`.slice(0, 60)}" disagrees with standard slot map (SL7 vs SAT FN)`,
+    );
+  });
 });
 
 describe('parseBatchCell', () => {
@@ -244,6 +254,22 @@ describe('review regressions', () => {
       'table 0 HT02 M.Tech. (Environment Engi batch 2/2024: batch cell spans 2 columns (header label spans 1) — later cells keep their true slot',
     ]);
     expect(r.rows.map((x) => `SL${x.slotNo}`)).toEqual(['SL2']);
+  });
+
+  it('a data cell spanning two slot columns is assigned to the FIRST slot, with the exact warning', () => {
+    // The only non-header warning the real 2025 file emits (18BT/18ET, twice);
+    // pinned here because the golden only counts it (Phase 3 review).
+    const r = parseDibbaHtml(
+      T(
+        title +
+          '<tr><td>Admit Batch</td><td>SL1(SAT FN)</td><td>SL2(SAT AN)</td></tr>' +
+          '<tr><td>2/2024</td><td colspan="2">ES ZG611|A</td></tr>',
+      ),
+    );
+    expect(r.warnings).toEqual([
+      'table 0 HT02 M.Tech. (Environment Engi batch 2/2024: cell spans 2 slot columns (SL1..), assigned to SL1',
+    ]);
+    expect(r.rows.map((x) => `SL${x.slotNo}|${x.courseCode}`)).toEqual(['SL1|ES ZG611']);
   });
 
   it('a heading-styled paragraph inside a cell still breaks the line (student count survives)', () => {

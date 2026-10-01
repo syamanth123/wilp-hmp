@@ -262,22 +262,29 @@ async function main() {
 
   // --- Academic term + standard slots (Course Dibba, Phase 1; DEV ONLY) ---
   // Term-wide (all programmes) — distinct from the per-programme Semester rows
-  // above; same dates as the seeded 'Sem-I 2025-26' semesters. Keyed on
-  // AcademicTerm.name (@unique) and (termId, slotNo) (@@unique) so re-runs are
-  // no-ops, and `update: {}` so IC-edited slot times are never clobbered by a
-  // reseed. Production terms are created through the IC screen (Phase 3) —
+  // above; same dates as the seeded 'Sem-I 2025-26' semesters. AcademicTerm is
+  // unique on BOTH name and (year, term) (Phase 3), and an IC may have renamed
+  // or re-dated this term through /ic/dibba, so a reseed looks the row up by
+  // either key and never writes to an existing one (a name-keyed upsert would
+  // P2002 on a renamed 2025/FIRST term). SlotTiming rows are keyed on
+  // (termId, slotNo) with `update: {}` so IC-edited slot times are never
+  // clobbered. Production terms are created through the IC screen (Phase 3) —
   // this block never runs there (assertDevOnly above; seed.production.ts is
   // untouched).
-  const demoTerm = await prisma.academicTerm.upsert({
-    where: { name: '2025-26 Sem 1' },
-    update: {},
-    create: {
-      name: '2025-26 Sem 1',
-      year: 2025,
-      term: 'FIRST',
-      ...SEM_I_2025_26,
-    },
-  });
+  const demoTerm =
+    (await prisma.academicTerm.findFirst({
+      where: { OR: [{ name: '2025-26 Sem 1' }, { year: 2025, term: 'FIRST' }] },
+      select: { id: true },
+    })) ??
+    (await prisma.academicTerm.create({
+      data: {
+        name: '2025-26 Sem 1',
+        year: 2025,
+        term: 'FIRST',
+        ...SEM_I_2025_26,
+      },
+      select: { id: true },
+    }));
   for (const s of STANDARD_SLOTS) {
     await prisma.slotTiming.upsert({
       where: { termId_slotNo: { termId: demoTerm.id, slotNo: s.slotNo } },

@@ -2,8 +2,18 @@ import { describe, it, expect, beforeEach, afterEach, afterAll, beforeAll } from
 import { existsSync, mkdtempSync, copyFileSync, rmSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { runCorpusImport, processSingleHandoutFile } from '../corpus-import/import-action';
+import { parseDibbaDocx } from '../dibba-import/parser';
+import {
+  createAcademicTerm,
+  createDibbaImport,
+  discardDibbaImport,
+  matchCourseCodes,
+  publishDibbaImport,
+  DibbaError,
+} from '../dibba-import/import-action';
+import type { DibbaRow } from '../dibba-import/types';
 
 /**
  * Integration test for runCorpusImport (Prompt 11f-a). Copies the 5
@@ -201,6 +211,386 @@ suite('runCorpusImport — integration', () => {
     expect(row).not.toBeNull();
     expect(row?.approvedForReuse).toBe(false); // imports land unapproved
   });
+});
+
+// ---------------------------------------------------------------------------
+// Course Dibba Phase 3 — persistence / publish / discard / term core.
+// Lives in THIS file, as a sibling describe, to honour the one-PrismaClient-
+// per-test-file rule (docs/dev-handoff-audit.md: a second client in a new
+// @hmp/db file raced apps/web's suites twice). It reuses the module-level
+// `prisma` and the dbReachable probe, has its own skip reason (it does not
+// need the corpus fixtures), and every row it writes carries a per-run
+// sentinel and is deleted by id/prefix. The uploader User deliberately has NO
+// role rows, so apps/web's bulk-create test (which findFirst()s an
+// INSTRUCTION_CELL user) can never pick it up.
+// ---------------------------------------------------------------------------
+const DIBBA_DOCX = join(__dirname, '..', '__fixtures__', 'dibba', 'course-dibba-2025-s1.docx');
+const RUN = `${process.pid}-${Date.now()}`;
+const SENTINEL_YEAR = 9000 + (Date.now() % 1000);
+const TERM_NAME = `DIBBA-TEST-${RUN}`;
+const USER_EMAIL = `dibba-test-${RUN}@test.local`;
+const COURSE_1 = `DBT-${RUN}-1`;
+const COURSE_2 = `DBT-${RUN}-2`;
+const COURSE_2_ALT = `DBTALT-${RUN}`;
+
+const dibbaSkipReason = () =>
+  !dbReachable ? 'postgres unreachable' : !existsSync(DIBBA_DOCX) ? 'dibba fixture missing' : null;
+
+/** Loud per-test skip: Vitest reports SKIPPED (not a green no-op) and the reason is in the log. */
+const integDibba = (name: string, fn: () => Promise<void>) =>
+  it(
+    name,
+    async (ctx) => {
+      const reason = dibbaSkipReason();
+      if (reason) {
+        console.warn(`[corpus-import-action.test / dibba] skipping "${name}": ${reason}`);
+        return ctx.skip();
+      }
+      await fn();
+    },
+    60_000,
+  );
+
+async function purgeDibbaSentinels(): Promise<void> {
+  // Restrict FKs: imports (entries cascade) before terms; audit rows before the user.
+  await prisma.dibbaImport.deleteMany({ where: { term: { name: { startsWith: 'DIBBA-TEST-' } } } });
+  await prisma.academicTerm.deleteMany({ where: { name: { startsWith: 'DIBBA-TEST-' } } });
+  const users = await prisma.user.findMany({
+    where: { email: { startsWith: 'dibba-test-' } },
+    select: { id: true },
+  });
+  if (users.length) {
+    await prisma.auditLog.deleteMany({ where: { actorId: { in: users.map((u) => u.id) } } });
+    await prisma.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
+  }
+  await prisma.course.deleteMany({ where: { bitsCourseNumber: { startsWith: 'DBT-' } } });
+}
+
+describe('dibba-import (Phase 3) — create / publish / discard / term', () => {
+  let termId = '';
+  let userId = '';
+  let courseId1 = '';
+  let courseId2 = '';
+
+  const syntheticRows = (): DibbaRow[] => [
+    {
+      programmeCode: 'HT01',
+      programmeTitle: 'HT01 M.Tech. (Embedded System)',
+      admitBatch: '2/2024',
+      isNewAdmission: false,
+      isBacklogRow: false,
+      studentCount: 50,
+      slotNo: 1,
+      slotDay: 'SAT',
+      slotSession: 'FN',
+      courseCode: COURSE_1,
+      courseTitle: 'ONE',
+      courseType: 'CORE',
+      erpCourseId: null,
+      classTimeHint: null,
+      remarks: null,
+      rawCell: `${COURSE_1}|ONE`,
+    },
+    {
+      programmeCode: 'HT01',
+      programmeTitle: 'HT01 M.Tech. (Embedded System)',
+      admitBatch: '2/2024',
+      isNewAdmission: false,
+      isBacklogRow: false,
+      studentCount: 50,
+      slotNo: 2,
+      slotDay: 'SAT',
+      slotSession: 'AN',
+      courseCode: COURSE_2_ALT, // links through alternateCodes
+      courseTitle: 'TWO',
+      courseType: 'ELECTIVE',
+      erpCourseId: null,
+      classTimeHint: null,
+      remarks: null,
+      rawCell: `${COURSE_2_ALT}|TWO`,
+    },
+    {
+      programmeCode: 'HT01',
+      programmeTitle: 'HT01 M.Tech. (Embedded System)',
+      admitBatch: '2/2024',
+      isNewAdmission: false,
+      isBacklogRow: false,
+      studentCount: 50,
+      slotNo: 3,
+      slotDay: 'SUN',
+      slotSession: 'FN',
+      courseCode: `NOPE-${RUN}`, // not in the catalogue
+      courseTitle: 'THREE',
+      courseType: 'UNSPECIFIED',
+      erpCourseId: null,
+      classTimeHint: null,
+      remarks: null,
+      rawCell: `NOPE-${RUN}|THREE`,
+    },
+  ];
+
+  const createImport = (label: string, rows: DibbaRow[] = syntheticRows()) =>
+    createDibbaImport(prisma, {
+      termId,
+      label,
+      sourceFilename: 'synthetic.docx',
+      sourceFormat: 'docx',
+      uploadedById: userId,
+      rows,
+      warnings: ['w1', 'w2'],
+    });
+
+  beforeAll(async () => {
+    if (dibbaSkipReason()) return;
+    await purgeDibbaSentinels();
+    const user = await prisma.user.create({
+      data: { email: USER_EMAIL, name: 'Dibba Test', active: true },
+      select: { id: true },
+    });
+    userId = user.id;
+    const [c1, c2] = await Promise.all([
+      prisma.course.create({
+        data: { bitsCourseNumber: COURSE_1, code: COURSE_1, title: 'ONE' },
+        select: { id: true },
+      }),
+      prisma.course.create({
+        data: {
+          bitsCourseNumber: COURSE_2,
+          code: COURSE_2,
+          title: 'TWO',
+          alternateCodes: [COURSE_2_ALT],
+        },
+        select: { id: true },
+      }),
+    ]);
+    courseId1 = c1.id;
+    courseId2 = c2.id;
+    const term = await createAcademicTerm(prisma, {
+      name: TERM_NAME,
+      year: SENTINEL_YEAR,
+      term: 'FIRST',
+      startDate: new Date(`${SENTINEL_YEAR}-08-01`),
+      endDate: new Date(`${SENTINEL_YEAR}-12-15`),
+      actorId: userId,
+    }).then((r) => r.termId);
+    termId = term;
+  }, 60_000); // real DB work (purge + create term in a transaction); Vitest's hook default is 10 s
+
+  afterAll(async () => {
+    if (dibbaSkipReason()) return;
+    await purgeDibbaSentinels(); // cascades the 1,077-entry import
+  }, 60_000);
+
+  integDibba('createAcademicTerm seeds the 8 standard slots and writes an audit row', async () => {
+    const slots = await prisma.slotTiming.findMany({
+      where: { termId },
+      orderBy: { slotNo: 'asc' },
+    });
+    expect(slots.map((s) => `${s.slotNo}:${s.day} ${s.session}`)).toEqual([
+      '1:SAT FN',
+      '2:SAT AN',
+      '3:SUN FN',
+      '4:SUN AN',
+      '5:FRI FN',
+      '6:FRI AN',
+      '7:SAT EV',
+      '8:SUN EV',
+    ]);
+    const audit = await prisma.auditLog.findFirst({
+      where: { entity: 'AcademicTerm', entityId: termId, action: 'dibba.term.create' },
+    });
+    expect(audit?.actorId).toBe(userId);
+  });
+
+  integDibba(
+    'a second term for the same (year, term) is refused by the core AND by the unique index',
+    async () => {
+      await expect(
+        createAcademicTerm(prisma, {
+          name: `${TERM_NAME}-dup`,
+          year: SENTINEL_YEAR,
+          term: 'FIRST',
+          startDate: new Date(`${SENTINEL_YEAR}-08-01`),
+          endDate: new Date(`${SENTINEL_YEAR}-12-15`),
+          actorId: userId,
+        }),
+      ).rejects.toMatchObject({ name: 'DibbaError', code: 'term_exists' });
+      // The index itself (Phase 3 migration): bypass the pre-check.
+      await expect(
+        prisma.academicTerm.create({
+          data: {
+            name: `${TERM_NAME}-dup2`,
+            year: SENTINEL_YEAR,
+            term: 'FIRST',
+            startDate: new Date(),
+            endDate: new Date(),
+          },
+        }),
+      ).rejects.toSatisfy(
+        (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002',
+      );
+    },
+  );
+
+  integDibba(
+    'matchCourseCodes: bitsCourseNumber first, then alternateCodes, else unmatched',
+    async () => {
+      const courses = await prisma.course.findMany({
+        where: { bitsCourseNumber: { in: [COURSE_1, COURSE_2] } },
+        select: { id: true, bitsCourseNumber: true, alternateCodes: true },
+      });
+      const link = matchCourseCodes([COURSE_1, COURSE_2_ALT, `NOPE-${RUN}`], courses);
+      expect(link.get(COURSE_1)).toBe(courseId1);
+      expect(link.get(COURSE_2_ALT)).toBe(courseId2);
+      expect(link.has(`NOPE-${RUN}`)).toBe(false);
+    },
+  );
+
+  integDibba(
+    'createDibbaImport writes a DRAFT with entries, links courseId, counts unknown codes',
+    async () => {
+      const res = await createImport('synthetic A');
+      expect(res).toMatchObject({ rowCount: 3, warningCount: 2, unknownCodeCount: 1 });
+      const imp = await prisma.dibbaImport.findUnique({
+        where: { id: res.importId },
+        include: { entries: { orderBy: { slotNo: 'asc' } } },
+      });
+      expect(imp).toMatchObject({
+        status: 'DRAFT',
+        rowCount: 3,
+        warnings: ['w1', 'w2'],
+        publishedAt: null,
+      });
+      expect(imp!.entries.map((e) => e.courseId)).toEqual([courseId1, courseId2, null]);
+      expect(imp!.entries[1]).toMatchObject({
+        courseType: 'ELECTIVE',
+        slotDay: 'SAT',
+        slotSession: 'AN',
+      });
+    },
+  );
+
+  integDibba(
+    'the committed 2025 fixture persists as 1,077 entries with its 5 warnings',
+    async () => {
+      const parsed = await parseDibbaDocx({ path: DIBBA_DOCX });
+      const res = await createDibbaImport(prisma, {
+        termId,
+        label: 'As on 02.07.2025',
+        sourceFilename: 'course-dibba-2025-s1.docx',
+        sourceFormat: 'docx',
+        uploadedById: userId,
+        rows: parsed.rows,
+        warnings: parsed.warnings,
+      });
+      expect(res.rowCount).toBe(1077);
+      expect(res.warningCount).toBe(5);
+      expect(await prisma.dibbaEntry.count({ where: { importId: res.importId } })).toBe(1077);
+      expect(
+        await prisma.dibbaEntry.count({
+          where: { importId: res.importId, slotNo: { gte: 1, lte: 8 } },
+        }),
+      ).toBe(1077);
+    },
+  );
+
+  integDibba(
+    'publish: DRAFT → PUBLISHED; a second publish supersedes the first, keeping its publishedAt',
+    async () => {
+      const a = await createImport('A');
+      const b = await createImport('B');
+      const pa = await publishDibbaImport(prisma, { importId: a.importId, actorId: userId });
+      expect(pa.supersededIds).toEqual([]);
+      const pb = await publishDibbaImport(prisma, { importId: b.importId, actorId: userId });
+      expect(pb.supersededIds).toEqual([a.importId]);
+      const [ra, rb] = await Promise.all([
+        prisma.dibbaImport.findUniqueOrThrow({ where: { id: a.importId } }),
+        prisma.dibbaImport.findUniqueOrThrow({ where: { id: b.importId } }),
+      ]);
+      expect(ra.status).toBe('SUPERSEDED');
+      expect(ra.publishedAt).toEqual(pa.publishedAt); // historical stamp kept
+      expect(rb.status).toBe('PUBLISHED');
+      expect(rb.publishedAt).toEqual(pb.publishedAt);
+      const audit = await prisma.auditLog.findFirst({
+        where: { entity: 'DibbaImport', entityId: b.importId, action: 'dibba.import.publish' },
+      });
+      expect(audit?.actorId).toBe(userId);
+      expect(audit?.before).toMatchObject({
+        status: 'DRAFT',
+        superseded: [{ id: a.importId, label: 'A' }],
+      });
+      expect(await prisma.dibbaImport.count({ where: { termId, status: 'PUBLISHED' } })).toBe(1);
+    },
+  );
+
+  integDibba('publishing a non-DRAFT import throws not_draft and changes nothing', async () => {
+    const published = await prisma.dibbaImport.findFirstOrThrow({
+      where: { termId, status: 'PUBLISHED' },
+    });
+    const before = await prisma.dibbaImport.findMany({ where: { termId }, orderBy: { id: 'asc' } });
+    await expect(
+      publishDibbaImport(prisma, { importId: published.id, actorId: userId }),
+    ).rejects.toMatchObject({ name: 'DibbaError', code: 'not_draft' });
+    await expect(
+      publishDibbaImport(prisma, { importId: 'clzzzzzzzzzzzzzzzzzzzzzzz', actorId: userId }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(
+      await prisma.dibbaImport.findMany({ where: { termId }, orderBy: { id: 'asc' } }),
+    ).toEqual(before);
+  });
+
+  integDibba('two concurrent publishes for the same term leave exactly one PUBLISHED', async () => {
+    const [c, d] = await Promise.all([createImport('C'), createImport('D')]);
+    const results = await Promise.allSettled([
+      publishDibbaImport(prisma, { importId: c.importId, actorId: userId }),
+      publishDibbaImport(prisma, { importId: d.importId, actorId: userId }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']); // serialized by the term lock
+    expect(await prisma.dibbaImport.count({ where: { termId, status: 'PUBLISHED' } })).toBe(1);
+    expect(
+      await prisma.dibbaImport.count({
+        where: { id: { in: [c.importId, d.importId] }, status: 'SUPERSEDED' },
+      }),
+    ).toBe(1);
+  });
+
+  integDibba(
+    'discard: deletes a DRAFT (entries cascade) with an audit row; refuses a PUBLISHED import',
+    async () => {
+      const e = await createImport('E');
+      const res = await discardDibbaImport(prisma, { importId: e.importId, actorId: userId });
+      expect(res.termId).toBe(termId);
+      expect(await prisma.dibbaImport.findUnique({ where: { id: e.importId } })).toBeNull();
+      expect(await prisma.dibbaEntry.count({ where: { importId: e.importId } })).toBe(0);
+      const audit = await prisma.auditLog.findFirst({
+        where: { entity: 'DibbaImport', entityId: e.importId, action: 'dibba.import.discard' },
+      });
+      expect(audit?.actorId).toBe(userId);
+      expect(audit?.before).toMatchObject({ status: 'DRAFT', label: 'E', rowCount: 3 });
+      const published = await prisma.dibbaImport.findFirstOrThrow({
+        where: { termId, status: 'PUBLISHED' },
+      });
+      await expect(
+        discardDibbaImport(prisma, { importId: published.id, actorId: userId }),
+      ).rejects.toMatchObject({ code: 'not_draft' });
+      expect(await prisma.dibbaImport.findUnique({ where: { id: published.id } })).not.toBeNull();
+    },
+  );
+
+  integDibba(
+    'publish racing discard on the same draft: exactly one wins, the live schedule survives',
+    async () => {
+      const f = await createImport('F');
+      const results = await Promise.allSettled([
+        publishDibbaImport(prisma, { importId: f.importId, actorId: userId }),
+        discardDibbaImport(prisma, { importId: f.importId, actorId: userId }),
+      ]);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const loser = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      expect(loser.reason).toBeInstanceOf(DibbaError);
+      expect(await prisma.dibbaImport.count({ where: { termId, status: 'PUBLISHED' } })).toBe(1);
+    },
+  );
 });
 
 afterAll(async () => {
