@@ -6,6 +6,7 @@ const TABS = [
   { href: '/ic/requests', label: 'Requests' },
   { href: '/ic/requests/new', label: 'New request' },
   { href: '/ic/semesters', label: 'Semesters & dates' },
+  { href: '/ic/dibba', label: 'Course Dibba' },
 ];
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ export default function ICLayout({ children }: { children: React.ReactNode }) {
             <Link
               key={t.href}
               href={t.href}
-              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5"
             >
               {t.label}
             </Link>
