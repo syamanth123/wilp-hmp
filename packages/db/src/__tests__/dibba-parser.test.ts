@@ -9,9 +9,13 @@ import {
   parseDibbaHtml,
   parseDibbaDocx,
 } from '../dibba-import';
+import { ensureDocxFormat } from '../corpus-import/ensure-docx';
+import { sofficeAvailable } from '../soffice';
 
 // Course Dibba Phase 2 — pure parser tests. No PrismaClient, no I/O except the
-// committed fixtures. Rules under test are the prototype's (parse_dibba.py),
+// committed fixtures (the LAST describe is the one exception: it converts the
+// original .doc from gitignored local-data/ through LibreOffice and probe-skips
+// when either is absent). Rules under test are the prototype's (parse_dibba.py),
 // proven on the real 2025 file; the golden numbers below are FROZEN — if the
 // parser disagrees, the test prints the first differing rows so the cause can
 // be explained, and the numbers are never adjusted to make it pass.
@@ -403,6 +407,35 @@ function fieldsOfCsv(r: Record<string, string>): string[] {
   });
 }
 
+/**
+ * The first (≤ `max`) rows where parsed and reference field arrays differ, each
+ * naming the offending fields with both values. Empty when identical.
+ */
+function firstDiffs(got: string[][], want: string[][], max = 12): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < Math.max(got.length, want.length) && out.length < max; i += 1) {
+    const g = got[i];
+    const w = want[i];
+    if (!g || !w) {
+      out.push(`#${i}: ${!w ? 'EXTRA parsed row' : 'MISSING parsed row'}: ${(g ?? w)!.join('|')}`);
+      continue;
+    }
+    const bad = FIELDS.filter((_, k) => g[k] !== w[k]);
+    if (bad.length > 0) {
+      out.push(
+        `#${i} [${bad.join(', ')}] ` +
+          bad
+            .map(
+              (f) =>
+                `${f}: expected ${JSON.stringify(w[FIELDS.indexOf(f)])} got ${JSON.stringify(g[FIELDS.indexOf(f)])}`,
+            )
+            .join('; '),
+      );
+    }
+  }
+  return out;
+}
+
 const goldenIt = existsSync(DOCX) ? it : it.skip;
 describe('GOLDEN: real 2025 Course Dibba (course-dibba-2025-s1.docx)', () => {
   goldenIt(
@@ -415,29 +448,7 @@ describe('GOLDEN: real 2025 Course Dibba (course-dibba-2025-s1.docx)', () => {
 
       // Diagnostics FIRST, so a mismatch explains itself (which fields, raw cell)
       // instead of a bare count. Expected values are never adjusted to pass.
-      const firstDiff: string[] = [];
-      for (let i = 0; i < Math.max(got.length, want.length) && firstDiff.length < 12; i += 1) {
-        const g = got[i];
-        const w = want[i];
-        if (!g || !w) {
-          firstDiff.push(
-            `#${i}: ${!w ? 'EXTRA parsed row' : 'MISSING parsed row'}: ${(g ?? w)!.join('|')}`,
-          );
-          continue;
-        }
-        const bad = FIELDS.filter((_, k) => g[k] !== w[k]);
-        if (bad.length > 0) {
-          firstDiff.push(
-            `#${i} [${bad.join(', ')}] ` +
-              bad
-                .map(
-                  (f) =>
-                    `${f}: expected ${JSON.stringify(w[FIELDS.indexOf(f)])} got ${JSON.stringify(g[FIELDS.indexOf(f)])}`,
-                )
-                .join('; '),
-          );
-        }
-      }
+      const firstDiff = firstDiffs(got, want);
       const headerWarnings = result.warnings.filter((w) =>
         w.includes('disagrees with standard slot map'),
       );
@@ -489,5 +500,72 @@ describe('GOLDEN: real 2025 Course Dibba (course-dibba-2025-s1.docx)', () => {
       expect(result.rows.length).toBe(1077);
     },
     60_000,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GOLDEN (local-data + LibreOffice): the ORIGINAL .doc through OUR conversion
+// path. The committed fixture was converted by LibreOffice 24.2 on another
+// machine; this proves the Phase 3 upload path (.doc → ensureDocxFormat →
+// parseDibbaDocx) reaches the same frozen numbers with whatever soffice is
+// installed here. Probe-skips when the .doc (gitignored) or soffice is absent.
+// ---------------------------------------------------------------------------
+const LOCAL_DOC = join(__dirname, '..', '..', '..', '..', 'local-data', 'course-dibba-2025-s1.doc');
+const localDocIt = existsSync(LOCAL_DOC) ? it : it.skip;
+describe('GOLDEN (local-data + LibreOffice): raw 2025 .doc via ensureDocxFormat', () => {
+  localDocIt(
+    'converting the original .doc locally reaches 1,077 rows / 638 codes / 41 programmes and matches the reference CSV (whitespace-insensitive)',
+    async (ctx) => {
+      if (!(await sofficeAvailable())) return ctx.skip();
+      const ensured = await ensureDocxFormat(LOCAL_DOC);
+      try {
+        const result = await parseDibbaDocx({ path: ensured.path });
+        const fromFixture = await parseDibbaDocx({ path: DOCX });
+        // A different LibreOffice build may serialize whitespace differently
+        // (NBSP vs space, line breaks inside a cell) — not a parsing difference —
+        // so EVERY field is whitespace-normalized here, unlike the fixture golden
+        // above, where only course_title is.
+        const ws = (fields: string[]) => fields.map(normTitle);
+        const got = result.rows.map((r) => ws(fieldsOfRow(r)));
+        const want = readCsv(REF_CSV).map((r) => ws(fieldsOfCsv(r)));
+        const firstDiff = firstDiffs(got, want);
+        const headerWarnings = result.warnings.filter((w) =>
+          w.includes('disagrees with standard slot map'),
+        );
+        const identicalToFixture = result.rows.filter((r, i) => {
+          const f = fromFixture.rows[i];
+          return (
+            f !== undefined && JSON.stringify(fieldsOfRow(r)) === JSON.stringify(fieldsOfRow(f))
+          );
+        }).length;
+        const summary = [
+          `rows: got ${got.length}, expected ${want.length}`,
+          `unique codes: ${new Set(result.rows.map((r) => r.courseCode)).size} (expected 638)`,
+          `programmes: ${new Set(result.rows.map((r) => r.programmeCode)).size} (expected 41)`,
+          `tables: ${result.tableCount} (expected 51)`,
+          `rows identical to the committed fixture's parse (before normalization): ${identicalToFixture} / ${fromFixture.rows.length}`,
+          `warnings: ${result.warnings.length} total; header=${headerWarnings.length} (expected 3)`,
+          ...result.warnings.map((w) => `  warn: ${w}`),
+          ...(firstDiff.length
+            ? ['first differing rows (field: expected vs got):', ...firstDiff.map((d) => `  ${d}`)]
+            : ['rows: identical (whitespace-insensitive) on all 14 compared columns']),
+        ].join('\n');
+
+        // Counts first: a count difference is the finding to report before Phase 3.
+        expect(got.length, summary).toBe(1077);
+        expect(new Set(result.rows.map((r) => r.courseCode)).size, summary).toBe(638);
+        expect(new Set(result.rows.map((r) => r.programmeCode)).size, summary).toBe(41);
+        expect(firstDiff, summary).toEqual([]);
+        expect(headerWarnings, summary).toEqual(
+          readFileSync(REF_WARNINGS, 'utf8')
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean),
+        );
+      } finally {
+        await ensured.cleanup();
+      }
+    },
+    180_000,
   );
 });
