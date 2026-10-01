@@ -34,9 +34,11 @@ function cellText(v: ExcelJS.CellValue | undefined): string {
         .trim();
     if ('result' in v) return cellText(v.result as ExcelJS.CellValue);
     if ('text' in v) return cellText(v.text as ExcelJS.CellValue);
-    if ('error' in v) return '';
+    // formula / sharedFormula with no cached result (the Course No. column),
+    // error values and any shape not modelled above: never "[object Object]".
+    return '';
   }
-  return String(v).trim();
+  return '';
 }
 
 /** header name (trimmed) → 1-based column index, from row 1 of a worksheet. */
@@ -136,7 +138,7 @@ export function facultyRowsFromRecords(records: Array<Record<string, string>>): 
       email: email || null,
       psrnOrGfid: get('PSRN/GFID') || get('psrn_or_gfid') || null,
       department: get('Department') || get('department') || null,
-      campus: get('campus') || get('campus') || null,
+      campus: get('campus') || null,
     });
   }
   return out;

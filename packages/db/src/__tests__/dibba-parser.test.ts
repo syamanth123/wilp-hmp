@@ -180,6 +180,118 @@ describe('parseDibbaHtml on a miniature Dibba', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Regression cases from the Phase 2 adversarial review
+// ---------------------------------------------------------------------------
+describe('review regressions', () => {
+  const T = (rows: string) => `<table>${rows}</table>`;
+  const title = '<tr><td colspan="4"><p>HT02 M.Tech. (Environment Engineering)</p></td></tr>';
+
+  it('a merged header cell warns ONCE and fans its slot out to every column it spans', () => {
+    const r = parseDibbaHtml(
+      T(
+        title +
+          '<tr><td>Admit Batch</td><td>SL1(SAT FN)</td><td colspan="2">SL7(SAT FN)</td></tr>' +
+          '<tr><td>2/2024</td><td>ES ZG611|A</td><td>IS ZC364|B</td><td>IS ZC424|C</td></tr>',
+      ),
+    );
+    expect(r.warnings.filter((w) => w.includes('disagrees'))).toHaveLength(1);
+    expect(r.rows.map((x) => `SL${x.slotNo}|${x.courseCode}`)).toEqual([
+      'SL1|ES ZG611',
+      'SL7|IS ZC364',
+      'SL7|IS ZC424',
+    ]);
+  });
+
+  it('the column-position fallback uses the DISTINCT-cell index (prototype), not the grid index', () => {
+    const r = parseDibbaHtml(
+      T(
+        title +
+          '<tr><td>Admit Batch</td><td colspan="2">SL1(SAT FN)</td><td>Slot</td></tr>' +
+          '<tr><td>2/2024</td><td>ES ZG611|A</td><td>IS ZC364|B</td><td>IS ZC424|C</td></tr>',
+      ),
+    );
+    expect(r.warnings).toEqual([
+      'table 0 HT02 M.Tech. (Environment Engineering): slot inferred from column position for header "Slot"',
+    ]);
+    expect(r.rows.map((x) => `SL${x.slotNo}`)).toEqual(['SL1', 'SL1', 'SL2']);
+  });
+
+  it('a merged "Admit Batch" label cell produces no bogus fallback warning and aligns data', () => {
+    const r = parseDibbaHtml(
+      T(
+        title +
+          '<tr><td colspan="2">Admit Batch</td><td>SL1(SAT FN)</td></tr>' +
+          '<tr><td colspan="2">2/2024<p>(50)</p></td><td>ES ZG611|A</td></tr>',
+      ),
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.rows.map((x) => `SL${x.slotNo}|${x.studentCount}`)).toEqual(['SL1|50']);
+  });
+
+  it('a batch cell WIDER than the header label warns (the one case the prototype would misalign)', () => {
+    const r = parseDibbaHtml(
+      T(
+        title +
+          '<tr><td>Admit Batch</td><td>SL1(SAT FN)</td><td>SL2(SAT AN)</td></tr>' +
+          '<tr><td colspan="2">2/2024</td><td>ES ZG611|A</td></tr>',
+      ),
+    );
+    expect(r.warnings).toEqual([
+      'table 0 HT02 M.Tech. (Environment Engi batch 2/2024: batch cell spans 2 columns (header label spans 1) — later cells keep their true slot',
+    ]);
+    expect(r.rows.map((x) => `SL${x.slotNo}`)).toEqual(['SL2']);
+  });
+
+  it('a heading-styled paragraph inside a cell still breaks the line (student count survives)', () => {
+    const r = parseDibbaHtml(
+      T(
+        title +
+          '<tr><td>Admit Batch</td><td>SL1(SAT FN)</td></tr>' +
+          '<tr><td><p>2/2023</p><h4>200</h4><p>3 Core</p></td><td><strong>ES</strong> ZG611|A</td></tr>',
+      ),
+    );
+    expect(r.rows[0]).toMatchObject({ studentCount: 200, courseCode: 'ES ZG611' });
+  });
+
+  it('a nested table is cut out and reported; the ENCLOSING table keeps all its rows and its number', () => {
+    const r = parseDibbaHtml(
+      '<table><tr><td>Index</td></tr></table>' +
+        T(
+          title +
+            '<tr><td>Admit Batch</td><td>SL1(SAT FN)</td></tr>' +
+            '<tr><td><table><tr><td>inner</td></tr></table>2/2024</td><td>ES ZG611|A</td></tr>' +
+            '<tr><td>1/2025<p>NEW ADM</p></td><td>ES ZG612|B</td></tr>',
+        ),
+    );
+    expect(r.tableCount).toBe(2);
+    expect(r.warnings).toEqual(['table 1: nested table detected — its cells were ignored']);
+    expect(r.rows.map((x) => `${x.admitBatch}|${x.courseCode}`)).toEqual([
+      '2/2024|ES ZG611',
+      '1/2025|ES ZG612',
+    ]);
+  });
+
+  it('parseBatchCell blanks EVERY batch token, so a line-split second token cannot leak its year as a count', () => {
+    expect(parseBatchCell('2/2024\n1/\n2025')).toMatchObject({
+      admitBatch: '2/2024',
+      studentCount: null,
+    });
+  });
+
+  it('a no-code warning renders an absent batch exactly like the prototype ("batch  SL…")', () => {
+    const r = parseDibbaHtml(
+      T(
+        title +
+          '<tr><td>Admit Batch</td><td>SL1(SAT FN)</td></tr><tr><td>Backlog</td><td>TBD</td></tr>',
+      ),
+    );
+    expect(r.warnings).toEqual([
+      "table 0 HT02 M.Tech. (Environment Engi batch  SL1: no course code in 'TBD'",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GOLDEN: the real 2025 Dibba (committed as a pre-converted .docx)
 // ---------------------------------------------------------------------------
 /** Minimal RFC 4180 reader (quoted commas/newlines) — test-local to avoid a cross-package import. */
@@ -216,36 +328,98 @@ function readCsv(path: string): Record<string, string>[] {
   return records.slice(1).map((r) => Object.fromEntries(header.map((h, i) => [h, r[i] ?? ''])));
 }
 
+/**
+ * The prototype labelled every non-CORE/BACKLOG/NOT_OFFERED row
+ * ELECTIVE_OR_UNSPECIFIED; the parser follows spec §5.5 instead (UNSPECIFIED,
+ * and trailing-T codes → PROJECT ahead of CORE). This maps the reference label
+ * to what the parser is REQUIRED to emit — it is a documented label change, not
+ * a relaxation of the comparison.
+ */
+function expectedCourseType(csvType: string, code: string): string {
+  if (csvType === 'NOT_OFFERED' || csvType === 'BACKLOG') return csvType;
+  if (code.endsWith('T')) return 'PROJECT';
+  return csvType === 'ELECTIVE_OR_UNSPECIFIED' ? 'UNSPECIFIED' : csvType;
+}
+
+/** Every reference column except `source`, in a fixed order, as comparable strings. */
+const FIELDS = [
+  'programme',
+  'programme_code',
+  'admit_batch',
+  'is_new_admission',
+  'is_backlog_row',
+  'student_count',
+  'slot',
+  'slot_day',
+  'slot_session',
+  'course_code',
+  'course_title',
+  'course_type',
+  'class_time_hint',
+  'raw_cell',
+] as const;
+
+function fieldsOfRow(r: Awaited<ReturnType<typeof parseDibbaDocx>>['rows'][number]): string[] {
+  return [
+    r.programmeTitle.replace(/\s+/g, ' ').trim(),
+    r.programmeCode,
+    r.admitBatch ?? '',
+    String(r.isNewAdmission),
+    String(r.isBacklogRow),
+    r.studentCount === null ? '' : String(r.studentCount),
+    String(r.slotNo),
+    r.slotDay ?? '',
+    r.slotSession ?? '',
+    r.courseCode,
+    r.courseTitle,
+    r.courseType,
+    r.classTimeHint ?? '',
+    r.rawCell,
+  ];
+}
+
+function fieldsOfCsv(r: Record<string, string>): string[] {
+  return FIELDS.map((f) => {
+    const v = r[f] ?? '';
+    if (f === 'programme') return v.replace(/\s+/g, ' ').trim();
+    if (f === 'is_new_admission' || f === 'is_backlog_row') return v === 'True' ? 'true' : 'false';
+    if (f === 'course_type') return expectedCourseType(v, r['course_code'] ?? '');
+    return v;
+  });
+}
+
 const goldenIt = existsSync(DOCX) ? it : it.skip;
 describe('GOLDEN: real 2025 Course Dibba (course-dibba-2025-s1.docx)', () => {
   goldenIt(
-    'parses 1,077 rows / 638 codes / 41 programmes / exactly 3 header warnings and matches the reference CSV row by row',
+    'parses 1,077 rows / 638 codes / 41 programmes / exactly 3 header warnings and matches the reference CSV on every column',
     async () => {
       const result = await parseDibbaDocx({ path: DOCX });
       const ref = readCsv(REF_CSV);
-      const key = (r: {
-        programmeCode: string;
-        admitBatch: string | null;
-        slotNo: number;
-        courseCode: string;
-      }) => `${r.programmeCode}|${r.admitBatch ?? ''}|${r.slotNo}|${r.courseCode}`;
-      const got = result.rows.map(key);
-      const want = ref.map((r) =>
-        key({
-          programmeCode: r['programme_code'] ?? '',
-          admitBatch: r['admit_batch'] || null,
-          slotNo: Number(r['slot']),
-          courseCode: r['course_code'] ?? '',
-        }),
-      );
+      const got = result.rows.map(fieldsOfRow);
+      const want = ref.map(fieldsOfCsv);
 
-      // Diagnostics FIRST, so a mismatch explains itself instead of a bare count.
+      // Diagnostics FIRST, so a mismatch explains itself (which fields, raw cell)
+      // instead of a bare count. Expected values are never adjusted to pass.
       const firstDiff: string[] = [];
       for (let i = 0; i < Math.max(got.length, want.length) && firstDiff.length < 12; i += 1) {
-        if (got[i] !== want[i]) {
+        const g = got[i];
+        const w = want[i];
+        if (!g || !w) {
           firstDiff.push(
-            `#${i}: expected ${want[i] ?? '(none)'} | got ${got[i] ?? '(none)'}` +
-              (result.rows[i] ? ` | raw: ${result.rows[i]!.rawCell}` : ''),
+            `#${i}: ${!w ? 'EXTRA parsed row' : 'MISSING parsed row'}: ${(g ?? w)!.join('|')}`,
+          );
+          continue;
+        }
+        const bad = FIELDS.filter((_, k) => g[k] !== w[k]);
+        if (bad.length > 0) {
+          firstDiff.push(
+            `#${i} [${bad.join(', ')}] ` +
+              bad
+                .map(
+                  (f) =>
+                    `${f}: expected ${JSON.stringify(w[FIELDS.indexOf(f)])} got ${JSON.stringify(g[FIELDS.indexOf(f)])}`,
+                )
+                .join('; '),
           );
         }
       }
@@ -253,16 +427,18 @@ describe('GOLDEN: real 2025 Course Dibba (course-dibba-2025-s1.docx)', () => {
         w.includes('disagrees with standard slot map'),
       );
       const noCodeWarnings = result.warnings.filter((w) => w.includes('no course code in'));
+      const spanWarnings = result.warnings.filter((w) => w.includes('spans'));
       const summary = [
         `rows: got ${got.length}, expected ${want.length}`,
         `unique codes: ${new Set(result.rows.map((r) => r.courseCode)).size} (expected 638)`,
         `programmes: ${new Set(result.rows.map((r) => r.programmeCode)).size} (expected 41)`,
         `tables: ${result.tableCount} (expected 51)`,
-        `warnings: ${result.warnings.length} total; header=${headerWarnings.length} (expected 3), no-code=${noCodeWarnings.length} (expected 0)`,
+        `studentCount non-null: ${result.rows.filter((r) => r.studentCount !== null).length} (reference 767); classTimeHint non-null: ${result.rows.filter((r) => r.classTimeHint).length} (reference 22)`,
+        `warnings: ${result.warnings.length} total; header=${headerWarnings.length} (expected 3), no-code=${noCodeWarnings.length} (expected 0), span=${spanWarnings.length}`,
         ...result.warnings.map((w) => `  warn: ${w}`),
         ...(firstDiff.length
-          ? ['first differing rows:', ...firstDiff.map((d) => `  ${d}`)]
-          : ['rows: identical']),
+          ? ['first differing rows (field: expected vs got):', ...firstDiff.map((d) => `  ${d}`)]
+          : ['rows: identical on all 14 compared columns']),
       ].join('\n');
 
       expect(firstDiff, summary).toEqual([]);

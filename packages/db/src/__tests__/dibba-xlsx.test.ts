@@ -105,11 +105,19 @@ async function syntheticWorkbook(): Promise<Buffer> {
     '',
   ]);
   dibba.addRow(['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']); // blank → skipped
+  // Row 2's Remarks: a formula with NO cached result must read as '' (never "[object Object]").
+  dibba.getCell('Q2').value = { formula: 'IF(1,"",0)' } as ExcelJS.CellValue;
   const faculty = wb.addWorksheet('Sheet3');
   const rows = readSimpleCsv(join(FIXTURES, 'faculty-synthetic.csv'));
   const headers = Object.keys(rows[0]!);
   faculty.addRow(headers);
   for (const r of rows) faculty.addRow(headers.map((h) => r[h] ?? ''));
+  // Real sheets store some emails as hyperlink objects — the text must still be read.
+  const emailCol = headers.indexOf('Email') + 1;
+  faculty.getCell(2, emailCol).value = {
+    text: 'alpha.one@example.edu',
+    hyperlink: 'mailto:alpha.one@example.edu',
+  } as ExcelJS.CellValue;
   wb.addWorksheet('Not Offered').addRow(['derived view — ignored']);
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
@@ -130,6 +138,7 @@ describe('parseDibbaXlsx (synthetic workbook)', () => {
       studentCountRaw: 'New ADM',
       erpCourseId: '505648',
       minUnits: '4',
+      remarks: '', // uncached formula → '' (review finding)
     });
     expect(rows[1]).toMatchObject({
       studentCountRaw: '453',
@@ -198,8 +207,10 @@ describe('GOLDEN (local-data only): real 2024 Excel Dibba', () => {
       expect(dibba.length, summary).toBe(937);
       expect(faculty.length, summary).toBe(545);
       expect(faculty.filter((f) => f.email).length, summary).toBe(526);
-      // no phone number can be present: every value is a code/name/email/id/campus
-      expect(JSON.stringify(faculty)).not.toMatch(/\b[6-9]\d{9}\b/);
+      // No phone number can be present. Assert a COUNT, not the payload: on failure
+      // vitest prints the received value, and this array holds real names/emails.
+      const phoneShaped = faculty.filter((f) => /\b[6-9]\d{9}\b/.test(JSON.stringify(f))).length;
+      expect(phoneShaped, 'rows carrying a phone-shaped value').toBe(0);
     },
     60_000,
   );
