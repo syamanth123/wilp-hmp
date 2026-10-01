@@ -1,6 +1,7 @@
 import mammoth from 'mammoth';
 import { findDibbaCourseCodes } from '../course-code';
 import { standardSlotNo, type SlotDay, type SlotSession } from '../dibba-slots';
+import { DIBBA_WARNING_MARKERS as M } from '../dibba-warnings';
 import type { DibbaCourseType, DibbaParseResult, DibbaRow } from './types';
 
 /**
@@ -58,7 +59,7 @@ export function htmlTablesToGrids(html: string): { grids: TableGrid[]; warnings:
   // and the table numbering carried in warning text stays aligned with the prototype.
   splitTopLevelTables(html).forEach(({ inner, nested }, tableIndex) => {
     if (nested) {
-      warnings.push(`table ${tableIndex}: nested table detected — its cells were ignored`);
+      warnings.push(`table ${tableIndex}: ${M['nested-table']} — its cells were ignored`);
     }
     let overlapWarned = false;
     const grid: TableGrid = [];
@@ -79,7 +80,7 @@ export function htmlTablesToGrids(html: string): { grids: TableGrid[]; warnings:
         if (row[col] !== undefined && row[col]!.id !== cell.id && !overlapWarned) {
           overlapWarned = true;
           warnings.push(
-            `table ${tableIndex}: overlapping merged cells at row ${r}, column ${col} — later cells may be shifted`,
+            `table ${tableIndex}: ${M['overlap-cell']} at row ${r}, column ${col} — later cells may be shifted`,
           );
         }
         row[col] = cell;
@@ -217,9 +218,11 @@ export function parseSlotHeader(header: string, columnIndex: number): SlotHeader
   let warning: string | null = null;
   if (slotNo === undefined) {
     slotNo = columnIndex; // last resort: column position (column 1 == SL1)
-    warning = `slot inferred from column position for header "${header.trim()}"`;
+    // Header text is echoed bounded (60 chars, like the no-code family): warnings
+    // are stored and rendered in full, so a runaway cell must not become a runaway row.
+    warning = `slot ${M['inferred-slot']} for header "${header.trim().slice(0, 60)}"`;
   } else if (sl && standard !== undefined && standard !== slotNo) {
-    warning = `header "${header.trim()}" disagrees with standard slot map (SL${slotNo} vs ${day} ${session})`;
+    warning = `header "${header.trim().slice(0, 60)}" ${M.header} (SL${slotNo} vs ${day} ${session})`;
   }
   return { slotNo, day, session, warning };
 }
@@ -345,7 +348,7 @@ export function parseDibbaHtml(html: string): DibbaParseResult {
           // keeps true columns, so say so — a slot-only golden diff then explains itself.
           if (col === 0 && span !== headerFirstWidth) {
             warnings.push(
-              `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''}: batch cell spans ${span} columns (header label spans ${headerFirstWidth}) — later cells keep their true slot`,
+              `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''}: ${M['batch-cell']} ${span} columns (header label spans ${headerFirstWidth}) — later cells keep their true slot`,
             );
           }
           col += span;
@@ -359,14 +362,14 @@ export function parseDibbaHtml(html: string): DibbaParseResult {
         }
         if (span > 1) {
           warnings.push(
-            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''}: cell spans ${span} slot columns (SL${h.slotNo}..), assigned to SL${h.slotNo}`,
+            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''}: cell spans ${span}${M['merged-cell']} (SL${h.slotNo}..), assigned to SL${h.slotNo}`,
           );
         }
         const codes = findDibbaCourseCodes(text);
         if (codes.length === 0) {
           // Prototype text exactly (empty batch renders as "batch  SL…").
           warnings.push(
-            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''} SL${h.slotNo}: no course code in '${text.trim().slice(0, 60)}'`,
+            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''} SL${h.slotNo}: ${M['no-code']} '${text.trim().slice(0, 60)}'`,
           );
         }
         codes.forEach((found, k) => {

@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { findDibbaCourseCodes } from '../course-code';
+import { DIBBA_WARNING_MARKERS as M } from '../dibba-warnings';
 import type { FacultyRow, XlsxDibbaRow } from './types';
 
 /**
@@ -63,11 +64,22 @@ function rowReader(ws: ExcelJS.Worksheet, headers: Map<string, number>) {
 
 const toInt = (s: string): number | null => (/^\d+$/.test(s) ? parseInt(s, 10) : null);
 
+/** `parseDibbaXlsxDetailed` result: rows plus what the reader could NOT read. */
+export interface XlsxDibbaParse {
+  rows: XlsxDibbaRow[];
+  /** Phase 3: rows dropped for want of a course code, unreadable Exam Slot cells (markers from dibba-warnings). */
+  warnings: string[];
+  /** Data rows visited (sheet rows 2..N, blank rows included) — "how much of the sheet was read". */
+  sheetRowCount: number;
+}
+
 /**
  * Read the `Course Dibba S1-…` sheet (first sheet whose name starts with
- * "Course Dibba"). One row per programme × admit batch × course.
+ * "Course Dibba"). One row per programme × admit batch × course. Nothing is
+ * dropped silently (spec §5): a non-blank row without a readable course code
+ * and a non-numeric Exam Slot each produce a warning.
  */
-export async function parseDibbaXlsx(input: XlsxInput): Promise<XlsxDibbaRow[]> {
+export async function parseDibbaXlsxDetailed(input: XlsxInput): Promise<XlsxDibbaParse> {
   const wb = await loadWorkbook(input);
   const ws = wb.worksheets.find((w) => /^course dibba/i.test(w.name));
   if (!ws) {
@@ -82,14 +94,30 @@ export async function parseDibbaXlsx(input: XlsxInput): Promise<XlsxDibbaRow[]> 
     throw new Error(`Course Dibba sheet is missing column(s): ${missing.join(', ')}`);
   }
   const read = rowReader(ws, headers);
-  const out: XlsxDibbaRow[] = [];
+  const rows: XlsxDibbaRow[] = [];
+  const warnings: string[] = [];
   for (let r = 2; r <= ws.rowCount; r += 1) {
     const get = read(r);
     const subject = get('Subject');
-    if (!subject) continue;
-    const found = findDibbaCourseCodes(`${subject}${get('Catalog')}`)[0];
-    if (!found) continue;
-    out.push({
+    const catalog = get('Catalog');
+    const title = get('Unique Title') || get('Descr');
+    // A fully blank row (no plan, no code cells, no title) is just spacing.
+    if (!subject && !catalog && !title && !get('Acad Plan')) continue;
+    const found = findDibbaCourseCodes(`${subject}${catalog}`)[0];
+    if (!found) {
+      warnings.push(
+        `sheet row ${r}: ${M['xlsx-dropped-row']} in '${`${subject} ${catalog}`.trim().slice(0, 40)}'`,
+      );
+      continue;
+    }
+    const slotRaw = get('Exam Slot');
+    const slotNo = toInt(slotRaw);
+    if (slotNo === null) {
+      warnings.push(
+        `sheet row ${r} ${found.code}: ${M['xlsx-bad-slot']} ('${slotRaw.slice(0, 20)}') — stored with no slot`,
+      );
+    }
+    rows.push({
       acadPlan: get('Acad Plan'),
       degree: get('Degree Programme'),
       programme: get('Programme'),
@@ -98,15 +126,20 @@ export async function parseDibbaXlsx(input: XlsxInput): Promise<XlsxDibbaRow[]> 
       studentCountRaw: get('Active Student No.'),
       domain: get('Domain'),
       courseTypeRaw: get('Type').toUpperCase(),
-      slotNo: toInt(get('Exam Slot')),
+      slotNo,
       erpCourseId: get('Course ID') || null,
       courseCode: found.code,
-      courseTitle: get('Unique Title') || get('Descr'),
+      courseTitle: title,
       minUnits: get('Min Units'),
       remarks: get('Remarks'),
     });
   }
-  return out;
+  return { rows, warnings, sheetRowCount: Math.max(0, ws.rowCount - 1) };
+}
+
+/** Rows only (Phase 2 shape) — see `parseDibbaXlsxDetailed` for the warnings. */
+export async function parseDibbaXlsx(input: XlsxInput): Promise<XlsxDibbaRow[]> {
+  return (await parseDibbaXlsxDetailed(input)).rows;
 }
 
 /**

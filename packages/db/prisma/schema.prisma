@@ -734,6 +734,11 @@ model AcademicTerm {
   instructors CourseInstructor[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt // IC edits the dates
+
+  // One real semester = one term (Phase 3): two differently named rows for the
+  // same (year, term) would split a schedule. Added before any production term
+  // exists, so the unique index can never fail on existing data.
+  @@unique([year, term])
 }
 
 // One uploaded Dibba file version for a term. Publish flips the previous
