@@ -341,6 +341,20 @@ function expectedCourseType(csvType: string, code: string): string {
   return csvType === 'ELECTIVE_OR_UNSPECIFIED' ? 'UNSPECIFIED' : csvType;
 }
 
+/**
+ * `course_title` is compared whitespace-normalized on BOTH sides. Cause: the
+ * reference CSV came from python-docx, which keeps the Word document's raw
+ * intra-line whitespace — NBSP (U+00A0, even trailing, which Python's
+ * `.strip(' /|:')` leaves alone) and double spaces — in 15 of 1,077 titles
+ * (e.g. "MATERIALS MANAGEMENT<NBSP>", "ADVANCED  DIGITAL SIGNAL PROCESSING").
+ * Our parser collapses those on purpose: they are Word clutter, not
+ * information, and would break search/sort/dedup in the product. Decision A,
+ * 2026-10-01. The reference CSV is deliberately left as the honest record of
+ * the prototype's output. The "clean titles" test below guards the other
+ * direction so this tolerance can never hide clutter creeping INTO our output.
+ */
+const normTitle = (s: string): string => s.replace(/\s+/g, ' ').trim(); // \s covers U+00A0
+
 /** Every reference column except `source`, in a fixed order, as comparable strings. */
 const FIELDS = [
   'programme',
@@ -371,7 +385,7 @@ function fieldsOfRow(r: Awaited<ReturnType<typeof parseDibbaDocx>>['rows'][numbe
     r.slotDay ?? '',
     r.slotSession ?? '',
     r.courseCode,
-    r.courseTitle,
+    normTitle(r.courseTitle),
     r.courseType,
     r.classTimeHint ?? '',
     r.rawCell,
@@ -383,6 +397,7 @@ function fieldsOfCsv(r: Record<string, string>): string[] {
     const v = r[f] ?? '';
     if (f === 'programme') return v.replace(/\s+/g, ' ').trim();
     if (f === 'is_new_admission' || f === 'is_backlog_row') return v === 'True' ? 'true' : 'false';
+    if (f === 'course_title') return normTitle(v);
     if (f === 'course_type') return expectedCourseType(v, r['course_code'] ?? '');
     return v;
   });
@@ -453,6 +468,25 @@ describe('GOLDEN: real 2025 Course Dibba (course-dibba-2025-s1.docx)', () => {
           .map((l) => l.trim())
           .filter(Boolean),
       );
+    },
+    60_000,
+  );
+
+  // Positive guard for the whitespace tolerance above: the comparison ignores
+  // NBSP/double-space clutter in the REFERENCE, so this fails if any such
+  // clutter ever appears in OUR output.
+  goldenIt(
+    'every parsed course_title is clean: no U+00A0, no double space, no leading/trailing whitespace',
+    async () => {
+      const result = await parseDibbaDocx({ path: DOCX });
+      const NBSP = String.fromCharCode(0xa0);
+      const dirty = result.rows
+        .map((r, i) => ({ i, code: r.courseCode, title: r.courseTitle }))
+        .filter(
+          ({ title }) => title.includes(NBSP) || title.includes('  ') || title !== title.trim(),
+        );
+      expect(dirty, `dirty titles: ${JSON.stringify(dirty.slice(0, 10))}`).toEqual([]);
+      expect(result.rows.length).toBe(1077);
     },
     60_000,
   );
