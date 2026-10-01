@@ -8,8 +8,9 @@ import type { DibbaCourseType, DibbaParseResult, DibbaRow } from './types';
  * rows + warnings out. No I/O beyond reading the input, no Prisma. Server-only
  * (mammoth) — import via `@hmp/db/src/dibba-import`, never from the barrel.
  *
- * Port of tools/dibba-prototype/parse_dibba.py, whose rules were proven on the
- * real 2025 file (1,077 rows / 638 codes / 41 programmes / 3 header warnings).
+ * Port of docs/course-dibba/parse_dibba.py (the starter-kit prototype), whose
+ * rules were proven on the real 2025 file (1,077 rows / 638 codes / 41
+ * programmes / 3 header warnings); the spec is docs/course-dibba-schedule.md §5.
  * The one deliberate difference from both the prototype and corpus-import's
  * table walker: this one honors `colspan` / `rowspan`. The Dibba's programme
  * title rows are merged across the whole table and a batch cell can span
@@ -51,15 +52,15 @@ export type TableGrid = GridCell[][];
 export function htmlTablesToGrids(html: string): { grids: TableGrid[]; warnings: string[] } {
   const grids: TableGrid[] = [];
   const warnings: string[] = [];
-  const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
-  let m: RegExpExecArray | null;
   let nextId = 1;
-  let tableIndex = 0;
-  while ((m = tableRegex.exec(html)) !== null) {
-    const inner = m[1] ?? '';
-    if (/<table/i.test(inner)) {
-      warnings.push(`table ${tableIndex}: nested table detected — cells may be misread`);
+  // Top-level tables only (= python-docx's `doc.tables`): a nested table is cut
+  // out of its parent cell and reported, so the ENCLOSING table keeps every row
+  // and the table numbering carried in warning text stays aligned with the prototype.
+  splitTopLevelTables(html).forEach(({ inner, nested }, tableIndex) => {
+    if (nested) {
+      warnings.push(`table ${tableIndex}: nested table detected — its cells were ignored`);
     }
+    let overlapWarned = false;
     const grid: TableGrid = [];
     // pending[r][c] = cell carried down from an earlier row by rowspan
     const pending = new Map<number, Map<number, GridCell>>();
@@ -73,6 +74,14 @@ export function htmlTablesToGrids(html: string): { grids: TableGrid[]; warnings:
       let cm: RegExpExecArray | null;
       let c = 0;
       const place = (col: number, cell: GridCell): void => {
+        // Word cannot produce overlapping merges, so this only fires on malformed
+        // HTML; report once per table instead of silently dropping a cell.
+        if (row[col] !== undefined && row[col]!.id !== cell.id && !overlapWarned) {
+          overlapWarned = true;
+          warnings.push(
+            `table ${tableIndex}: overlapping merged cells at row ${r}, column ${col} — later cells may be shifted`,
+          );
+        }
         row[col] = cell;
       };
       while ((cm = cellRegex.exec(rm[1] ?? '')) !== null) {
@@ -103,9 +112,38 @@ export function htmlTablesToGrids(html: string): { grids: TableGrid[]; warnings:
       r += 1;
     }
     grids.push(grid);
-    tableIndex += 1;
-  }
+  });
   return { grids, warnings };
+}
+
+/**
+ * Balanced scan for top-level `<table>` elements. Content at nesting depth 1
+ * belongs to the top-level table; anything deeper (a nested table) is dropped
+ * and flagged, matching python-docx where `doc.tables` never sees nested ones.
+ */
+function splitTopLevelTables(html: string): Array<{ inner: string; nested: boolean }> {
+  const out: Array<{ inner: string; nested: boolean }> = [];
+  const token = /<table\b[^>]*>|<\/table\s*>/gi;
+  let depth = 0;
+  let parts: string[] = [];
+  let nested = false;
+  let cursor = 0;
+  let t: RegExpExecArray | null;
+  while ((t = token.exec(html)) !== null) {
+    if (depth === 1) parts.push(html.slice(cursor, t.index));
+    if (t[0][1] !== '/') {
+      depth += 1;
+      if (depth === 1) {
+        parts = [];
+        nested = false;
+      } else nested = true;
+    } else if (depth > 0) {
+      depth -= 1;
+      if (depth === 0) out.push({ inner: parts.join(''), nested });
+    }
+    cursor = t.index + t[0].length;
+  }
+  return out;
 }
 
 /**
@@ -116,10 +154,14 @@ export function htmlTablesToGrids(html: string): { grids: TableGrid[]; warnings:
  * corpus-import does for its own needs).
  */
 function cellText(innerHtml: string): string {
+  // EVERY block-level boundary becomes "\n": mammoth's default style map turns
+  // heading-styled paragraphs into <h1>-<h6>, and a fused line would silently
+  // blank the "number alone on its own line" student count (review finding).
+  // Inline tags (<strong>, <em>, <a>…) are removed without a separator so a
+  // bold run inside a word cannot split it.
   const withBreaks = innerHtml
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p\s*>/gi, '\n')
-    .replace(/<\/li\s*>/gi, '\n')
+    .replace(/<\/(?:p|h[1-6]|li|div|blockquote|pre|dd|dt|tr|td|th)\s*>/gi, '\n')
     .replace(/<[^>]*>/g, '');
   return decodeEntities(withBreaks)
     .split('\n')
@@ -195,7 +237,9 @@ interface BatchCell {
 /** "2/2024 \n (178)" → 2/2024 + 178; "2/2020 (5092) (3rdSem) 3 core + EL (00)" → 2/2020 + 0; "2/2024\n502" → 502. */
 export function parseBatchCell(text: string): BatchCell {
   const m = BATCH_RE.exec(text);
-  const rest = text.replace(BATCH_RE, ' ');
+  // Blank EVERY batch token before hunting for the head-count (the prototype's
+  // re.sub is replace-all) — a second, line-split token must not leak its year.
+  const rest = text.replace(/([12])\s*\/\s*(20\d\d)/g, ' ');
   const bracketed = [...rest.matchAll(/\((\d{1,4})\)/g)]
     .map((x) => x[1] ?? '')
     .filter((n) => !ERP_TERM_CODE.test(n));
@@ -246,7 +290,8 @@ export function parseDibbaHtml(html: string): DibbaParseResult {
   grids.forEach((grid, ti) => {
     // Rows are consumed only after an "Admit Batch" header row is seen in THIS
     // table. Table 0 of the 2025 file holds the index AND the first programme.
-    let header: SlotHeader[] | null = null;
+    let header: Array<SlotHeader | undefined> | null = null;
+    let headerFirstWidth = 1; // grid width of the "Admit Batch" label cell
 
     for (const gridRow of grid) {
       const cells = distinctCells(gridRow);
@@ -259,11 +304,29 @@ export function parseDibbaHtml(html: string): DibbaParseResult {
         continue;
       }
       if (isHeader) {
-        // Header by GRID column so data cells can be matched positionally.
-        header = gridRow.map((cell, i) => parseSlotHeader(cell.text, i));
-        for (const h of header.slice(1)) {
-          if (h.warning) warnings.push(`table ${ti} ${programme.slice(0, 40)}: ${h.warning}`);
+        // Parse each PHYSICAL header cell once, indexed by its position among
+        // the distinct cells (exactly the prototype's enumerate(texts), which
+        // also drives the column-position fallback), then fan the result out to
+        // every grid column it spans so data cells align by column. The
+        // column-0 run (the "Admit Batch" label) maps to undefined.
+        const hdr = new Array<SlotHeader | undefined>(gridRow.length).fill(undefined);
+        let c = 0;
+        let di = 0;
+        while (c < gridRow.length) {
+          const cell = gridRow[c]!;
+          let w = 1;
+          while (gridRow[c + w]?.id === cell.id) w += 1;
+          if (di === 0) {
+            headerFirstWidth = w;
+          } else {
+            const h = parseSlotHeader(cell.text, di);
+            if (h.warning) warnings.push(`table ${ti} ${programme.slice(0, 40)}: ${h.warning}`);
+            for (let k = 0; k < w; k += 1) hdr[c + k] = h;
+          }
+          c += w;
+          di += 1;
         }
+        header = hdr;
         continue;
       }
       if (!header) continue;
@@ -277,6 +340,14 @@ export function parseDibbaHtml(html: string): DibbaParseResult {
         let span = 1;
         while (gridRow[col + span]?.id === cell.id) span += 1;
         if (col === 0 || cell.id === firstId) {
+          // A batch cell wider than the header's label cell is the one case where
+          // python-docx's de-duplicated cells shift later slots left; the grid
+          // keeps true columns, so say so — a slot-only golden diff then explains itself.
+          if (col === 0 && span !== headerFirstWidth) {
+            warnings.push(
+              `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''}: batch cell spans ${span} columns (header label spans ${headerFirstWidth}) — later cells keep their true slot`,
+            );
+          }
           col += span;
           continue;
         }
@@ -288,13 +359,14 @@ export function parseDibbaHtml(html: string): DibbaParseResult {
         }
         if (span > 1) {
           warnings.push(
-            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? '-'}: cell spans ${span} slot columns (SL${h.slotNo}..), assigned to SL${h.slotNo}`,
+            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''}: cell spans ${span} slot columns (SL${h.slotNo}..), assigned to SL${h.slotNo}`,
           );
         }
         const codes = findDibbaCourseCodes(text);
         if (codes.length === 0) {
+          // Prototype text exactly (empty batch renders as "batch  SL…").
           warnings.push(
-            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? '-'} SL${h.slotNo}: no course code in '${text.trim().slice(0, 60)}'`,
+            `table ${ti} ${programme.slice(0, 30)} batch ${batch.admitBatch ?? ''} SL${h.slotNo}: no course code in '${text.trim().slice(0, 60)}'`,
           );
         }
         codes.forEach((found, k) => {

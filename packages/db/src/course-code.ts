@@ -99,7 +99,10 @@ export interface FoundCourseCode {
 
 export function findDibbaCourseCodes(text: string): FoundCourseCode[] {
   const out: FoundCourseCode[] = [];
-  for (const m of text.toUpperCase().matchAll(DIBBA_SCAN)) {
+  // Length-preserving uppercase (ASCII letters only) so the offsets index the
+  // ORIGINAL text — String#toUpperCase can change length for some non-ASCII chars.
+  const upper = text.replace(/[a-z]/g, (ch) => ch.toUpperCase());
+  for (const m of upper.matchAll(DIBBA_SCAN)) {
     const prefix = m[1] ?? '';
     const zc = (m[2] ?? '').replace(/\s+/g, '');
     const digits = `${m[3] ?? ''}${m[4] ?? ''}${m[5] ?? ''}${m[6] ?? ''}`;
