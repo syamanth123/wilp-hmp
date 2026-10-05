@@ -57,6 +57,9 @@ model User {
   corpusImportsApproved     HandoutImport[] @relation("CorpusApprovedBy")
   attachmentsUploaded       Attachment[]    @relation("AttachmentUploader")
   aiUsage                   AiUsageLog[]    @relation("AiUsageActor")
+  // Course Dibba (Phase 1): term-wide schedule imports + instructor rows.
+  dibbaImportsUploaded      DibbaImport[]      @relation("DibbaUploader")
+  courseInstructorRows      CourseInstructor[] @relation("CourseInstructorUser")
 
   @@index([email])
 }
@@ -151,6 +154,8 @@ model Course {
   description       String?
   active            Boolean          @default(true)
   offerings         CourseOffering[]
+  // Course Dibba (Phase 1): best-effort links from imported schedule rows.
+  dibbaEntries      DibbaEntry[]
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 }
@@ -672,4 +677,184 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([actorId])
   @@index([createdAt])
+}
+
+// =====================================================================
+// Course Dibba — term-wide class schedule (Course Dibba spec, Phase 1)
+// =====================================================================
+// The "Course Dibba" is the Instruction Cell's per-semester document listing
+// which course runs in which slot for every programme × admit batch. A term
+// here is TERM-WIDE (one row spans all programmes), unlike Semester which is
+// per-programme (@@unique([programmeId, name])). AcademicTerm is therefore a
+// standalone model with NO FK to Semester — join on the shared (year, term)
+// String vocabulary if ever needed. Additive migration: no existing column is
+// touched; User/Course only gain back-relation fields (no SQL).
+
+enum DibbaImportStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum DibbaCourseType {
+  CORE
+  ELECTIVE
+  PROJECT
+  BACKLOG
+  NOT_OFFERED
+  UNSPECIFIED
+}
+
+enum ExamKind {
+  MID_SEM
+  COMPREHENSIVE
+  MAKEUP
+}
+
+enum InstructorSource {
+  HMP_ASSIGNMENT
+  DIBBA_SHEET
+  MANUAL
+}
+
+model AcademicTerm {
+  id          String   @id @default(cuid())
+  // Globally unique because a term is term-wide — deliberately NOT the
+  // per-programme Semester.name, which is only unique within a programme.
+  name        String   @unique // "2025-26 Sem 1"
+  year        Int
+  // Same String vocabulary as Semester.term (FIRST | SECOND | SUMMER). There is
+  // no term enum in this schema; introducing one only here would fork the vocab.
+  term        String
+  startDate   DateTime
+  endDate     DateTime
+  imports     DibbaImport[]
+  slots       SlotTiming[]
+  examDates   SlotExamDate[]
+  instructors CourseInstructor[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt // IC edits the dates
+
+  // One real semester = one term (Phase 3): two differently named rows for the
+  // same (year, term) would split a schedule. Added before any production term
+  // exists, so the unique index can never fail on existing data.
+  @@unique([year, term])
+}
+
+// One uploaded Dibba file version for a term. Publish flips the previous
+// PUBLISHED import for the same term to SUPERSEDED in one transaction (Phase 3).
+model DibbaImport {
+  id             String            @id @default(cuid())
+  termId         String
+  label          String // "As on 02.07.2025"
+  sourceFilename String
+  sourceFormat   String // doc | docx | xlsx
+  status         DibbaImportStatus @default(DRAFT)
+  rowCount       Int
+  warnings       String[]          @default([])
+  uploadedById   String
+  // Set when status becomes PUBLISHED — the reconcilable "did it happen"
+  // timestamp (detection queries `publishedAt IS NULL AND status = ...`).
+  publishedAt    DateTime?
+  // Restrict, not Cascade: a published import IS the schedule record, so a term
+  // that still has imports must not be deletable by accident.
+  term           AcademicTerm      @relation(fields: [termId], references: [id], onDelete: Restrict)
+  // Restrict: content ownership — users are soft-deleted via User.active, never
+  // hard-deleted (same choice as Attachment.uploaderId).
+  uploadedBy     User              @relation("DibbaUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  entries        DibbaEntry[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt // status transitions
+
+  @@index([termId, status])
+}
+
+// One course, in one slot, for one programme-batch row of the Dibba.
+model DibbaEntry {
+  id             String          @id @default(cuid())
+  importId       String
+  programmeCode  String // "HT01", "MB21/HB21", "18BT/18ET"
+  programmeTitle String
+  admitBatch     String? // "2/2024"; null for programme-level backlog rows
+  isNewAdmission Boolean         @default(false)
+  isBacklogRow   Boolean         @default(false)
+  studentCount   Int?
+  slotNo         Int // 0..8 (0 = no slot: dissertation / project)
+  slotDay        String? // SAT | SUN | FRI
+  slotSession    String? // FN | AN | EV
+  courseCode     String // normalizeDibbaCourseCode() output (Phase 2)
+  courseTitle    String
+  courseType     DibbaCourseType @default(UNSPECIFIED)
+  erpCourseId    String?
+  classTimeHint  String? // "SAT 8:20"
+  remarks        String?
+  rawCell        String // audit trail: why did it parse like this
+  // Best-effort link to the catalogue (bitsCourseNumber, then alternateCodes);
+  // null = "not in HMP catalogue", surfaced in the import preview.
+  courseId       String?
+  // Cascade: an entry means nothing without its import batch.
+  import         DibbaImport     @relation(fields: [importId], references: [id], onDelete: Cascade)
+  // SetNull: the entry's value stands regardless of later catalogue changes.
+  course         Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  createdAt      DateTime        @default(now())
+  // No @updatedAt: entries are written once per import and never edited in place.
+
+  @@index([importId, courseCode])
+  @@index([importId, programmeCode])
+  @@index([courseId])
+}
+
+// IC-editable class timing per slot per term; seeded from STANDARD_SLOTS.
+model SlotTiming {
+  id        String       @id @default(cuid())
+  termId    String
+  slotNo    Int
+  day       String // SAT | SUN | FRI
+  session   String // FN | AN | EV
+  startTime String? // "09:00"
+  endTime   String?
+  // Cascade: lookup rows owned by their term, meaningless alone.
+  term      AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt // IC-editable
+
+  @@unique([termId, slotNo])
+}
+
+// IC-entered exam dates per slot per term.
+model SlotExamDate {
+  id        String       @id @default(cuid())
+  termId    String
+  slotNo    Int
+  kind      ExamKind
+  date      DateTime
+  startTime String?
+  endTime   String?
+  // Cascade: owned by the term.
+  term      AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt // IC-editable
+
+  @@unique([termId, slotNo, kind])
+}
+
+// Who teaches a course in a term, beyond HMP's own FacultyAssignment rows
+// (seeded from the faculty sheet or added manually by IC/HOG).
+model CourseInstructor {
+  id         String           @id @default(cuid())
+  termId     String
+  courseCode String // dibba-normalized
+  userId     String
+  isLead     Boolean          @default(false)
+  source     InstructorSource
+  // Cascade: per-term rows, meaningless without the term.
+  term       AcademicTerm     @relation(fields: [termId], references: [id], onDelete: Cascade)
+  // Restrict (spec said Cascade): users are soft-deleted via User.active, never
+  // hard-deleted — teaching records must survive (= FacultyAssignment.facultyId).
+  user       User             @relation("CourseInstructorUser", fields: [userId], references: [id], onDelete: Restrict)
+  createdAt  DateTime         @default(now())
+  // No @updatedAt: rows are added/removed, not edited (isLead is set at creation).
+
+  @@unique([termId, courseCode, userId])
+  @@index([userId, termId])
 }

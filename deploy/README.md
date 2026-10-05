@@ -7,7 +7,7 @@ Reference layout: **t3a.medium / Ubuntu**, **RDS PostgreSQL 16**, **S3** (two bu
 ```bash
 # Node 20+ (24 recommended — the worker uses node --env-file), pnpm, pm2
 sudo apt-get update
-sudo apt-get install -y libreoffice nginx        # LibreOffice = PDF export; else /export/pdf 503s
+sudo apt-get install -y libreoffice nginx        # LibreOffice = PDF export + Course Dibba .doc upload; else /export/pdf and the IC .doc upload answer 503
 npm i -g pnpm pm2
 ```
 
