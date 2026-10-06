@@ -89,7 +89,7 @@ Two launch-scope decisions (Prompt 6 hardening) are deliberately reversible:
 3. Flip `ATTACHMENTS_DISABLED` to `false` and restore the faculty page's `canUpload` to `EDITABLE.has(status)`.
 4. Verify capacity headroom (uploads add memory + bandwidth on the shared box).
 
-**Login rate limits** — per-IP 30/15min + per-username 5/15min (`RATE_LIMITS` in `apps/web/src/lib/rate-limit.ts`). If legitimate users behind a shared campus NAT hit lockouts in the first week, **raising `loginIp.limit` is expected and low-risk** (e.g. → 60) — the per-username limit still bounds brute-force. Leave `loginUser` tight. Tune + redeploy.
+**Login rate limits** — per-IP 30 rejected attempts/15min (successful logins never count) + per-username 5 attempts/15min (`RATE_LIMITS` in `apps/web/src/lib/rate-limit.ts`). If legitimate users behind a shared campus NAT hit lockouts in the first week, **raising `loginIp.limit` is expected and low-risk** (e.g. → 60) — the per-username limit still bounds brute-force. Leave `loginUser` tight. Tune + redeploy.
 
 ## Notes / gotchas
 
