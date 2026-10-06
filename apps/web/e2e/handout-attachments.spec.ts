@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { seedHandoutAtStatus, cleanupTestHandouts } from './fixtures/handout';
+import { ATTACHMENTS_DISABLED } from '../src/lib/attachments-feature';
 
 // ─── REQUIRES MINIO ──────────────────────────────────────────────────────────
 // Prompt 16: handout file attachments via S3. Exercises the full loop against an
@@ -37,6 +38,14 @@ const SAMPLE_PDF = Buffer.from(
 );
 
 test.describe('Handout attachments (S3)', () => {
+  // Attachments are switched off for launch (ATTACHMENTS_DISABLED in
+  // src/lib/attachments-feature.ts, and the faculty page hardcodes
+  // canUpload={false} next to it): the upload control never renders, so the
+  // round-trip below cannot be exercised and would only time out. Re-enabling
+  // means flipping BOTH switches; this group then runs again (it still needs
+  // MinIO, checked in beforeEach). Keep this a static skip, not a silent pass.
+  test.skip(ATTACHMENTS_DISABLED, 'attachments are disabled for launch (ATTACHMENTS_DISABLED)');
+
   let requestId: string;
   let skip = false;
 
