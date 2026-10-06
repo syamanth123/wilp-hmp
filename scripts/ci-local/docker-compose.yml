@@ -1,0 +1,139 @@
+# Local substitute for .github/workflows/ci.yml (GitHub Actions is unavailable
+# for this account). Same recipe as CI: a Linux Node 20 runner plus the four
+# service containers. Every container shares ONE network namespace (the
+# `netns` holder below), so each service listens on the runner's own
+# localhost - exactly what a GitHub runner sees from its published service
+# ports - and the env block can be ci.yml's, verbatim. The runner does a FRESH
+# `git clone` of the host repo at the requested ref, so nothing from the
+# Windows working tree (node_modules, .env files, build output, uncommitted
+# edits) can reach it. Driven by run.ps1; see README.md.
+name: hmp-ci-local
+
+services:
+  # Network-namespace holder: owns the loopback that every other container
+  # joins (`network_mode: service:netns`). Ports must not collide - they do
+  # not: 5432, 6379, 1025/8025, 9000/9001, 3000.
+  netns:
+    image: alpine:3.20
+    # BusyBox-safe idle loop (its `sleep` does not accept "infinity").
+    command: ['sh', '-c', 'while :; do sleep 86400; done']
+    init: true
+
+  postgres:
+    image: postgres:16-alpine
+    network_mode: service:netns
+    depends_on: [netns]
+    environment:
+      POSTGRES_USER: hmp
+      POSTGRES_PASSWORD: hmp
+      POSTGRES_DB: hmp
+    # Fresh, empty database for every job - a CI service container never
+    # carries state between jobs either.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U hmp']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    network_mode: service:netns
+    depends_on: [netns]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # No healthcheck: the image ships no shell/curl (same note as ci.yml). The
+  # runner polls its HTTP API before the e2e steps, exactly as CI does.
+  mailhog:
+    image: mailhog/mailhog:latest
+    network_mode: service:netns
+    depends_on: [netns]
+
+  # ci.yml starts MinIO with `docker run ... server /data` because a services:
+  # block cannot express the command; compose can. Same creds as the env block.
+  minio:
+    image: minio/minio:latest
+    network_mode: service:netns
+    depends_on: [netns]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ci-access-key
+      MINIO_ROOT_PASSWORD: ci-secret-key
+    tmpfs:
+      - /data
+
+  runner:
+    image: node:20-bookworm
+    network_mode: service:netns
+    working_dir: /work
+    depends_on:
+      netns:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+      minio:
+        condition: service_started
+    environment:
+      # GitHub sets CI=true; playwright.config.ts keys `next start`, retries
+      # and forbidOnly off it, and turbo passes it through.
+      CI: 'true'
+      CI_LOCAL_REF: ${CI_LOCAL_REF:?set by run.ps1}
+      CI_LOCAL_JOB: ${CI_LOCAL_JOB:?set by run.ps1}
+      # --- ci.yml `jobs.ci.env`, verbatim (services are on localhost here too) ---
+      # Database
+      DATABASE_URL: postgresql://hmp:hmp@localhost:5432/hmp?schema=public
+      # Auth
+      NEXTAUTH_SECRET: ci-secret-for-testing-purposes-do-not-use-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      AUTH_MODE: credentials
+      # AI - noop disables real API calls; all AI features degrade gracefully
+      AI_PROVIDER: noop
+      # Redis
+      REDIS_URL: redis://localhost:6379
+      # Storage
+      S3_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: hmp-handouts
+      S3_ACCESS_KEY: ci-access-key
+      S3_SECRET_KEY: ci-secret-key
+      # Email
+      SMTP_HOST: localhost
+      SMTP_PORT: '1025'
+      SMTP_FROM: 'HMP <no-reply@hmp.local>'
+      # Cron
+      CRON_SECRET: ci-cron-secret
+      # The e2e-job-only variables (LMS_EXPORTS_BUCKET, TAXILA_API_URL,
+      # MAILHOG_URL) are exported by run-job.sh for that job, as in ci.yml.
+    volumes:
+      - type: bind
+        source: ${CI_LOCAL_REPO_GIT:?set by run.ps1}
+        target: /host.git
+        read_only: true
+      - type: bind
+        source: ${CI_LOCAL_OUT:?set by run.ps1}
+        target: /out
+      - type: bind
+        source: ./run-job.sh
+        target: /ci/run-job.sh
+        read_only: true
+      # The pnpm store is cached across runs like actions/setup-node's
+      # `cache: pnpm`; the browser cache just saves a 150 MB download. Both
+      # survive `compose down` (run.ps1 never passes -v).
+      - pnpm-store:/root/.local/share/pnpm
+      - ms-playwright:/root/.cache/ms-playwright
+    # Strip a possible CRLF from the mounted script before running it.
+    command:
+      ['bash', '-c', "tr -d '\\r' < /ci/run-job.sh > /tmp/run-job.sh && bash /tmp/run-job.sh"]
+
+volumes:
+  pnpm-store:
+  ms-playwright:

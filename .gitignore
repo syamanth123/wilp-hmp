@@ -31,3 +31,6 @@ tools/minio/data/
 data/
 apps/web/.env
 packages/db/.env
+
+# ci-local: per-run step logs and reports (scripts/ci-local/run.ps1)
+scripts/ci-local/out/
