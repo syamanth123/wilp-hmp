@@ -71,6 +71,13 @@ const campusToType = (campus: string | null): FacultyType | null => {
 
 async function main() {
   assertDevOnly();
+  // Both inputs are checked before ANY write, so a missing file cannot leave the term half-loaded.
+  if (!existsSync(LOCAL_XLSX)) {
+    throw new Error(`local-data/course-dibba-2024.xlsx not found at ${LOCAL_XLSX}`);
+  }
+  if (!existsSync(LOCAL_DOC) && !existsSync(FIXTURE_DOCX)) {
+    throw new Error(`neither ${LOCAL_DOC} nor the committed .docx fixture exists`);
+  }
   const actor = await prisma.user.findUniqueOrThrow({
     where: { email: 'admin@hmp.local' },
     select: { id: true },
@@ -155,8 +162,6 @@ async function main() {
   }
 
   // 3. Faculty users from Sheet3, then the sheet import.
-  if (!existsSync(LOCAL_XLSX))
-    throw new Error(`local-data/course-dibba-2024.xlsx not found at ${LOCAL_XLSX}`);
   const sheet = await parseFacultySheetDetailed({ path: LOCAL_XLSX });
   const passwordHash = await bcrypt.hash('password', 10);
   const byEmail = new Map<string, { name: string; campus: string | null }>();

@@ -1,12 +1,13 @@
 import { DibbaImportStatus, HandoutStatus, type PrismaClient } from '@prisma/client';
 import { STANDARD_SLOTS } from '../dibba-slots';
-import { buildCodeGroups, groupKeyFor, type CatalogueCourseLike } from './index';
+import { buildGroupKeys, expandEquivalentCodes, type CatalogueCourseLike } from './index';
 
 /**
  * Course Dibba — term overview for HOG / PC / IC (Phase 6, plan §5 of the
  * Phase 5 plan; spec §7). buildTermOverview() is PURE and unit-tested;
  * loadTermOverview() fetches the rows. Never filtered by the viewer: these
- * roles see the whole term.
+ * roles see the whole term. Grouping uses the same buildGroupKeys() as the
+ * faculty page, so the two never disagree about what is one course.
  */
 
 export interface OverviewEntry {
@@ -40,6 +41,7 @@ export interface OverviewCourse {
   slotNos: number[];
   programmes: string[];
   students: number;
+  /** Everyone on this code OR an equivalent code (catalogue alternate / same title). */
   instructors: Array<{
     userId: string;
     name: string;
@@ -97,12 +99,22 @@ export interface BuildTermOverviewInput {
 
 const normCode = (c: string): string => c.trim().toUpperCase().replace(/\s+/g, ' ');
 
-/** "SL3", "Slot 3", "3", "SAT FN"-style values → slot number when one is stated. */
+/**
+ * Slot number stated by a free-text `CourseOffering.slotInfo`, or null. Only an
+ * explicit slot reference counts: "SL3", "Slot 3", "S3", a bare "3", or a
+ * day + session pair ("SAT AN", "Sunday EN"). Times and other digits ("Sat 2-5 PM",
+ * "SAT 8:20", "Group 3") are NOT slot numbers.
+ */
 export function slotNoFromSlotInfo(slotInfo: string): number | null {
-  const m = /(?:^|[^0-9])([1-8])(?:[^0-9]|$)/.exec(slotInfo.trim());
-  if (m) return Number(m[1]);
-  const day = /(?:^|[^A-Za-z])(SAT|SUN|FRI)/i.exec(slotInfo)?.[1]?.toUpperCase();
-  const session = /\b(FN|AN|EV|EN)\b/i.exec(slotInfo)?.[1]?.toUpperCase().replace('EN', 'EV');
+  const text = slotInfo.trim();
+  const explicit = /(?:^|[^A-Z0-9])S(?:L|LOT)?[ -]?([1-8])(?![0-9:.])/i.exec(text);
+  if (explicit) return Number(explicit[1]);
+  if (/^[1-8]$/.test(text)) return Number(text);
+  const day = /(?:^|[^A-Z])(SAT|SUN|FRI)/i.exec(text)?.[1]?.toUpperCase();
+  const session = /(?:^|[^A-Z])(FN|AN|EV|EN)(?![A-Z])/i
+    .exec(text)?.[1]
+    ?.toUpperCase()
+    .replace('EN', 'EV');
   if (day && session) {
     return STANDARD_SLOTS.find((s) => s.day === day && s.session === session)?.slotNo ?? null;
   }
@@ -110,13 +122,11 @@ export function slotNoFromSlotInfo(slotInfo: string): number | null {
 }
 
 export function buildTermOverview(input: BuildTermOverviewInput): TermOverview {
-  const codeGroups = buildCodeGroups(input.catalogue);
+  const groupKeys = buildGroupKeys(input.entries, input.catalogue);
 
   // Courses by code.
-  const byCode = new Map<
-    string,
-    OverviewCourse & { programmeSet: Set<string>; slotSet: Set<number> }
-  >();
+  type CourseDraft = OverviewCourse & { programmeSet: Set<string>; slotSet: Set<number> };
+  const byCode = new Map<string, CourseDraft>();
   for (const e of input.entries) {
     const code = normCode(e.courseCode);
     let c = byCode.get(code);
@@ -139,24 +149,40 @@ export function buildTermOverview(input: BuildTermOverviewInput): TermOverview {
     c.programmeSet.add(e.programmeCode);
     c.students += e.studentCount ?? 0;
   }
+  const codesByGroup = new Map<string, string[]>();
+  for (const code of byCode.keys()) {
+    const key = groupKeys.get(code)!;
+    const list = codesByGroup.get(key) ?? [];
+    list.push(code);
+    codesByGroup.set(key, list);
+  }
 
-  // Instructors per code (dedupe by user, keep the "strongest" source order: assignment > manual > sheet for display).
-  const instructorsByCode = new Map<string, Map<string, OverviewCourse['instructors'][number]>>();
-  const facultyMap = new Map<
-    string,
-    OverviewFaculty & { groupKeys: Set<string>; slotsByGroup: Map<string, Set<number>> }
-  >();
+  // Instructors per GROUP (an instructor on any equivalent code covers the course),
+  // one row per person; isLead sticks.
+  type Person = OverviewCourse['instructors'][number];
+  const instructorsByGroup = new Map<string, Map<string, Person>>();
+  type FacultyDraft = OverviewFaculty & {
+    groupKeys: Set<string>;
+    slotsByGroup: Map<string, Set<number>>;
+  };
+  const facultyMap = new Map<string, FacultyDraft>();
   for (const i of input.instructors) {
     const code = normCode(i.courseCode);
     const course = byCode.get(code);
-    const perCode = instructorsByCode.get(code) ?? new Map();
-    if (!perCode.has(i.userId)) {
-      perCode.set(i.userId, { userId: i.userId, name: i.name, source: i.source, isLead: i.isLead });
-    } else if (i.isLead) {
-      perCode.get(i.userId)!.isLead = true;
-    }
-    instructorsByCode.set(code, perCode);
     if (!course) continue; // teaches a code that is not in this Dibba
+    const key = groupKeys.get(code)!;
+    const perGroup = instructorsByGroup.get(key) ?? new Map<string, Person>();
+    const cur = perGroup.get(i.userId);
+    if (!cur)
+      perGroup.set(i.userId, {
+        userId: i.userId,
+        name: i.name,
+        source: i.source,
+        isLead: i.isLead,
+      });
+    else if (i.isLead) cur.isLead = true;
+    instructorsByGroup.set(key, perGroup);
+
     let f = facultyMap.get(i.userId);
     if (!f) {
       f = {
@@ -170,7 +196,6 @@ export function buildTermOverview(input: BuildTermOverviewInput): TermOverview {
       };
       facultyMap.set(i.userId, f);
     }
-    const key = groupKeyFor(code, course.title, codeGroups);
     f.groupKeys.add(key);
     if (!f.codes.includes(code)) f.codes.push(code);
     const slots = f.slotsByGroup.get(key) ?? new Set<number>();
@@ -185,8 +210,8 @@ export function buildTermOverview(input: BuildTermOverviewInput): TermOverview {
       slotNos: [...c.slotSet].sort((a, b) => a - b),
       programmes: [...c.programmeSet].sort(),
       students: c.students,
-      instructors: [...(instructorsByCode.get(c.code)?.values() ?? [])].sort((a, b) =>
-        a.name.localeCompare(b.name),
+      instructors: [...(instructorsByGroup.get(groupKeys.get(c.code)!)?.values() ?? [])].sort(
+        (a, b) => a.name.localeCompare(b.name),
       ),
       inCatalogue: c.inCatalogue,
     }))
@@ -209,12 +234,9 @@ export function buildTermOverview(input: BuildTermOverviewInput): TermOverview {
     for (const [slotNo, keys] of [...groupsBySlot.entries()].sort((a, b) => a[0] - b[0])) {
       if (keys.size < 2) continue;
       const std = STANDARD_SLOTS.find((s) => s.slotNo === slotNo);
-      const codes = f.codes
-        .filter(
-          (c) =>
-            keys.has(groupKeyFor(c, byCode.get(c)?.title ?? '', codeGroups)) &&
-            byCode.get(c)!.slotSet.has(slotNo),
-        )
+      const codes = [...keys]
+        .flatMap((k) => codesByGroup.get(k) ?? [])
+        .filter((c) => byCode.get(c)!.slotSet.has(slotNo))
         .sort();
       clashes.push({
         userId: f.userId,
@@ -390,20 +412,24 @@ export async function loadTermOverview(
   ]);
 
   const codeSet = new Set(codes.map(normCode));
-  const instructors: OverviewInstructor[] = [
-    ...instructorRows.map((r) => ({
-      courseCode: r.courseCode,
-      userId: r.userId,
-      name: r.user.name,
-      facultyType: r.user.facultyType,
-      source: (r.source === 'MANUAL'
-        ? 'manual'
-        : r.source === 'DIBBA_SHEET'
-          ? 'sheet'
-          : 'assignment') as OverviewInstructor['source'],
-      isLead: r.isLead,
-    })),
-  ];
+  const instructors: OverviewInstructor[] = [];
+  // Sheet / manual rows: a row on SS ZC447 also covers ES ZC447 when the catalogue
+  // says they are one course (same expansion the faculty page applies).
+  for (const r of instructorRows) {
+    const source: OverviewInstructor['source'] =
+      r.source === 'MANUAL' ? 'manual' : r.source === 'DIBBA_SHEET' ? 'sheet' : 'assignment';
+    for (const code of expandEquivalentCodes([r.courseCode], catalogue)) {
+      if (!codeSet.has(code)) continue;
+      instructors.push({
+        courseCode: code,
+        userId: r.userId,
+        name: r.user.name,
+        facultyType: r.user.facultyType,
+        source,
+        isLead: r.isLead,
+      });
+    }
+  }
   for (const a of assignments) {
     const c = a.request.offering.course;
     for (const code of [c.bitsCourseNumber, ...c.alternateCodes]) {

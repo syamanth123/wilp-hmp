@@ -168,3 +168,47 @@ describe('buildTermOverview', () => {
     ]);
   });
 });
+
+describe('review fixes (Phase 6)', () => {
+  it('slotNoFromSlotInfo ignores times and other digits, accepts explicit slot references', () => {
+    expect(slotNoFromSlotInfo('Sun 2-5 PM')).toBeNull();
+    expect(slotNoFromSlotInfo('SAT 8:20')).toBeNull();
+    expect(slotNoFromSlotInfo('Group 3')).toBeNull();
+    expect(slotNoFromSlotInfo('Sem 1')).toBeNull();
+    expect(slotNoFromSlotInfo('S3')).toBe(3);
+    expect(slotNoFromSlotInfo('SL 7')).toBe(7);
+    expect(slotNoFromSlotInfo('slot-4')).toBe(4);
+    expect(slotNoFromSlotInfo('Sat-1800')).toBeNull();
+  });
+
+  it('an instructor on an equivalent code covers the course, so it is not uncovered', () => {
+    const o = buildTermOverview({
+      entries: [e('ES ZC447', 8), e('SS ZC447', 8, 'HB28')],
+      instructors: [i('SS ZC447', 'a')],
+      offerings: [],
+      catalogue: [{ bitsCourseNumber: 'ES ZC447', alternateCodes: ['IS ZC447', 'SS ZC447'] }],
+      offCampusMaxCourses: 3,
+    });
+    expect(o.uncovered).toEqual([]);
+    expect(o.courses.find((c) => c.code === 'ES ZC447')?.instructors.map((x) => x.userId)).toEqual([
+      'a',
+    ]);
+    expect(o.faculty[0]).toMatchObject({ userId: 'a', courseCount: 1 });
+    expect(o.clashes).toEqual([]);
+  });
+
+  it('one code spelled two ways is one course for clash purposes', () => {
+    const o = buildTermOverview({
+      entries: [
+        { ...e('SS ZG553', 3, 'HT01', 10, null), courseTitle: 'REAL TIME SYSTEMS' },
+        { ...e('SS ZG553', 3, 'HB28', 10, null), courseTitle: 'REAL TIME SYS' },
+      ],
+      instructors: [i('SS ZG553', 'a')],
+      offerings: [],
+      catalogue: [],
+      offCampusMaxCourses: 3,
+    });
+    expect(o.clashes).toEqual([]);
+    expect(o.faculty[0]?.courseCount).toBe(1);
+  });
+});

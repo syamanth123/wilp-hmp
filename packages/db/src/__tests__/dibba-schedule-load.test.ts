@@ -255,3 +255,33 @@ describe('loadFacultySchedule', () => {
     expect(s.grid).toEqual([]);
   });
 });
+
+describe('only the PUBLISHED import counts', () => {
+  integ('a DRAFT import for the same term never reaches the schedule', async () => {
+    const draft = await prisma.dibbaImport.create({
+      data: {
+        termId,
+        label: SENTINEL + ' draft',
+        sourceFilename: 'd.docx',
+        sourceFormat: 'docx',
+        status: DibbaImportStatus.DRAFT,
+        rowCount: 1,
+        uploadedById: userA,
+        entries: { create: [row('ZZY ZG904', 'Sentinel Draft Course', 2, 'HT01', 5)] },
+      },
+      select: { id: true },
+    });
+    const instr = await prisma.courseInstructor.create({
+      data: { termId, courseCode: 'ZZY ZG904', userId: userA, source: InstructorSource.MANUAL },
+      select: { id: true },
+    });
+    try {
+      const s = await loadFacultySchedule(prisma, { userId: userA, now: NOW });
+      expect(s.courses.some((c) => c.codes.includes('ZZY ZG904'))).toBe(false);
+      expect(s.published?.label).toBe(SENTINEL + ' published');
+    } finally {
+      await prisma.courseInstructor.delete({ where: { id: instr.id } });
+      await prisma.dibbaImport.delete({ where: { id: draft.id } });
+    }
+  });
+});

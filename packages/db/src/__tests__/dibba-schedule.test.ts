@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildCodeGroups,
+  buildGroupKeys,
   buildSchedule,
   expandEquivalentCodes,
   groupKeyFor,
@@ -316,5 +317,95 @@ describe('nextEvents', () => {
       nextClass: null,
       nextExam: null,
     });
+  });
+});
+
+describe('review fixes (Phase 5)', () => {
+  it('one code spelled two ways in one slot is ONE card and never a clash with itself', () => {
+    const s = buildSchedule(
+      base({
+        entries: [
+          entry({
+            courseCode: 'SS ZG553',
+            slotNo: 3,
+            courseTitle: 'REAL TIME SYSTEMS',
+            programmeCode: 'HT01',
+          }),
+          entry({
+            courseCode: 'SS ZG553',
+            slotNo: 3,
+            courseTitle: 'REAL TIME SYS',
+            programmeCode: 'HB28',
+          }),
+          entry({
+            courseCode: 'SS ZG553',
+            slotNo: 3,
+            courseTitle: 'REAL TIME SYSTEMS',
+            programmeCode: 'HB59',
+          }),
+        ],
+      }),
+    );
+    expect(s.courses).toHaveLength(1);
+    expect(s.courses[0]!.codes).toEqual(['SS ZG553']);
+    expect(s.courses[0]!.slots[0]!.rows).toHaveLength(3);
+    expect(s.clashes).toEqual([]);
+    expect(s.grid.find((g) => g.slotNo === 3)).toMatchObject({ codes: ['SS ZG553'], clash: false });
+  });
+
+  it('buildGroupKeys: catalogue first, then the most common title per code; equal titles still merge', () => {
+    const keys = buildGroupKeys(
+      [
+        { courseCode: 'SS ZC111', courseTitle: 'Probability' },
+        { courseCode: 'XX ZG999', courseTitle: 'Data Mining' },
+        { courseCode: 'XX ZG999', courseTitle: 'DATA  MINING' },
+        { courseCode: 'XX ZG999', courseTitle: 'Data Minning' },
+        { courseCode: 'YY ZG998', courseTitle: 'data mining' },
+      ],
+      [{ bitsCourseNumber: 'AAOC ZC111', alternateCodes: ['SS ZC111'] }],
+    );
+    expect(keys.get('SS ZC111')).toBe('AAOC ZC111');
+    expect(keys.get('XX ZG999')).toBe('title:data mining');
+    expect(keys.get('YY ZG998')).toBe('title:data mining');
+  });
+
+  it('pickActiveTerm counts the end date as a whole day', () => {
+    const t1 = {
+      name: 't1',
+      startDate: new Date(2025, 7, 1),
+      endDate: new Date(2025, 11, 15),
+      hasPublished: true,
+    };
+    const t2 = {
+      name: 't2',
+      startDate: new Date(2026, 0, 10),
+      endDate: new Date(2026, 4, 20),
+      hasPublished: true,
+    };
+    expect(pickActiveTerm([t1, t2], new Date(2025, 11, 15, 9, 0))?.name).toBe('t1');
+    expect(pickActiveTerm([t1, t2], new Date(2025, 11, 16, 9, 0))?.name).toBe('t2');
+  });
+
+  it('nextEvents names every course sharing the next slot or exam date', () => {
+    const s = buildSchedule(
+      base({
+        entries: [
+          entry({ courseCode: 'CS ZG501', slotNo: 1, courseTitle: 'A' }),
+          entry({ courseCode: 'SE ZG503', slotNo: 1, courseTitle: 'B' }),
+        ],
+        examDates: [
+          {
+            slotNo: 1,
+            kind: 'MID_SEM',
+            date: new Date(2025, 9, 4),
+            startTime: null,
+            endTime: null,
+          },
+        ],
+      }),
+    );
+    const n = nextEvents(s, new Date(2025, 9, 1, 8, 0));
+    expect(n.nextClass?.codes).toEqual(['CS ZG501', 'SE ZG503']);
+    expect(n.nextExam?.codes).toEqual(['CS ZG501', 'SE ZG503']);
   });
 });

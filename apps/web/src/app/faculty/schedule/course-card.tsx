@@ -38,7 +38,7 @@ export function CourseCard({ course }: { course: ScheduleCourse }) {
               {' '}
               · with{' '}
               {course.coInstructors.map((c, i) => (
-                <span key={c.name}>
+                <span key={`${c.name}-${i}`}>
                   {i > 0 ? ', ' : ''}
                   {c.name}
                   {c.isLead ? ' (Lead)' : ''}

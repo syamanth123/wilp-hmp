@@ -11,12 +11,17 @@ const fmtDate = new Intl.DateTimeFormat('en-IN', {
 });
 const COURSE_ROWS_SHOWN = 300;
 
+/** Next 14 hands a repeated query key over as an array; only the first value is honoured. */
+type Param = string | string[] | undefined;
+
 export interface ScheduleOverviewSearchParams {
-  term?: string;
-  programme?: string;
-  slot?: string;
-  faculty?: string;
+  term?: Param;
+  programme?: Param;
+  slot?: Param;
+  faculty?: Param;
 }
+
+const first = (v: Param): string => (Array.isArray(v) ? (v[0] ?? '') : (v ?? ''));
 
 function Tile({
   label,
@@ -59,9 +64,10 @@ export async function ScheduleOverview({
     orderBy: [{ year: 'desc' }, { term: 'asc' }],
   });
   const active = await loadActiveTerm(prisma);
+  const requestedTerm = first(searchParams.term);
   const termId =
-    searchParams.term && terms.some((t) => t.id === searchParams.term)
-      ? searchParams.term
+    requestedTerm && terms.some((t) => t.id === requestedTerm)
+      ? requestedTerm
       : (active?.id ?? terms[0]?.id ?? null);
   const overview = termId ? await loadTermOverview(prisma, { termId }) : null;
 
@@ -80,13 +86,14 @@ export async function ScheduleOverview({
     );
   }
 
-  const programme = searchParams.programme ?? '';
-  const slot = searchParams.slot ? Number(searchParams.slot) : null;
-  const faculty = searchParams.faculty ?? '';
+  const programme = first(searchParams.programme);
+  const slotRaw = first(searchParams.slot);
+  const slot = /^[0-8]$/.test(slotRaw) ? Number(slotRaw) : null;
+  const faculty = first(searchParams.faculty);
   const filtered = overview.courses.filter(
     (c) =>
       (!programme || c.programmes.includes(programme)) &&
-      (slot === null || Number.isNaN(slot) || c.slotNos.includes(slot)) &&
+      (slot === null || c.slotNos.includes(slot)) &&
       (!faculty || c.instructors.some((i) => i.userId === faculty)),
   );
   const facultyName = faculty ? overview.faculty.find((f) => f.userId === faculty)?.name : null;
@@ -317,8 +324,8 @@ export async function ScheduleOverview({
                 data-testid="schedule-drift"
                 data-count={overview.slotDrift.length}
               >
-                {overview.slotDrift.map((d) => (
-                  <li key={`${d.code}|${d.semesterName}|${d.programmeCode}`}>
+                {overview.slotDrift.map((d, idx) => (
+                  <li key={`${d.code}|${d.semesterName}|${d.programmeCode}|${idx}`}>
                     <span className="font-mono">{d.code}</span> · HMP says &ldquo;{d.slotInfo}
                     &rdquo; ({d.programmeCode} {d.semesterName}), Dibba has SL
                     {d.dibbaSlots.join(', SL')}

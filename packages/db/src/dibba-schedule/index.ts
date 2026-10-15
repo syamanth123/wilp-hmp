@@ -162,6 +162,8 @@ export const EMPTY_SCHEDULE: FacultySchedule = {
   grid: [],
 };
 
+const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
 // ---------------------------------------------------------------------------
 // Active term (plan D2)
 // ---------------------------------------------------------------------------
@@ -175,15 +177,18 @@ export interface TermCandidate {
 }
 
 /**
- * Among terms with a published import: the one containing `now`, else the next
- * upcoming, else the most recently ended. Null when none has a published import.
+ * Among terms with a published import: the one containing today (the END date
+ * counts as a whole day — term dates are stored as local midnight), the most
+ * recently published first; else the next upcoming; else the most recently
+ * ended. Null when none has a published import.
  */
 export function pickActiveTerm<T extends TermCandidate>(terms: T[], now: Date): T | null {
   const published = terms.filter((t) => t.hasPublished);
+  const today = startOfDay(now);
   const byLatestPublish = (a: T, b: T) =>
     (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0);
   const current = published
-    .filter((t) => t.startDate <= now && now <= t.endDate)
+    .filter((t) => t.startDate <= now && today <= t.endDate)
     .sort(byLatestPublish);
   if (current[0]) return current[0];
   const upcoming = published
@@ -191,7 +196,7 @@ export function pickActiveTerm<T extends TermCandidate>(terms: T[], now: Date): 
     .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
   if (upcoming[0]) return upcoming[0];
   const past = published
-    .filter((t) => t.endDate < now)
+    .filter((t) => t.endDate < today)
     .sort((a, b) => b.endDate.getTime() - a.endDate.getTime());
   return past[0] ?? null;
 }
@@ -229,6 +234,52 @@ export function groupKeyFor(code: string, title: string, codeGroups: Map<string,
   return codeGroups.get(normCode(code)) ?? `title:${normalizeTitleKey(title)}`;
 }
 
+/**
+ * ONE group key per code, decided from all of a code's rows: the catalogue course
+ * number when the catalogue knows the code (number or alternate); otherwise a
+ * key from the code's most common normalized title, so codes the catalogue does
+ * not know still merge when they share a title (spec §6) but a single code can
+ * never split into two cards because two programme tables spell its title
+ * differently (the 2025 Dibba has 24 such codes).
+ */
+export function buildGroupKeys(
+  entries: ReadonlyArray<Pick<EntryLike, 'courseCode' | 'courseTitle'>>,
+  catalogue: CatalogueCourseLike[],
+): Map<string, string> {
+  const codeGroups = buildCodeGroups(catalogue);
+  const titleVotes = new Map<string, Map<string, number>>();
+  const firstSeen: string[] = [];
+  for (const e of entries) {
+    const code = normCode(e.courseCode);
+    let votes = titleVotes.get(code);
+    if (!votes) {
+      votes = new Map();
+      titleVotes.set(code, votes);
+      firstSeen.push(code);
+    }
+    const t = normalizeTitleKey(e.courseTitle);
+    votes.set(t, (votes.get(t) ?? 0) + 1);
+  }
+  const keys = new Map<string, string>();
+  for (const code of firstSeen) {
+    const known = codeGroups.get(code);
+    if (known) {
+      keys.set(code, known);
+      continue;
+    }
+    let best = '';
+    let bestVotes = -1;
+    for (const [t, n] of titleVotes.get(code)!) {
+      if (n > bestVotes) {
+        best = t;
+        bestVotes = n;
+      }
+    }
+    keys.set(code, `title:${best}`);
+  }
+  return keys;
+}
+
 /** Every code equivalent to one of `codes` according to the catalogue, plus the codes themselves. */
 export function expandEquivalentCodes(
   codes: Iterable<string>,
@@ -264,7 +315,7 @@ export interface BuildScheduleInput {
 }
 
 export function buildSchedule(input: BuildScheduleInput): FacultySchedule {
-  const codeGroups = buildCodeGroups(input.catalogue);
+  const groupKeys = buildGroupKeys(input.entries, input.catalogue);
   const timingBySlot = new Map(input.timings.map((t) => [t.slotNo, t] as const));
   const examsBySlot = new Map<number, ExamDateLike[]>();
   for (const e of input.examDates) {
@@ -284,7 +335,7 @@ export function buildSchedule(input: BuildScheduleInput): FacultySchedule {
   const groups = new Map<string, Draft>();
   for (const e of input.entries) {
     const code = normCode(e.courseCode);
-    const key = groupKeyFor(code, e.courseTitle, codeGroups);
+    const key = groupKeys.get(code)!;
     let g = groups.get(key);
     if (!g) {
       g = { key, codes: new Set(), title: e.courseTitle, slots: new Map(), sources: new Set() };
@@ -395,9 +446,7 @@ export function buildSchedule(input: BuildScheduleInput): FacultySchedule {
       startTime: timing?.startTime ?? null,
       endTime: timing?.endTime ?? null,
       courseKeys: keys,
-      codes: keys.flatMap((k) =>
-        groups.get(k)!.codes.size ? [...groups.get(k)!.codes].sort() : [],
-      ),
+      codes: keys.flatMap((k) => [...groups.get(k)!.codes].sort()),
       clash: keys.length > 1,
     };
   });
@@ -411,8 +460,6 @@ export function buildSchedule(input: BuildScheduleInput): FacultySchedule {
 
 const WEEKDAY: Record<string, number> = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
 
-const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-
 /** "HH:MM" → minutes since midnight; null when unset. */
 const minutes = (t: string | null): number | null => {
   if (!t) return null;
@@ -420,11 +467,20 @@ const minutes = (t: string | null): number | null => {
   return (h ?? 0) * 60 + (m ?? 0);
 };
 
+/**
+ * Next class = the earliest upcoming occurrence of one of my slots (today counts
+ * until the class has ended; unknown end → until midnight); next exam = the
+ * earliest exam date on or after today among my slots. Both name EVERY course
+ * sharing that slot or date (so a clash shows both). Wall-clock arithmetic in the
+ * process's zone: the web process pins TZ=Asia/Kolkata in deploy/ecosystem.config.cjs.
+ */
 export function nextEvents(schedule: FacultySchedule, now: Date): NextEvents {
   const today = startOfDay(now);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   let nextClass: NextClass | null = null;
   let nextExam: NextExam | null = null;
+  const classCodes = new Map<string, Set<string>>(); // `${date}|${slotNo}` → codes
+  const examCodes = new Map<string, Set<string>>(); // `${date}|${kind}` → codes
   for (const course of schedule.courses) {
     for (const slot of course.slots) {
       if (slot.slotNo < 1 || !slot.day) continue;
@@ -432,10 +488,13 @@ export function nextEvents(schedule: FacultySchedule, now: Date): NextEvents {
       if (wd === undefined) continue;
       let delta = (wd - today.getDay() + 7) % 7;
       const end = minutes(slot.endTime);
-      // Today counts only while the class has not ended (unknown end → until midnight).
       if (delta === 0 && end !== null && nowMinutes >= end) delta = 7;
       const date = new Date(today);
       date.setDate(date.getDate() + delta);
+      const ck = `${date.getTime()}|${slot.slotNo}`;
+      const cset = classCodes.get(ck) ?? new Set<string>();
+      for (const c of course.codes) cset.add(c);
+      classCodes.set(ck, cset);
       const startM = minutes(slot.startTime) ?? 0;
       const better =
         !nextClass ||
@@ -450,23 +509,35 @@ export function nextEvents(schedule: FacultySchedule, now: Date): NextEvents {
           session: slot.session ?? '',
           startTime: slot.startTime,
           endTime: slot.endTime,
-          codes: course.codes,
+          codes: [],
         };
       }
       for (const exam of slot.exams) {
         const examDay = startOfDay(exam.date);
         if (examDay < today) continue;
+        const ek = `${examDay.getTime()}|${exam.kind}`;
+        const eset = examCodes.get(ek) ?? new Set<string>();
+        for (const c of course.codes) eset.add(c);
+        examCodes.set(ek, eset);
         if (!nextExam || examDay < nextExam.date) {
           nextExam = {
             date: examDay,
             kind: exam.kind,
             slotNo: slot.slotNo,
             startTime: exam.startTime,
-            codes: course.codes,
+            codes: [],
           };
         }
       }
     }
+  }
+  if (nextClass) {
+    const set = classCodes.get(`${nextClass.date.getTime()}|${nextClass.slotNo}`);
+    nextClass.codes = [...(set ?? [])].sort();
+  }
+  if (nextExam) {
+    const set = examCodes.get(`${nextExam.date.getTime()}|${nextExam.kind}`);
+    nextExam.codes = [...(set ?? [])].sort();
   }
   return { nextClass, nextExam };
 }
