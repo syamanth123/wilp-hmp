@@ -225,6 +225,7 @@ sudo systemctl reload nginx
 ```
 
 - [ ] `nginx -t` passes; Nginx reloaded.
+- [ ] The live site config forwards the client address: `grep -n X-Real-IP /etc/nginx/sites-enabled/hmp` prints a line setting `X-Real-IP` to `$remote_addr`. The login rate limiter keys on it; without it the limiter falls back to the last `X-Forwarded-For` hop, which is only trustworthy while nginx appends `$remote_addr` there, and a proxy that forwards neither header lets a visitor choose their own key. If a load balancer or CDN is ever placed in front of nginx, `$remote_addr` becomes the balancer and every visitor shares one key: add `set_real_ip_from` + `real_ip_header X-Forwarded-For` to nginx first.
 
 ### 4g. TLS certificate (skip if launching on bare IP)
 
