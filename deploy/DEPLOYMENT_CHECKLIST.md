@@ -85,6 +85,10 @@ shellcheck --version  # expect: any version
 ```
 
 - [ ] All six commands return the expected output.
+- [ ] **Record the `soffice --version` output** in the sign-off table. It is the converter behind
+      PDF export AND the Instruction Cell's Course Dibba `.doc` upload (`/ic/dibba`); the parser
+      was verified identical on LibreOffice 24.2 and 26.8, but a recorded version is what makes a
+      future "the Dibba parsed differently on the server" report diagnosable.
 
 ### 2d. Directory setup + repo clone
 

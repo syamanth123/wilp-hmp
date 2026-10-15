@@ -1,6 +1,7 @@
 import { PrismaClient, RoleName, FacultyType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { normalizeBitsCourseNumber } from '../src/course-code';
+import { STANDARD_SLOTS } from '../src/dibba-slots';
 import { seedScaffolding, assertDevOnly } from './seed-scaffolding';
 
 const prisma = new PrismaClient();
@@ -93,6 +94,9 @@ async function main() {
   // MBA-WILP to host the MBA-coded courses. Programme-code reconciliation
   // against the real BITS academic system is OUT OF SCOPE for 11b — the corpus
   // carries course codes, not programme codes. See docs/dev-handoff-audit.md §1.
+  // One semester window shared by the per-programme Semester rows and the
+  // term-wide AcademicTerm further down, so the two can never drift in dev data.
+  const SEM_I_2025_26 = { startDate: new Date('2025-08-01'), endDate: new Date('2025-12-15') };
   const programmes = [
     { code: 'MTECH-SE', name: 'M.Tech Software Engineering' },
     { code: 'MTECH-DS', name: 'M.Tech Data Science' },
@@ -112,8 +116,7 @@ async function main() {
         name: 'Sem-I 2025-26',
         year: 2025,
         term: 'FIRST',
-        startDate: new Date('2025-08-01'),
-        endDate: new Date('2025-12-15'),
+        ...SEM_I_2025_26,
       },
     });
   }
@@ -254,6 +257,39 @@ async function main() {
       where: { courseId_semesterId: { courseId: course.id, semesterId: sem.id } },
       update: { slotInfo: c.slot },
       create: { courseId: course.id, semesterId: sem.id, slotInfo: c.slot },
+    });
+  }
+
+  // --- Academic term + standard slots (Course Dibba, Phase 1; DEV ONLY) ---
+  // Term-wide (all programmes) — distinct from the per-programme Semester rows
+  // above; same dates as the seeded 'Sem-I 2025-26' semesters. AcademicTerm is
+  // unique on BOTH name and (year, term) (Phase 3), and an IC may have renamed
+  // or re-dated this term through /ic/dibba, so a reseed looks the row up by
+  // either key and never writes to an existing one (a name-keyed upsert would
+  // P2002 on a renamed 2025/FIRST term). SlotTiming rows are keyed on
+  // (termId, slotNo) with `update: {}` so IC-edited slot times are never
+  // clobbered. Production terms are created through the IC screen (Phase 3) —
+  // this block never runs there (assertDevOnly above; seed.production.ts is
+  // untouched).
+  const demoTerm =
+    (await prisma.academicTerm.findFirst({
+      where: { OR: [{ name: '2025-26 Sem 1' }, { year: 2025, term: 'FIRST' }] },
+      select: { id: true },
+    })) ??
+    (await prisma.academicTerm.create({
+      data: {
+        name: '2025-26 Sem 1',
+        year: 2025,
+        term: 'FIRST',
+        ...SEM_I_2025_26,
+      },
+      select: { id: true },
+    }));
+  for (const s of STANDARD_SLOTS) {
+    await prisma.slotTiming.upsert({
+      where: { termId_slotNo: { termId: demoTerm.id, slotNo: s.slotNo } },
+      update: {},
+      create: { termId: demoTerm.id, slotNo: s.slotNo, day: s.day, session: s.session },
     });
   }
 
