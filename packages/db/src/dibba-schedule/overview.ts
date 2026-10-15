@@ -101,7 +101,7 @@ const normCode = (c: string): string => c.trim().toUpperCase().replace(/\s+/g, '
 export function slotNoFromSlotInfo(slotInfo: string): number | null {
   const m = /(?:^|[^0-9])([1-8])(?:[^0-9]|$)/.exec(slotInfo.trim());
   if (m) return Number(m[1]);
-  const day = /\b(SAT|SUN|FRI)\b/i.exec(slotInfo)?.[1]?.toUpperCase();
+  const day = /(?:^|[^A-Za-z])(SAT|SUN|FRI)/i.exec(slotInfo)?.[1]?.toUpperCase();
   const session = /\b(FN|AN|EV|EN)\b/i.exec(slotInfo)?.[1]?.toUpperCase().replace('EN', 'EV');
   if (day && session) {
     return STANDARD_SLOTS.find((s) => s.day === day && s.session === session)?.slotNo ?? null;
