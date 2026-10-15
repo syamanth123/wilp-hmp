@@ -4,6 +4,13 @@ import { buttonVariants } from '@hmp/ui';
 import { getSessionUser } from '@hmp/auth';
 import { SlaWidgets } from '@/components/sla-widgets';
 import { RecentActivity } from '@/components/recent-activity';
+import { loadActiveTerm } from '@hmp/db/src/dibba-schedule/load';
+
+const fmtTermEnd = new Intl.DateTimeFormat('en-IN', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+});
 
 function StatCard({
   label,
@@ -199,9 +206,15 @@ export default async function ICOverview() {
   const approvedCount = grouped.find((g) => g.label === 'Approved')?.count ?? 0;
   const openCount = grouped.find((g) => g.label === 'Open')?.count ?? 0;
 
-  // Days to term close (static for now)
-  const termClose = new Date('2026-05-28');
-  const daysLeft = Math.max(0, Math.ceil((termClose.getTime() - Date.now()) / 86400000));
+  // Days to term close: the active published Course Dibba term (Phase 5).
+  const activeTerm = await loadActiveTerm(prisma);
+  const termClose = activeTerm?.endDate ?? null;
+  const daysLeft = termClose
+    ? Math.max(0, Math.ceil((termClose.getTime() - Date.now()) / 86400000))
+    : 0;
+  const termSub = termClose
+    ? `${activeTerm!.name} ends ${fmtTermEnd.format(termClose)}`
+    : 'No published term yet';
 
   return (
     <div>
@@ -253,12 +266,7 @@ export default async function ICOverview() {
           sub="With review comments"
           icon={<EditIcon />}
         />
-        <StatCard
-          label="Days to term close"
-          value={daysLeft}
-          sub="Deadline: May 28, 2026"
-          icon={<BellIcon />}
-        />
+        <StatCard label="Days to term close" value={daysLeft} sub={termSub} icon={<BellIcon />} />
       </div>
 
       <SlaWidgets role="IC" />
