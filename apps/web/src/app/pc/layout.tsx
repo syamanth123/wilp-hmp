@@ -4,6 +4,7 @@ import { AppShell } from '@/components/app-shell';
 const TABS = [
   { href: '/pc', label: 'Overview' },
   { href: '/pc/requests', label: 'Requests' },
+  { href: '/pc/schedule', label: 'Schedule' },
 ];
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ export default function PCLayout({ children }: { children: React.ReactNode }) {
             <Link
               key={t.href}
               href={t.href}
-              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5"
             >
               {t.label}
             </Link>
