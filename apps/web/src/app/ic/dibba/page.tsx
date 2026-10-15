@@ -86,12 +86,13 @@ export default async function ICDibbaPage() {
                 <TableHead>Dates</TableHead>
                 <TableHead>Published Dibba</TableHead>
                 <TableHead>Drafts</TableHead>
+                <TableHead>Setup</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {terms.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground text-center">
+                  <TableCell colSpan={6} className="text-muted-foreground text-center">
                     No terms yet — create one below, then upload its Dibba.
                   </TableCell>
                 </TableRow>
@@ -124,6 +125,27 @@ export default async function ICDibbaPage() {
                         )}
                       </TableCell>
                       <TableCell>{drafts}</TableCell>
+                      <TableCell className="space-x-2 whitespace-nowrap text-xs">
+                        <Link
+                          href={`/ic/dibba/terms/${t.id}`}
+                          className="underline underline-offset-4"
+                          data-testid={`dibba-term-link-${t.id}`}
+                        >
+                          Term
+                        </Link>
+                        <Link
+                          href={`/ic/dibba/terms/${t.id}/slots`}
+                          className="underline underline-offset-4"
+                        >
+                          Slots
+                        </Link>
+                        <Link
+                          href={`/ic/dibba/terms/${t.id}/instructors`}
+                          className="underline underline-offset-4"
+                        >
+                          Instructors
+                        </Link>
+                      </TableCell>
                     </TableRow>
                   );
                 })

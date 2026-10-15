@@ -6,24 +6,13 @@ import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { createAcademicTerm, discardDibbaImport } from '@hmp/db/src/dibba-import';
 import { dibbaErrorMessage } from './errors';
+import { isoDate } from './date-input';
 
 /**
  * IC Course Dibba — list-page mutations (Phase 3, plan §2/D5/D9/D11). Thin
  * wrappers: auth, zod, the db core, revalidate. The upload itself is a Route
  * Handler (api/ic/dibba-imports/upload), not an action.
  */
-
-/** Parse `YYYY-MM-DD` as local midnight so the rendered date doesn't slip a day in +UTC zones. */
-function parseDateLocal(s: string): Date {
-  const [y, m, d] = s.split('-').map((p) => Number(p));
-  return new Date(y!, (m ?? 1) - 1, d ?? 1);
-}
-
-const isoDate = z
-  .string()
-  .trim()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter dates as YYYY-MM-DD')
-  .transform(parseDateLocal);
 
 const createTermSchema = z
   .object({

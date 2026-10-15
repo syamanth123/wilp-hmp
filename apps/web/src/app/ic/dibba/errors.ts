@@ -10,11 +10,19 @@ import { DibbaError } from '@hmp/db/src/dibba-import';
 export function dibbaErrorMessage(err: unknown, verb: string): string {
   if (err instanceof DibbaError || (err instanceof Error && err.name === 'DibbaError')) {
     const code = (err as DibbaError).code;
-    if (code === 'not_found') return 'That import no longer exists — refresh the page.';
+    if (code === 'not_found') {
+      return err.message !== 'not_found'
+        ? err.message
+        : 'That import no longer exists — refresh the page.';
+    }
     if (code === 'not_draft') {
       return 'This import is no longer a draft (someone published or discarded it) — refresh the page.';
     }
     if (code === 'term_exists') return err.message;
+    // Phase 4 codes carry their own sentence from the db core.
+    if (code === 'invalid_input' || code === 'user_not_found' || code === 'already_listed') {
+      return err.message;
+    }
   }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     // P2028: interactive-transaction timeout — most likely waiting on the term lock.
