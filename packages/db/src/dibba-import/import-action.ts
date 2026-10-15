@@ -24,7 +24,13 @@ import type { DibbaCourseType as ParsedCourseType, DibbaRow } from './types';
  *     the global client and would not be atomic).
  */
 
-export type DibbaErrorCode = 'not_found' | 'not_draft' | 'term_exists';
+export type DibbaErrorCode =
+  | 'not_found'
+  | 'not_draft'
+  | 'term_exists'
+  | 'invalid_input'
+  | 'user_not_found'
+  | 'already_listed';
 
 export class DibbaError extends Error {
   constructor(
