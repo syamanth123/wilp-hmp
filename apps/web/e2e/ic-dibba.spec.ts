@@ -5,6 +5,9 @@ import { PrismaClient } from '@hmp/db';
 
 // Course Dibba Phase 3 — IC creates a term, uploads the committed 2025 .docx
 // fixture (no LibreOffice needed in CI), reviews the preview and publishes.
+// Phase 4 adds the term-setup flow (edit, class time, exam date, faculty CSV,
+// manual instructor) as a third test; CourseInstructor and SlotExamDate rows
+// cascade from the term delete below.
 //
 // Cleanup-by-fixture convention (audit §1): the term is created through the
 // UI under a per-run sentinel name AND a per-run year — AcademicTerm is unique
@@ -137,5 +140,104 @@ test.describe('IC Course Dibba — upload → preview → publish', () => {
     const result = page.getByTestId('dibba-upload-result');
     await expect(result).toBeVisible({ timeout: 10_000 });
     await expect(result).toHaveAttribute('data-state', 'error');
+  });
+
+  test('Phase 4: IC edits the term, sets a class time + exam date, imports a faculty CSV, adds and removes an instructor', async ({
+    page,
+  }) => {
+    await signIn(page, 'ic@hmp.local');
+    await page.goto('/ic/dibba');
+
+    // 1. Create the term through the UI (seeds the 8 slots), then open its page.
+    await page.locator('#term-name').fill(TERM_NAME);
+    await page.locator('#term-year').fill(String(YEAR));
+    await page.locator('#term-term').selectOption(TERM_KIND);
+    await page.locator('#term-start').fill(`${YEAR}-08-01`);
+    await page.locator('#term-end').fill(`${YEAR}-12-15`);
+    await page.getByTestId('dibba-create-term-submit').click();
+    await expect(page.getByTestId('dibba-create-term-done')).toBeVisible({ timeout: 15_000 });
+    const term = await prisma.academicTerm.findUniqueOrThrow({
+      where: { name: TERM_NAME },
+      select: { id: true },
+    });
+    await page.goto(`/ic/dibba/terms/${term.id}`);
+    await expect(page.getByTestId('dibba-term-title')).toHaveText(TERM_NAME);
+
+    // 2. Edit: move the end date; the page re-renders with the new value.
+    await page.locator('#edit-term-end').fill(`${YEAR}-12-20`);
+    await page.getByTestId('dibba-term-edit-submit').click();
+    await expect(page.getByTestId('dibba-term-edit-done')).toBeVisible({ timeout: 15_000 });
+    const edited = await prisma.academicTerm.findUniqueOrThrow({
+      where: { id: term.id },
+      select: { endDate: true },
+    });
+    expect(edited.endDate.getDate()).toBe(20);
+
+    // 3. Slots: a class time for slot 1 and a mid-semester exam date for slot 1.
+    await page.goto(`/ic/dibba/terms/${term.id}/slots`);
+    await page.locator('#slot-1-start').fill('09:00');
+    await page.locator('#slot-1-end').fill('12:00');
+    await page.getByTestId('dibba-slot-timings-submit').click();
+    await expect(page.getByTestId('dibba-slot-timings-done')).toContainText('slot 1', {
+      timeout: 15_000,
+    });
+    await page.locator('#exam-1-mid-date').fill(`${YEAR}-10-05`);
+    await page.locator('#exam-1-mid-start').fill('10:00');
+    await page.locator('#exam-1-mid-end').fill('12:00');
+    await page.getByTestId('dibba-exam-dates-submit').click();
+    await expect(page.getByTestId('dibba-exam-dates-done')).toContainText('1 exam date', {
+      timeout: 15_000,
+    });
+    const slot1 = await prisma.slotTiming.findUniqueOrThrow({
+      where: { termId_slotNo: { termId: term.id, slotNo: 1 } },
+    });
+    expect(slot1).toMatchObject({ startTime: '09:00', endTime: '12:00' });
+    expect(await prisma.slotExamDate.count({ where: { termId: term.id } })).toBe(1);
+
+    // 4. Instructors: a two-row CSV — one seeded account, one unknown email.
+    await page.goto(`/ic/dibba/terms/${term.id}/instructors`);
+    await page.getByTestId('dibba-faculty-file-input').setInputFiles({
+      name: 'faculty.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from(
+        'FACULTY NAME,Email,Course Number,dabba\n' +
+          'Seeded Faculty (LEAD),faculty@hmp.local,CS ZG501,1\n' +
+          'Nobody Here,nobody.e2e@hmp.local,CS ZG501,1\n',
+      ),
+    });
+    await page.getByTestId('dibba-faculty-upload-submit').click();
+    const result = page.getByTestId('dibba-faculty-upload-result');
+    await expect(result).toBeVisible({ timeout: 30_000 });
+    await expect(result).toHaveAttribute('data-state', 'ok');
+    await expect(page.getByTestId('dibba-faculty-unmatched').locator('li')).toHaveCount(1);
+    await expect(page.getByTestId('dibba-instructor-group-CS-ZG501')).toContainText(
+      'faculty@hmp.local',
+    );
+
+    // 5. Manual add for another code, then remove it (confirm dialog accepted).
+    await page.locator('#instructor-code').fill('SS ZG527');
+    await page.locator('#instructor-email').fill('faculty@hmp.local');
+    await page.getByTestId('dibba-instructor-add-submit').click();
+    await expect(page.getByTestId('dibba-instructor-add-done')).toContainText('SS ZG527', {
+      timeout: 15_000,
+    });
+    const manual = await prisma.courseInstructor.findFirstOrThrow({
+      where: { termId: term.id, courseCode: 'SS ZG527' },
+      select: { id: true, source: true },
+    });
+    expect(manual.source).toBe('MANUAL');
+    await expect(page.getByTestId(`dibba-instructor-row-${manual.id}`)).toBeVisible();
+    page.once('dialog', (d) => d.accept());
+    await page.getByTestId(`dibba-instructor-remove-${manual.id}`).click();
+    await expect(page.getByTestId(`dibba-instructor-row-${manual.id}`)).toHaveCount(0, {
+      timeout: 15_000,
+    });
+
+    // 6. DB truth: the sheet row survives, the manual row is gone, nobody was created.
+    const rows = await prisma.courseInstructor.findMany({ where: { termId: term.id } });
+    expect(rows.map((r) => [r.courseCode, r.source, r.isLead])).toEqual([
+      ['CS ZG501', 'DIBBA_SHEET', true],
+    ]);
+    expect(await prisma.user.count({ where: { email: 'nobody.e2e@hmp.local' } })).toBe(0);
   });
 });
