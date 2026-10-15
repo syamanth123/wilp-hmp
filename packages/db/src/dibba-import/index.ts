@@ -31,6 +31,7 @@ export {
   parseDibbaXlsx,
   parseDibbaXlsxDetailed,
   parseFacultySheet,
+  parseFacultySheetDetailed,
   facultyRowsFromRecords,
   type XlsxInput,
   type XlsxDibbaParse,

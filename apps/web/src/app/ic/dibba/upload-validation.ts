@@ -92,3 +92,41 @@ export function deriveDibbaLabel(filename: string, now: Date = new Date()): stri
   const label = stem || `Dibba upload ${now.toISOString().slice(0, 10)}`;
   return label.slice(0, 120);
 }
+
+// ---------------------------------------------------------------------------
+// Faculty → course sheet (Phase 4, plan D6): the Excel workbook (Sheet3 shape)
+// or a CSV with the same headers. Same extension-only rule and size cap.
+// ---------------------------------------------------------------------------
+
+export const FACULTY_SHEET_EXT = ['.xlsx', '.csv'] as const;
+export type FacultySheetExt = (typeof FACULTY_SHEET_EXT)[number];
+export const FACULTY_SHEET_ACCEPT_ATTR = FACULTY_SHEET_EXT.join(',');
+
+export type FacultySheetValidation =
+  | { ok: true; ext: FacultySheetExt }
+  | { ok: false; code: DibbaUploadValidationCode; message: string };
+
+export function validateFacultySheetUpload(input: {
+  name: string;
+  size: number;
+}): FacultySheetValidation {
+  const ext = extensionOf(input.name);
+  if (!(FACULTY_SHEET_EXT as readonly string[]).includes(ext)) {
+    return {
+      ok: false,
+      code: 'unsupported_format',
+      message: 'Only .xlsx or .csv files can be uploaded.',
+    };
+  }
+  if (input.size <= 0) {
+    return { ok: false, code: 'empty_file', message: 'File is empty.' };
+  }
+  if (input.size > DIBBA_UPLOAD_MAX_BYTES) {
+    return {
+      ok: false,
+      code: 'file_too_large',
+      message: 'File exceeds the ' + DIBBA_UPLOAD_MAX_MB + ' MB limit.',
+    };
+  }
+  return { ok: true, ext: ext as FacultySheetExt };
+}

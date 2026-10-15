@@ -177,11 +177,11 @@ export function facultyRowsFromRecords(records: Array<Record<string, string>>): 
   return out;
 }
 
-/** Read the faculty → course map from the workbook's `Sheet3`. */
-export async function parseFacultySheet(
+/** Read the faculty → course map from the workbook's Sheet3, with the sheet's data-row count (rows without a course code are dropped by the shared core). */
+export async function parseFacultySheetDetailed(
   input: XlsxInput,
   sheetName = 'Sheet3',
-): Promise<FacultyRow[]> {
+): Promise<{ rows: FacultyRow[]; sheetRowCount: number }> {
   const wb = await loadWorkbook(input);
   const ws = wb.getWorksheet(sheetName);
   if (!ws) {
@@ -202,5 +202,13 @@ export async function parseFacultySheet(
     }
     records.push(rec);
   }
-  return facultyRowsFromRecords(records);
+  return { rows: facultyRowsFromRecords(records), sheetRowCount: records.length };
+}
+
+/** Read the faculty → course map from the workbook's `Sheet3`. */
+export async function parseFacultySheet(
+  input: XlsxInput,
+  sheetName = 'Sheet3',
+): Promise<FacultyRow[]> {
+  return (await parseFacultySheetDetailed(input, sheetName)).rows;
 }
