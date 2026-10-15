@@ -44,12 +44,28 @@ const shift = (days: number): Date => {
 
 async function signIn(page: Page, email: string) {
   await page.goto('/login');
-  await page.getByLabel('Email').fill(email);
+  const emailField = page.getByLabel('Email');
+  // Under CI load the first paint after clearCookies() has been seen landing on
+  // the previous user's page instead of the form; a second navigation settles it.
+  await emailField.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => null);
+  if (!(await emailField.isVisible())) await page.goto('/login');
+  await emailField.fill(email);
   await page.getByLabel('Password').fill('password');
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL((url) => !url.pathname.startsWith('/login'));
 }
+/**
+ * A real sign-out through the app, then clearCookies(). Clearing cookies alone
+ * is not enough here: the dashboards keep requests in flight (notifications
+ * stream, router refresh) and a late response re-issues the session cookie, so
+ * the next /login visit bounced back into the previous user's workspace.
+ */
 async function signOut(page: Page) {
+  const button = page.getByRole('button', { name: /sign out/i }).first();
+  if (await button.isVisible().catch(() => false)) {
+    await button.click();
+    await page.waitForURL(/\/login/, { timeout: 15_000 }).catch(() => null);
+  }
   await page.context().clearCookies();
 }
 
@@ -102,11 +118,36 @@ test.describe('Course Dibba — faculty My Schedule + HOG overview', () => {
       select: { id: true, imports: { where: { status: 'PUBLISHED' }, select: { id: true } } },
     });
     const importId = term.imports[0]!.id;
-    const entry = await prisma.dibbaEntry.findFirstOrThrow({
-      where: { importId, slotNo: { gte: 1 }, studentCount: { gt: 0 } },
+    // The overview merges codes that share a title into ONE course (spec §6), so
+    // the faculty filter can only be expected to show exactly one course for a
+    // code none of whose titles is shared with another code.
+    const allEntries = await prisma.dibbaEntry.findMany({
+      where: { importId },
       orderBy: [{ courseCode: 'asc' }, { slotNo: 'asc' }],
-      select: { courseCode: true, slotNo: true },
+      select: { courseCode: true, courseTitle: true, slotNo: true, studentCount: true },
     });
+    const titleKey = (t: string) =>
+      t
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    const codesByTitle = new Map<string, Set<string>>();
+    const titlesByCode = new Map<string, Set<string>>();
+    for (const e of allEntries) {
+      const t = titleKey(e.courseTitle);
+      (codesByTitle.get(t) ?? codesByTitle.set(t, new Set()).get(t)!).add(e.courseCode);
+      (
+        titlesByCode.get(e.courseCode) ??
+        titlesByCode.set(e.courseCode, new Set()).get(e.courseCode)!
+      ).add(t);
+    }
+    const entry = allEntries.find(
+      (e) =>
+        e.slotNo >= 1 &&
+        (e.studentCount ?? 0) > 0 &&
+        [...titlesByCode.get(e.courseCode)!].every((t) => codesByTitle.get(t)!.size === 1),
+    )!;
+    expect(entry).toBeDefined();
     const std = STANDARD_SLOTS.find((s) => s.slotNo === entry.slotNo)!;
 
     await page.goto(`/ic/dibba/terms/${term.id}/instructors`);
