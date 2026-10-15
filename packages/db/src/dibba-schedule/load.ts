@@ -42,7 +42,11 @@ export async function loadActiveTerm(
     },
   });
   const picked = pickActiveTerm(
-    terms.map((t) => ({ ...t, hasPublished: t.imports.length > 0 })),
+    terms.map((t) => ({
+      ...t,
+      hasPublished: t.imports.length > 0,
+      publishedAt: t.imports[0]?.publishedAt ?? null,
+    })),
     now,
   );
   if (!picked) return null;

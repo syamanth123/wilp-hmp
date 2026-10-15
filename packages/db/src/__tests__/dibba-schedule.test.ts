@@ -69,6 +69,19 @@ describe('pickActiveTerm', () => {
       pickActiveTerm([past, t('older', new Date(2023, 7, 1), new Date(2023, 11, 15))], now)?.name,
     ).toBe('past');
   });
+  it('between two terms containing today, the most recently published schedule wins', () => {
+    const now = new Date(2025, 9, 1);
+    const older = {
+      ...t('older', new Date(2025, 6, 1), new Date(2025, 11, 31)),
+      publishedAt: new Date(2025, 5, 1),
+    };
+    const newer = {
+      ...t('newer', new Date(2025, 7, 1), new Date(2025, 11, 15)),
+      publishedAt: new Date(2025, 8, 20),
+    };
+    expect(pickActiveTerm([older, newer], now)?.name).toBe('newer');
+    expect(pickActiveTerm([newer, older], now)?.name).toBe('newer');
+  });
   it('ignores terms without a published import', () => {
     const now = new Date(2025, 9, 1);
     expect(

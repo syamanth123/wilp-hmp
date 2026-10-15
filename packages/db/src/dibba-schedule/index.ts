@@ -170,6 +170,8 @@ export interface TermCandidate {
   startDate: Date;
   endDate: Date;
   hasPublished: boolean;
+  /** When the published import was published; breaks ties between terms that both contain today. */
+  publishedAt?: Date | null;
 }
 
 /**
@@ -178,8 +180,12 @@ export interface TermCandidate {
  */
 export function pickActiveTerm<T extends TermCandidate>(terms: T[], now: Date): T | null {
   const published = terms.filter((t) => t.hasPublished);
-  const current = published.find((t) => t.startDate <= now && now <= t.endDate);
-  if (current) return current;
+  const byLatestPublish = (a: T, b: T) =>
+    (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0);
+  const current = published
+    .filter((t) => t.startDate <= now && now <= t.endDate)
+    .sort(byLatestPublish);
+  if (current[0]) return current[0];
   const upcoming = published
     .filter((t) => t.startDate > now)
     .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
