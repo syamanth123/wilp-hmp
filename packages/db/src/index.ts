@@ -16,6 +16,9 @@ if (process.env.NODE_ENV !== 'production') {
 
 export * from '@prisma/client';
 export * from './notification-templates';
+// Pure data (no Node-only deps) — safe to expose from the barrel, unlike corpus-import.
+export * from './dibba-slots';
+export * from './dibba-warnings';
 export {
   BitsHandoutSchemaV1,
   BitsHandoutSchema,

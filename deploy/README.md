@@ -7,7 +7,7 @@ Reference layout: **t3a.medium / Ubuntu**, **RDS PostgreSQL 16**, **S3** (two bu
 ```bash
 # Node 20+ (24 recommended — the worker uses node --env-file), pnpm, pm2
 sudo apt-get update
-sudo apt-get install -y libreoffice nginx        # LibreOffice = PDF export; else /export/pdf 503s
+sudo apt-get install -y libreoffice nginx        # LibreOffice = PDF export + Course Dibba .doc upload; else /export/pdf and the IC .doc upload answer 503
 npm i -g pnpm pm2
 ```
 
@@ -98,3 +98,4 @@ Two launch-scope decisions (Prompt 6 hardening) are deliberately reversible:
 - **Capacity (t3a.medium, 4 GB):** web + worker + LibreOffice is tight. Watch memory under concurrent PDF exports; if pressured, move Redis to ElastiCache or split the worker to a second host.
 - **Security headers** (HSTS, CSP nonce, etc.) come from the Next app/middleware — Nginx forwards them and must **not** re-add CSP (it would break the per-request nonce).
 - **`X-Forwarded-Proto`** is set in `nginx.conf` — required for NextAuth's `trustHost` + secure cookies behind TLS termination.
+- **`TZ=Asia/Kolkata`** is pinned for the web process in `ecosystem.config.cjs`: the Course Dibba schedule stores class/exam dates as local midnight and works out "next class" in the process zone, so the web process must not run in UTC.

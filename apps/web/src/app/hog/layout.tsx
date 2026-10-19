@@ -4,6 +4,7 @@ import { AppShell } from '@/components/app-shell';
 const TABS = [
   { href: '/hog', label: 'Overview' },
   { href: '/hog/requests', label: 'Requests' },
+  { href: '/hog/schedule', label: 'Schedule' },
 ];
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ export default function HOGLayout({ children }: { children: React.ReactNode }) {
             <Link
               key={t.href}
               href={t.href}
-              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5"
             >
               {t.label}
             </Link>
