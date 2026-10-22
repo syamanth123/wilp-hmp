@@ -7,6 +7,7 @@ const TABS = [
   { href: '/admin/roles', label: 'Roles' },
   { href: '/admin/programmes', label: 'Programmes' },
   { href: '/admin/import', label: 'Import' },
+  { href: '/admin/corpus-imports', label: 'Corpus' },
   { href: '/admin/workflow', label: 'Workflow' },
   { href: '/admin/notifications', label: 'Notifications' },
   { href: '/admin/queues', label: 'Queues' },
