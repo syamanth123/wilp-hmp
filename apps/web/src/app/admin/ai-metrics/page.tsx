@@ -15,6 +15,8 @@ import {
 import { prisma } from '@hmp/db';
 import { getAiClient } from '@hmp/ai';
 import { ReEmbedPanel } from './re-embed-panel';
+import { notFound } from 'next/navigation';
+import { aiFeaturesEnabled } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +48,8 @@ function usd(n: number, dp = 4): string {
 }
 
 export default async function AiMetricsPage() {
+  // AI switched off (AI_FEATURES_ENABLED): the page doesn't exist.
+  if (!aiFeaturesEnabled()) notFound();
   const client = getAiClient();
   const provider = (process.env.AI_PROVIDER ?? 'openai').toLowerCase();
   const openaiSet = Boolean(process.env.OPENAI_API_KEY);

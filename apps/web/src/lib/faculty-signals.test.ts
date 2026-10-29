@@ -42,10 +42,28 @@ describe('buildChecklistItems', () => {
   });
 
   it('flags Bloom coverage only when >=3 levels above threshold', () => {
-    const two = buildChecklistItems({ ...empty, blooms: { remember: 0.5, apply: 0.5, analyze: 0.01 } });
+    const two = buildChecklistItems({
+      ...empty,
+      blooms: { remember: 0.5, apply: 0.5, analyze: 0.01 },
+    });
     expect(two.find((i) => i.label.includes('Bloom'))?.done).toBe(false);
-    const three = buildChecklistItems({ ...empty, blooms: { remember: 0.4, apply: 0.3, analyze: 0.3 } });
+    const three = buildChecklistItems({
+      ...empty,
+      blooms: { remember: 0.4, apply: 0.3, analyze: 0.3 },
+    });
     expect(three.find((i) => i.label.includes('Bloom'))?.done).toBe(true);
+  });
+
+  it('drops the Bloom item when AI is switched off (5 items)', () => {
+    const items = buildChecklistItems({
+      text: '',
+      versionCount: 0,
+      blooms: null,
+      coverage: null,
+      includeBlooms: false,
+    });
+    expect(items).toHaveLength(5);
+    expect(items.some((i) => i.label.startsWith('Bloom'))).toBe(false);
   });
 
   it('ignores blooms buckets below threshold', () => {

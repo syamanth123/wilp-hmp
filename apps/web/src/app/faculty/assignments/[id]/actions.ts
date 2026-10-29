@@ -17,6 +17,7 @@ import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 
 const tiptapDocSchema = z.object({
   type: z.literal('doc'),
@@ -288,36 +289,39 @@ export async function submitForReviewAction(formData: FormData) {
   // "Run quality check" button (runQualityCheckAction) stays SYNCHRONOUS — the
   // faculty awaits that result, so it's not queued. See audit §1 (queueing is
   // a property of the calling context).
-  try {
-    const handoutAfter = await prisma.handout.findUnique({
-      where: { id: request.handout.id },
-      select: { currentVersionId: true },
-    });
-    if (handoutAfter?.currentVersionId) {
-      const versionId = handoutAfter.currentVersionId;
-      let queued = false;
-      if (process.env.WORKERS_ENABLED === 'true') {
-        try {
-          await enqueueAiJob({
-            kind: 'quality_report',
-            handoutVersionId: versionId,
-            requestId: request.id,
-          });
-          queued = true;
-        } catch (err) {
-          console.error('quality_check_enqueue_failed — running inline', err);
+  // Quality report on submit only with AI switched on (AI_FEATURES_ENABLED).
+  if (aiFeaturesEnabled()) {
+    try {
+      const handoutAfter = await prisma.handout.findUnique({
+        where: { id: request.handout.id },
+        select: { currentVersionId: true },
+      });
+      if (handoutAfter?.currentVersionId) {
+        const versionId = handoutAfter.currentVersionId;
+        let queued = false;
+        if (process.env.WORKERS_ENABLED === 'true') {
+          try {
+            await enqueueAiJob({
+              kind: 'quality_report',
+              handoutVersionId: versionId,
+              requestId: request.id,
+            });
+            queued = true;
+          } catch (err) {
+            console.error('quality_check_enqueue_failed — running inline', err);
+          }
+        }
+        if (!queued) {
+          await runQualityReport(
+            { handoutVersionId: versionId, bypassRateLimit: true },
+            { actorId: me.id },
+          );
         }
       }
-      if (!queued) {
-        await runQualityReport(
-          { handoutVersionId: versionId, bypassRateLimit: true },
-          { actorId: me.id },
-        );
+    } catch (err) {
+      if (!(err instanceof AiUnconfiguredError)) {
+        console.error('quality_check_on_submit_failed', err);
       }
-    }
-  } catch (err) {
-    if (!(err instanceof AiUnconfiguredError)) {
-      console.error('quality_check_on_submit_failed', err);
     }
   }
 
@@ -327,6 +331,7 @@ export async function submitForReviewAction(formData: FormData) {
 
 export async function runQualityCheckAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   // Per-user AI throttle (Prompt 20). RPC-shaped { error }, fail-open.
   const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
   if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };

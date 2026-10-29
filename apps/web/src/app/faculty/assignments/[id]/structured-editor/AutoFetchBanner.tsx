@@ -52,11 +52,11 @@ export function AutoFetchBanner({ requestId, tier, detail }: Props) {
   const heading = (() => {
     switch (tier) {
       case 'prior-version':
-        return 'Pre-populated from a prior published handout';
+        return "Started from last year's handout";
       case 'import':
-        return 'Pre-populated from an imported corpus handout';
+        return 'Started from an approved past handout';
       case 'empty':
-        return 'Starting from an empty template';
+        return 'Started from a blank handout';
     }
   })();
 
@@ -80,8 +80,8 @@ export function AutoFetchBanner({ requestId, tier, detail }: Props) {
       <div style={{ flex: 1 }}>
         <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{heading}</p>
         <p style={{ fontSize: 12.5, color: '#475569', marginTop: 2 }}>
-          {detail}. Review carefully and adjust for this semester — evaluation weights and other
-          content from prior versions carry forward and must be confirmed before submitting.
+          {detail}. Check every section and adjust it for this semester. Evaluation weights and
+          other details carried over must be confirmed before you submit.
         </p>
       </div>
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -93,7 +93,7 @@ export function AutoFetchBanner({ requestId, tier, detail }: Props) {
             disabled={pending}
             data-testid="bits-autofetch-reset"
           >
-            {pending ? 'Resetting…' : 'Start from empty template instead'}
+            {pending ? 'Resetting…' : 'Start from a blank handout instead'}
           </Button>
         )}
         <Button

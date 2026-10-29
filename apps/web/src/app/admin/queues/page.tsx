@@ -23,6 +23,7 @@ import {
   type Queue,
 } from '@hmp/queue';
 import { FailedJobActions, ClearCompletedButton } from './queue-actions';
+import { aiFeaturesEnabled } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -198,15 +199,17 @@ export default async function AdminQueuesPage() {
     );
   }
 
+  // The AI queue is shown only with AI_FEATURES_ENABLED=true.
+  const aiEnabled = aiFeaturesEnabled();
   const [notifications, ai] = await Promise.all([
     loadQueue('notifications', getNotificationsQueue()),
-    loadQueue('ai', getAiQueue()),
+    aiEnabled ? loadQueue('ai', getAiQueue()) : Promise.resolve(null),
   ]);
 
   return (
     <div className="space-y-4">
       <QueueCard view={notifications} />
-      <QueueCard view={ai} />
+      {ai && <QueueCard view={ai} />}
     </div>
   );
 }

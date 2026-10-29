@@ -83,7 +83,7 @@ test('Structured editor — full flow on the document page (auto-fetch banner �
   const banner = page.getByTestId('bits-autofetch-banner');
   await expect(banner).toBeVisible();
   await expect(banner).toHaveAttribute('data-tier', 'empty');
-  await expect(banner).toContainText(/Empty template/i);
+  await expect(banner).toContainText(/Started from a blank handout/i);
   // Dismiss the banner → router.replace strips the search params → banner
   // doesn't reappear on subsequent renders (verified again after Save below).
   await page.getByTestId('bits-autofetch-dismiss').click();

@@ -15,6 +15,7 @@ import { transition, WorkflowError, assertOffCampusCap } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { audit } from '@/lib/audit';
 import { clearTodayRecommendations, recommendFaculty } from '@hmp/ai';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 
 const allocateSchema = z.object({
   requestId: z.string().cuid(),
@@ -250,6 +251,7 @@ export async function finalRejectAction(formData: FormData) {
 
 export async function regenerateRecommendationAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   const requestId = String(formData.get('requestId') ?? '');
   if (!requestId) return { error: 'Missing requestId' };
   let count = 0;

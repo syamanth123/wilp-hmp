@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { prisma } from '@hmp/db';
 import { statusLabel } from '@/components/status-badge';
+import { aiFeaturesEnabled } from '@/lib/features';
 
 function StatCard({
   label,
@@ -243,6 +244,7 @@ export default async function AdminOverview() {
     prisma.handoutRequest.groupBy({ by: ['status'], _count: { _all: true } }),
   ]);
 
+  const aiEnabled = aiFeaturesEnabled();
   const aiProvider = process.env['AI_PROVIDER'] ?? 'not configured';
   const totalRequests = requests || 1; // avoid div/0
 
@@ -395,12 +397,14 @@ export default async function AdminOverview() {
               </span>
               Workflow config
             </Link>
-            <Link href="/admin/ai-metrics" className="quick-action">
-              <span className="qa-icon">
-                <CpuIcon />
-              </span>
-              AI metrics
-            </Link>
+            {aiEnabled && (
+              <Link href="/admin/ai-metrics" className="quick-action">
+                <span className="qa-icon">
+                  <CpuIcon />
+                </span>
+                AI metrics
+              </Link>
+            )}
             <Link href="/admin/corpus-imports" className="quick-action">
               <span className="qa-icon">
                 <FileIcon />
@@ -417,7 +421,7 @@ export default async function AdminOverview() {
           <div className="panel-body flex flex-col gap-3">
             {[
               { label: 'Node.js', value: process.version },
-              { label: 'AI provider', value: aiProvider },
+              ...(aiEnabled ? [{ label: 'AI provider', value: aiProvider }] : []),
               { label: 'Audit log entries', value: audits.toString() },
               { label: 'Total requests', value: requests.toString() },
             ].map((item) => (

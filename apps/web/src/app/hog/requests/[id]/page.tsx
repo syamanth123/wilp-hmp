@@ -26,6 +26,7 @@ import { listFacultyForAllocation } from '@/lib/faculty-load';
 import { listVersions } from '@/lib/handout-versioning';
 import { recommendFaculty, type RecommendationResult } from '@hmp/ai';
 import { QualityReportCard } from '@/components/quality-report-card';
+import { aiFeaturesEnabled } from '@/lib/features';
 import { AllocationPanel, type FacultyChoice, type SmeChoice } from './allocation-panel';
 import { FinalApprovalPanel } from './approval-panel';
 
@@ -96,10 +97,14 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
       capped: CAPPED_TYPES.has(f.facultyType) && f.loadInSemester >= cap,
     }));
     smeChoices = smeUsers;
-    try {
-      recommendation = await recommendFaculty({ requestId: request.id });
-    } catch {
-      recommendation = null;
+    // AI suggestions only when AI is switched on; otherwise the recommender
+    // isn't called at all and the suggestions list stays hidden.
+    if (aiFeaturesEnabled()) {
+      try {
+        recommendation = await recommendFaculty({ requestId: request.id });
+      } catch {
+        recommendation = null;
+      }
     }
   }
 

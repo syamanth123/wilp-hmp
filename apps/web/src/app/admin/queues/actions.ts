@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { getNotificationsQueue, getAiQueue, type Queue } from '@hmp/queue';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 
 const schema = z.object({
   queue: z.enum(['notifications', 'ai']),
@@ -21,6 +22,7 @@ export async function retryFailedJobAction(formData: FormData) {
   requireRole(await getSessionUser(), RoleName.ADMIN);
   const parsed = schema.safeParse({ queue: formData.get('queue'), jobId: formData.get('jobId') });
   if (!parsed.success) return { error: 'Invalid input' };
+  if (parsed.data.queue === 'ai' && !aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   try {
     const job = await queueByName(parsed.data.queue).getJob(parsed.data.jobId);
     if (!job) return { error: 'Job not found (may have been cleaned).' };
@@ -38,6 +40,7 @@ export async function deleteFailedJobAction(formData: FormData) {
   requireRole(await getSessionUser(), RoleName.ADMIN);
   const parsed = schema.safeParse({ queue: formData.get('queue'), jobId: formData.get('jobId') });
   if (!parsed.success) return { error: 'Invalid input' };
+  if (parsed.data.queue === 'ai' && !aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   try {
     const job = await queueByName(parsed.data.queue).getJob(parsed.data.jobId);
     if (!job) return { error: 'Job not found.' };
@@ -53,6 +56,7 @@ export async function clearCompletedAction(formData: FormData) {
   requireRole(await getSessionUser(), RoleName.ADMIN);
   const parsed = clearSchema.safeParse({ queue: formData.get('queue') });
   if (!parsed.success) return { error: 'Invalid input' };
+  if (parsed.data.queue === 'ai' && !aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   try {
     // grace 0 = clean all completed regardless of age; up to 1000 at a time.
     await queueByName(parsed.data.queue).clean(0, 1000, 'completed');

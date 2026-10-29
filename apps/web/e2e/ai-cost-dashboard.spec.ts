@@ -16,6 +16,10 @@ async function signIn(page: Page, email: string) {
   await page.waitForURL((url) => !url.pathname.startsWith('/login'));
 }
 
+// The AI metrics page exists only with AI_FEATURES_ENABLED=true, so this spec
+// runs in the "e2e (AI on)" CI step and skips itself in the main run.
+test.skip(process.env.AI_FEATURES_ENABLED !== 'true', 'runs only with AI switched on');
+
 test.afterEach(async () => {
   if (seededIds.length) {
     await prisma.aiUsageLog.deleteMany({ where: { id: { in: seededIds } } });

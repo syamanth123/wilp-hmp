@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { AppShell } from '@/components/app-shell';
+import { aiFeaturesEnabled } from '@/lib/features';
 
 const TABS = [
   { href: '/admin', label: 'Overview' },
@@ -11,7 +12,8 @@ const TABS = [
   { href: '/admin/workflow', label: 'Workflow' },
   { href: '/admin/notifications', label: 'Notifications' },
   { href: '/admin/queues', label: 'Queues' },
-  { href: '/admin/ai-metrics', label: 'AI Metrics' },
+  // Shown only with AI_FEATURES_ENABLED=true (filtered below).
+  { href: '/admin/ai-metrics', label: 'AI Metrics', ai: true },
   { href: '/admin/audit', label: 'Audit' },
 ];
 
@@ -22,7 +24,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <AppShell area="/admin">
       <div className="space-y-4">
         <nav className="flex flex-wrap gap-2 border-b pb-2 text-sm">
-          {TABS.map((t) => (
+          {TABS.filter((t) => !('ai' in t) || aiFeaturesEnabled()).map((t) => (
             <Link
               key={t.href}
               href={t.href}

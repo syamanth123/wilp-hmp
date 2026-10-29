@@ -4,10 +4,13 @@ import { RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { ensureCorpusEmbeddings, AiUnconfiguredError } from '@hmp/ai';
 import { audit } from '@/lib/audit';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 
 export async function runReEmbedAction(): Promise<
   { courses: number; faculty: number; skipped: number } | { error: string }
 > {
+  // AI switched off: refuse before anything else.
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   let me;
   try {
     me = requireRole(await getSessionUser(), RoleName.ADMIN);

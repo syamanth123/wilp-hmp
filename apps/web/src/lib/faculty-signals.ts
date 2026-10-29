@@ -1,5 +1,6 @@
 import { prisma, HandoutStatus } from '@hmp/db';
 import { extractTiptapText } from '@/lib/handout-versioning';
+import { aiFeaturesEnabled } from './features';
 
 export interface ChecklistSignal {
   label: string;
@@ -58,6 +59,8 @@ export async function computeFacultySignals(facultyId: string): Promise<FacultyS
     ? extractTiptapText(request.handout.currentVersion.contentJson).toLowerCase()
     : '';
 
+  // The Bloom's item needs an AI quality report: only with AI switched on.
+  const includeBlooms = aiFeaturesEnabled();
   const latestReport = request.handout
     ? await prisma.aIQualityReport.findFirst({
         where: { handoutId: request.handout.id },
@@ -71,6 +74,7 @@ export async function computeFacultySignals(facultyId: string): Promise<FacultyS
     versionCount,
     blooms: (latestReport?.bloomsJson ?? null) as Record<string, number> | null,
     coverage: (latestReport?.coverageJson ?? null) as { coverageRatio?: number } | null,
+    includeBlooms,
   });
 
   return { refNo: request.refNo, requestId: request.id, items };
@@ -82,18 +86,20 @@ export interface SignalInputs {
   versionCount: number;
   blooms: Record<string, number> | null;
   coverage: { coverageRatio?: number } | null;
+  /** Include the Bloom's item (it needs the AI quality check). Default true. */
+  includeBlooms?: boolean;
 }
 
 /** Pure: derive the checklist from already-loaded inputs. */
 export function buildChecklistItems(input: SignalInputs): ChecklistSignal[] {
-  const { text, versionCount, blooms, coverage } = input;
+  const { text, versionCount, blooms, coverage, includeBlooms = true } = input;
   const bloomLevels = blooms
     ? Object.values(blooms).filter((v) => typeof v === 'number' && v >= 0.05).length
     : 0;
   const hasKeyword = (...keywords: string[]) =>
     text.length > 0 && keywords.some((k) => text.includes(k));
 
-  return [
+  const items: ChecklistSignal[] = [
     {
       label: 'Learning objectives defined',
       done: hasKeyword('objective', 'outcome', 'learning goal'),
@@ -125,4 +131,5 @@ export function buildChecklistItems(input: SignalInputs): ChecklistSignal[] {
       hint: 'Save a version from the editor.',
     },
   ];
+  return includeBlooms ? items : items.filter((i) => !i.label.startsWith('Bloom'));
 }

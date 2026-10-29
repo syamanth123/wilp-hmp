@@ -74,7 +74,8 @@ test('no CSP violations across core authed pages', async ({ page }) => {
   // executed — when a CSP script-block would fire); a short settle catches any
   // late violations.
   await signIn(page, 'admin@hmp.local');
-  for (const path of ['/admin', '/admin/ai-metrics', '/admin/users']) {
+  // (/admin/ai-metrics is a 404 while AI is switched off, so it isn't listed.)
+  for (const path of ['/admin', '/admin/corpus-imports', '/admin/users']) {
     await page.goto(path); // default waitUntil: 'load'
     await page.waitForTimeout(800);
   }

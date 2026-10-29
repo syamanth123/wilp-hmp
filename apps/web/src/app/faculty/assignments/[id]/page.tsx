@@ -215,6 +215,7 @@ export default async function FacultyAssignmentDetail({
                   <>
                     <ConvertBanner requestId={request.id} />
                     <EditorPanel
+                      aiEnabled={aiEnabled}
                       requestId={request.id}
                       initialJson={currentVersion.contentJson ?? null}
                       isRework={status === HandoutStatus.REWORK_REQUESTED}
@@ -289,7 +290,7 @@ export default async function FacultyAssignmentDetail({
         </Card>
       )}
 
-      {handout && currentVersion && !EDITABLE.has(status) && (
+      {aiEnabled && handout && currentVersion && !EDITABLE.has(status) && (
         <Card>
           <CardHeader>
             <CardTitle>AI quality check</CardTitle>

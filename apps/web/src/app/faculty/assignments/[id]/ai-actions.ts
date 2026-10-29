@@ -8,6 +8,7 @@ import { generateHandoutDraft, AiUnconfiguredError } from '@hmp/ai';
 import { appendVersion, renderTiptapToHtml } from '@/lib/handout-versioning';
 import { audit } from '@/lib/audit';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 
 const generateSchema = z.object({
   requestId: z.string().cuid(),
@@ -43,6 +44,7 @@ async function loadMyAssignment(requestId: string, facultyId: string) {
 
 export async function generateAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   // Per-user AI throttle (Prompt 20). Server action → RPC-shaped { error }, not
   // an HTTP 429. Fail-open if Redis is down.
   const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
@@ -94,6 +96,7 @@ export async function generateAiDraftAction(formData: FormData) {
 
 export async function applyAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   const parsed = applySchema.safeParse({
     requestId: formData.get('requestId'),
     draftId: formData.get('draftId'),

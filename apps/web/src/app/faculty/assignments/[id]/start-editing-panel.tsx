@@ -20,10 +20,10 @@ export function StartEditingPanel({ requestId }: { requestId: string }) {
 
   return (
     <div className="space-y-3">
+      <p className="text-sm font-medium">Start from last year&apos;s handout</p>
       <p className="text-muted-foreground text-sm">
-        Starting will pre-populate the structured editor from the most relevant available source
-        (prior published handout for this course → empty template), move the status to IN_PROGRESS,
-        and open the editor with a banner showing which source was used.
+        The editor opens with the most recent approved handout for this course, or a blank one if
+        there is none. A note at the top says which.
       </p>
       {error && <p className="text-destructive text-sm">{error}</p>}
       <Button onClick={start} disabled={pending}>

@@ -88,9 +88,14 @@ test.describe('workers — queued notification delivers end-to-end', () => {
     const res = await page.goto('/admin/queues');
     expect(res?.status()).toBe(200);
     await expect(page.getByRole('heading', { name: /notifications queue/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /ai queue/i })).toBeVisible();
+    // The AI queue is shown only with AI_FEATURES_ENABLED=true.
+    if (process.env.AI_FEATURES_ENABLED === 'true') {
+      await expect(page.getByRole('heading', { name: /ai queue/i })).toBeVisible();
+    } else {
+      await expect(page.getByRole('heading', { name: /ai queue/i })).toHaveCount(0);
+    }
     // A worker is running in this step → heartbeat is fresh, not the warning.
     await expect(page.getByText(/Worker heartbeat/i).first()).toBeVisible();
-    await expect(page.getByText(/Workers may not be running/i)).toHaveCount(0);
+    await expect(page.getByText(/background processor seems to have stopped/i)).toHaveCount(0);
   });
 });

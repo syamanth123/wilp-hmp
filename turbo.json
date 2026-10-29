@@ -33,7 +33,8 @@
     "NODE_ENV",
     "LOG_LEVEL",
     "CI",
-    "SHOW_DEMO_LOGINS"
+    "SHOW_DEMO_LOGINS",
+    "AI_FEATURES_ENABLED"
   ],
   "tasks": {
     "build": {

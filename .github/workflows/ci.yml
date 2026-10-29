@@ -244,6 +244,14 @@ jobs:
           tail -50 worker.log
           exit $status
 
+      - name: e2e (AI on) — m8 + AI cost
+        # The main run keeps AI_FEATURES_ENABLED unset (off, the launch
+        # default). This step starts a fresh server with the switch on and runs
+        # only the AI specs; each one skips the half that doesn't match.
+        env:
+          AI_FEATURES_ENABLED: 'true'
+        run: pnpm --filter @hmp/web exec playwright test m8-ai-layer.spec.ts ai-cost-dashboard.spec.ts
+
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

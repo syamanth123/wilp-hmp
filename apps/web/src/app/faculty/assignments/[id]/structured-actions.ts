@@ -20,6 +20,7 @@ import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError, generateStructuredHandoutDraft } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
 import { blankHandoutForRequest } from './structured-editor/state';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 
 /**
  * Server actions for the Prompt 11d structured editor. Mirrors the shape of
@@ -202,36 +203,39 @@ export async function submitStructuredForReviewAction(formData: FormData) {
   // legacy submitForReviewAction (see actions.ts) — queue when
   // WORKERS_ENABLED, otherwise run inline. AiUnconfiguredError swallowed
   // because the noop AI provider is a normal CI / dev state.
-  try {
-    const handoutAfter = await prisma.handout.findUnique({
-      where: { id: request.handout.id },
-      select: { currentVersionId: true },
-    });
-    if (handoutAfter?.currentVersionId) {
-      const versionId = handoutAfter.currentVersionId;
-      let queued = false;
-      if (process.env.WORKERS_ENABLED === 'true') {
-        try {
-          await enqueueAiJob({
-            kind: 'quality_report',
-            handoutVersionId: versionId,
-            requestId: request.id,
-          });
-          queued = true;
-        } catch (err) {
-          console.error('quality_check_enqueue_failed — running inline', err);
+  // Quality report on submit only with AI switched on (AI_FEATURES_ENABLED).
+  if (aiFeaturesEnabled()) {
+    try {
+      const handoutAfter = await prisma.handout.findUnique({
+        where: { id: request.handout.id },
+        select: { currentVersionId: true },
+      });
+      if (handoutAfter?.currentVersionId) {
+        const versionId = handoutAfter.currentVersionId;
+        let queued = false;
+        if (process.env.WORKERS_ENABLED === 'true') {
+          try {
+            await enqueueAiJob({
+              kind: 'quality_report',
+              handoutVersionId: versionId,
+              requestId: request.id,
+            });
+            queued = true;
+          } catch (err) {
+            console.error('quality_check_enqueue_failed — running inline', err);
+          }
+        }
+        if (!queued) {
+          await runQualityReport(
+            { handoutVersionId: versionId, bypassRateLimit: true },
+            { actorId: me.id },
+          );
         }
       }
-      if (!queued) {
-        await runQualityReport(
-          { handoutVersionId: versionId, bypassRateLimit: true },
-          { actorId: me.id },
-        );
+    } catch (err) {
+      if (!(err instanceof AiUnconfiguredError)) {
+        console.error('quality_check_on_submit_failed', err);
       }
-    }
-  } catch (err) {
-    if (!(err instanceof AiUnconfiguredError)) {
-      console.error('quality_check_on_submit_failed', err);
     }
   }
 
@@ -383,6 +387,7 @@ export async function convertToStructuredAction(formData: FormData) {
  */
 export async function generateStructuredAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   // Per-user AI throttle (Prompt 20). RPC-shaped { error }, fail-open.
   const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
   if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };
@@ -444,6 +449,7 @@ export async function generateStructuredAiDraftAction(formData: FormData) {
  */
 export async function applyStructuredAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   const parse = z.object({ requestId: z.string().cuid(), draftId: z.string().cuid() }).safeParse({
     requestId: formData.get('requestId'),
     draftId: formData.get('draftId'),

@@ -10,3 +10,6 @@
 export function aiFeaturesEnabled(): boolean {
   return (process.env.AI_FEATURES_ENABLED ?? '').trim().toLowerCase() === 'true';
 }
+
+/** What a refused AI action tells the user. */
+export const AI_OFF_MESSAGE = 'AI features are switched off on this server.';
