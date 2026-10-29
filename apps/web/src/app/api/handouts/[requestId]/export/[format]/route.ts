@@ -6,6 +6,7 @@ import { audit } from '@/lib/audit';
 import { canExportHandout } from '@/lib/export/access';
 import { buildHandoutDocx } from '@/lib/export/build-docx';
 import { docxToPdf, SofficeError } from '@/lib/export/docx-to-pdf';
+import { exportErrorResponse } from '@/lib/export/error-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,16 +38,16 @@ function safe(s: string): string {
  * docx through LibreOffice headless (EC2 prerequisite).
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { requestId: string; format: string } },
 ) {
   const { requestId, format } = params;
   if (format !== 'docx' && format !== 'pdf') {
-    return Response.json({ error: 'bad_format' }, { status: 400 });
+    return exportErrorResponse(req, 400, 'bad_format');
   }
 
   const me = await getSessionUser();
-  if (!me) return Response.json({ error: 'unauthenticated' }, { status: 401 });
+  if (!me) return exportErrorResponse(req, 401, 'unauthenticated');
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: requestId },
@@ -57,7 +58,7 @@ export async function GET(
       assignments: { where: { facultyId: me.id, active: true }, select: { id: true } },
     },
   });
-  if (!request) return Response.json({ error: 'request_not_found' }, { status: 404 });
+  if (!request) return exportErrorResponse(req, 404, 'request_not_found');
 
   if (
     !canExportHandout({
@@ -66,17 +67,17 @@ export async function GET(
       isOwnerFaculty: request.assignments.length > 0,
     })
   ) {
-    return Response.json({ error: 'forbidden' }, { status: 403 });
+    return exportErrorResponse(req, 403, 'forbidden');
   }
 
   const version = request.handout?.currentVersion;
   if (!version?.data) {
     // No structured content (legacy contentHtml-only or never authored).
-    return Response.json({ error: 'no_structured_handout' }, { status: 404 });
+    return exportErrorResponse(req, 404, 'no_structured_handout');
   }
   const parsed = BitsHandoutSchemaV1.safeParse(version.data);
   if (!parsed.success) {
-    return Response.json({ error: 'unparseable_handout' }, { status: 422 });
+    return exportErrorResponse(req, 422, 'unparseable_handout');
   }
 
   const [logo, watermark] = await Promise.all([getLogo(), getWatermark()]);
@@ -97,7 +98,7 @@ export async function GET(
       // Log detail server-side; return a generic message (no path leakage).
       console.error('[export] PDF conversion failed', { requestId, kind, err });
       const status = kind === 'missing-binary' ? 503 : 500;
-      return Response.json({ error: 'pdf_unavailable', kind }, { status });
+      return exportErrorResponse(req, status, 'pdf_unavailable', { kind });
     }
     mime = 'application/pdf';
     ext = 'pdf';

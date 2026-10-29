@@ -26,5 +26,5 @@ test('faculty cannot access admin area', async ({ page }) => {
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL(/\/faculty/);
   await page.goto('/admin');
-  await expect(page.getByText(/403/i)).toBeVisible();
+  await expect(page.getByTestId('access-denied')).toContainText("You don't have access");
 });

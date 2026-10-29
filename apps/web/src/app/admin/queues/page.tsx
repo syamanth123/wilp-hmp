@@ -91,18 +91,14 @@ function HeartbeatBanner({ view }: { view: QueueView }) {
       }}
     >
       <div style={{ fontWeight: 700, color: '#9a3412', fontSize: 14 }}>
-        ⚠ Workers may not be running
+        ⚠ The background processor seems to have stopped
       </div>
       <p className="text-sm" style={{ color: '#7c2d12', margin: '4px 0 0' }}>
-        No recent heartbeat for the <strong>{view.name}</strong> queue
+        Nothing has been picked up from this list recently
         {view.heartbeatMs
-          ? ` (last seen ${Math.round((Date.now() - view.heartbeatMs) / 60000)} min ago)`
+          ? ` (last activity ${Math.round((Date.now() - view.heartbeatMs) / 60000)} min ago)`
           : ''}
-        . Jobs will queue but not process until a worker is started. See the{' '}
-        <Link href="/docs" className="underline underline-offset-2">
-          deployment runbook
-        </Link>{' '}
-        — run <code>pnpm workers</code> alongside the web service.
+        . Waiting jobs will be sent once IT restarts the background processor.
       </p>
     </div>
   );
