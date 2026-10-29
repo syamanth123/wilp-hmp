@@ -75,6 +75,6 @@ test.describe('Admin corpus upload', () => {
     const result = page.getByTestId('upload-result');
     await expect(result).toBeVisible({ timeout: 10_000 });
     await expect(result).toHaveAttribute('data-state', 'error');
-    await expect(result).toContainText(/unsupported_format/i);
+    await expect(result).toContainText(/Only Word files/i);
   });
 });

@@ -145,7 +145,7 @@ NOPE-${g.tag},BLK ZG802,${g.sem}`,
 
   const rejected = page.getByTestId('bulk-rejected');
   await expect(rejected).toBeVisible({ timeout: 15_000 });
-  await expect(rejected).toContainText(/programme_not_found/);
+  await expect(rejected.locator('[data-code="programme_not_found"]')).toHaveCount(1);
   await expect(page.getByTestId('bulk-download-rejected')).toBeVisible();
 
   // Atomic: nothing created despite row 1 being valid.

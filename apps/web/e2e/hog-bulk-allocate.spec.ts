@@ -140,7 +140,7 @@ HMP-9999-9999,faculty@hmp.local,sme@hmp.local`,
 
   const rejected = page.getByTestId('bulk-rejected');
   await expect(rejected).toBeVisible({ timeout: 15_000 });
-  await expect(rejected).toContainText(/request_not_found/);
+  await expect(rejected.locator('[data-code="request_not_found"]')).toHaveCount(1);
   await expect(page.getByTestId('bulk-download-rejected')).toBeVisible();
 
   // Atomic: row 1 was valid but nothing committed.

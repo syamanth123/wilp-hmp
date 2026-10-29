@@ -36,7 +36,7 @@ test.describe('IC archive', () => {
     await expect(page.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible();
 
     // Action.
-    await page.getByLabel(/I understand this moves the handout to ARCHIVED/i).check();
+    await page.getByLabel(/I understand this handout will be archived/i).check();
     await page.getByRole('button', { name: /archive this handout/i }).click();
 
     // Persistent post-action signal: the Archive card disappears entirely
