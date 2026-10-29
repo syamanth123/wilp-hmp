@@ -32,7 +32,8 @@
     "TAXILA_API_KEY",
     "NODE_ENV",
     "LOG_LEVEL",
-    "CI"
+    "CI",
+    "SHOW_DEMO_LOGINS"
   ],
   "tasks": {
     "build": {

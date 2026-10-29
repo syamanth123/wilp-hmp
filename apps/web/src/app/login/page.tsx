@@ -1,14 +1,28 @@
 import Image from 'next/image';
 import { prisma } from '@hmp/db';
 import { LoginForm } from './login-form';
+import { demoLoginsVisible } from '@/lib/demo-logins';
 
 export const dynamic = 'force-dynamic';
 
-export default async function LoginPage({ searchParams }: { searchParams: { next?: string; error?: string } }) {
-  const [programmes, users] = await Promise.all([
-    prisma.programme.count(),
-    prisma.user.count(),
-  ]);
+const DEMO_LOGIN_EMAILS = [
+  'admin@hmp.local',
+  'ic@hmp.local',
+  'hog@hmp.local',
+  'pc@hmp.local',
+  'sme@hmp.local',
+  'faculty@hmp.local',
+];
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: { next?: string; error?: string };
+}) {
+  // The demo-accounts box is shown only when SHOW_DEMO_LOGINS=true (local
+  // demo). Off by default, so a real server never advertises the accounts.
+  const showDemoLogins = demoLoginsVisible();
+  const [programmes, users] = await Promise.all([prisma.programme.count(), prisma.user.count()]);
 
   return (
     <main
@@ -22,7 +36,9 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
       }}
     >
       {/* Responsive helpers + animations */}
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         /* ── Keyframe animations ── */
         @keyframes fadeIn {
           from { opacity: 0; }
@@ -238,7 +254,9 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
           .hmp-login-left { animation: none; }
           .hmp-login-right { animation: none; }
         }
-      ` }} />
+      `,
+        }}
+      />
 
       {/* ── Cinematic background layer ── */}
       <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
@@ -249,7 +267,11 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
             fill
             priority
             sizes="100vw"
-            style={{ objectFit: 'cover', objectPosition: 'right 20%', filter: 'brightness(1.15) saturate(1.28) contrast(1.10)' }}
+            style={{
+              objectFit: 'cover',
+              objectPosition: 'right 20%',
+              filter: 'brightness(1.15) saturate(1.28) contrast(1.10)',
+            }}
           />
         </div>
         {/* Cinematic gradient overlay — softer so the tower stays the centerpiece */}
@@ -323,11 +345,9 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
                 color: 'rgba(255,255,255,0.72)',
               }}
             >
-              Handout<br />
-              Management{' '}
-              <span style={{ color: 'rgba(255,255,255,0.72)' }}>
-                Portal
-              </span>
+              Handout
+              <br />
+              Management <span style={{ color: 'rgba(255,255,255,0.72)' }}>Portal</span>
             </h1>
 
             <div
@@ -351,7 +371,8 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
                 margin: 0,
               }}
             >
-              A unified workspace for the Instruction Cell, Programme Committees, HoDs and Faculty to author, review and publish course handouts across BITS WILP.
+              A unified workspace for the Instruction Cell, Programme Committees, HoDs and Faculty
+              to author, review and publish course handouts across BITS WILP.
             </p>
           </div>
 
@@ -434,7 +455,17 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
                 transition: 'all 0.3s ease',
               }}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#a5b4fc"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M12 2 4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5l-8-3z" />
               </svg>
               Secure sign-in
@@ -456,7 +487,15 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
             >
               Welcome back
             </h2>
-            <p className="hmp-login-subtitle" style={{ color: 'rgba(255,255,255,0.65)', fontSize: 14, margin: '0 0 24px', position: 'relative' }}>
+            <p
+              className="hmp-login-subtitle"
+              style={{
+                color: 'rgba(255,255,255,0.65)',
+                fontSize: 14,
+                margin: '0 0 24px',
+                position: 'relative',
+              }}
+            >
               Sign in to continue to HMP
             </p>
 
@@ -464,53 +503,56 @@ export default async function LoginPage({ searchParams }: { searchParams: { next
               <LoginForm next={searchParams.next} error={searchParams.error} />
             </div>
 
-            {/* Dev users */}
-            <div
-              className="hmp-login-devbox"
-              style={{
-                position: 'relative',
-                marginTop: 22,
-                padding: 14,
-                borderRadius: 14,
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                transition: 'all 0.3s ease',
-              }}
-            >
-              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', margin: '0 0 10px' }}>
-                Dev users · password is{' '}
-                <code
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 11,
-                    background: 'rgba(255,255,255,0.10)',
-                    padding: '2px 6px',
-                    borderRadius: 5,
-                    color: '#fff',
-                  }}
-                >
-                  password
-                </code>
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {['admin@hmp.local', 'ic@hmp.local', 'hog@hmp.local', 'pc@hmp.local', 'faculty@hmp.local'].map((u) => (
-                  <span
-                    key={u}
+            {/* Demo accounts: only with SHOW_DEMO_LOGINS=true */}
+            {showDemoLogins && (
+              <div
+                className="hmp-login-devbox"
+                data-testid="demo-logins"
+                style={{
+                  position: 'relative',
+                  marginTop: 22,
+                  padding: 14,
+                  borderRadius: 14,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  transition: 'all 0.3s ease',
+                }}
+              >
+                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', margin: '0 0 10px' }}>
+                  Demo accounts · password is{' '}
+                  <code
                     style={{
-                      padding: '4px 10px',
-                      borderRadius: 999,
-                      background: 'rgba(255,255,255,0.06)',
-                      border: '1px solid rgba(255,255,255,0.10)',
                       fontFamily: 'var(--font-mono)',
                       fontSize: 11,
-                      color: 'rgba(255,255,255,0.82)',
+                      background: 'rgba(255,255,255,0.10)',
+                      padding: '2px 6px',
+                      borderRadius: 5,
+                      color: '#fff',
                     }}
                   >
-                    {u}
-                  </span>
-                ))}
+                    password
+                  </code>
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {DEMO_LOGIN_EMAILS.map((u) => (
+                    <span
+                      key={u}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 999,
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11,
+                        color: 'rgba(255,255,255,0.82)',
+                      }}
+                    >
+                      {u}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </section>
       </div>
@@ -546,7 +588,14 @@ function StatCard({ value, label, muted }: { value: string; label: string; muted
       >
         {value}
       </div>
-      <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.65)', marginTop: 5, letterSpacing: '0.005em' }}>
+      <div
+        style={{
+          fontSize: 11.5,
+          color: 'rgba(255,255,255,0.65)',
+          marginTop: 5,
+          letterSpacing: '0.005em',
+        }}
+      >
         {label}
       </div>
     </div>
