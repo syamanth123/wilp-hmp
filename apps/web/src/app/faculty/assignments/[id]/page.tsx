@@ -40,6 +40,8 @@ const EDITABLE = new Set<HandoutStatus>([
   HandoutStatus.REWORK_REQUESTED,
 ]);
 const READ_ONLY = new Set<HandoutStatus>([
+  // With the subject expert: faculty can read what they sent, not edit it.
+  HandoutStatus.SME_REVIEW,
   HandoutStatus.SUBMITTED,
   HandoutStatus.UNDER_REVIEW,
   HandoutStatus.APPROVED,
@@ -242,7 +244,11 @@ export default async function FacultyAssignmentDetail({
         <Card>
           <CardHeader>
             <CardTitle>Current handout (v{currentVersion?.versionNo ?? '—'})</CardTitle>
-            <CardDescription>Read-only — under review or already approved.</CardDescription>
+            <CardDescription>
+              {status === HandoutStatus.SME_REVIEW
+                ? 'Read-only while the subject expert reviews it. You can edit again if changes are requested.'
+                : 'Read-only — under review or already approved.'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <HandoutViewer

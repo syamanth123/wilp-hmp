@@ -1,23 +1,27 @@
 import Link from 'next/link';
-import { prisma, HandoutStatus } from '@hmp/db';
+import { prisma } from '@hmp/db';
 import { buttonVariants } from '@hmp/ui';
 import { getSessionUser } from '@hmp/auth';
 import { SlaWidgets } from '@/components/sla-widgets';
 import { RecentActivity } from '@/components/recent-activity';
+import { viewHref, viewWhere } from '@/lib/request-views';
 
 function StatCard({
   label,
   value,
   sub,
   icon,
+  href,
 }: {
   label: string;
   value: number | string;
   sub: string;
   icon: React.ReactNode;
+  /** The list this number counts. Card and list use the same query. */
+  href?: string;
 }) {
-  return (
-    <div className="glass-stat rounded-[10px] p-[18px_20px]">
+  const body = (
+    <div className="glass-stat h-full rounded-[10px] p-[18px_20px]">
       <div className="stat-accent">{icon}</div>
       <div
         style={{
@@ -40,10 +44,17 @@ function StatCard({
           color: 'var(--bits-navy)',
         }}
       >
-        {value}
+        <span data-testid="stat-value">{value}</span>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sub}</div>
     </div>
+  );
+  return href ? (
+    <Link href={href} data-testid="stat-card" className="block no-underline hover:opacity-90">
+      {body}
+    </Link>
+  ) : (
+    body
   );
 }
 
@@ -125,28 +136,15 @@ function ClockIcon() {
   );
 }
 
-const GROUPS = [
-  { label: 'Awaiting assignment', statuses: [HandoutStatus.ALLOCATED] },
-  { label: 'Awaiting review', statuses: [HandoutStatus.SUBMITTED] },
-  {
-    label: 'In progress',
-    statuses: [HandoutStatus.ASSIGNED, HandoutStatus.IN_PROGRESS, HandoutStatus.REWORK_REQUESTED],
-  },
-  {
-    label: 'Forwarded / Done',
-    statuses: [HandoutStatus.UNDER_REVIEW, HandoutStatus.APPROVED, HandoutStatus.PUBLISHED],
-  },
-];
-
 export default async function PCOverview() {
   const me = await getSessionUser();
 
   const [counts, programmes] = await Promise.all([
+    // Each card counts exactly what its list shows (lib/request-views.ts).
     Promise.all(
-      GROUPS.map(async (g) => ({
-        ...g,
-        count: await prisma.handoutRequest.count({ where: { status: { in: g.statuses } } }),
-      })),
+      (['awaiting-confirmation', 'awaiting-review', 'in-progress', 'forwarded'] as const).map(
+        (key) => prisma.handoutRequest.count({ where: viewWhere('PC', '', key) }),
+      ),
     ),
     prisma.programme.findMany({
       select: { id: true, code: true, name: true, active: true },
@@ -192,28 +190,32 @@ export default async function PCOverview() {
       {/* Stat cards */}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
-          label="Awaiting assignment"
-          value={counts[0]?.count ?? 0}
-          sub="HOG allocated"
+          label="Allocations to confirm"
+          value={counts[0] ?? 0}
+          sub="Allocated by the Head of Group"
           icon={<ClockIcon />}
+          href={viewHref('PC', 'awaiting-confirmation')}
         />
         <StatCard
-          label="Awaiting review"
-          value={counts[1]?.count ?? 0}
-          sub="Faculty submitted"
+          label="Handouts to review"
+          value={counts[1] ?? 0}
+          sub="Approved by the SME"
           icon={<BookIcon />}
+          href={viewHref('PC', 'awaiting-review')}
         />
         <StatCard
           label="In progress"
-          value={counts[2]?.count ?? 0}
-          sub="Faculty working"
+          value={counts[2] ?? 0}
+          sub="With faculty or SME"
           icon={<FlowIcon />}
+          href={viewHref('PC', 'in-progress')}
         />
         <StatCard
           label="Forwarded / Done"
-          value={counts[3]?.count ?? 0}
-          sub="Passed PC this term"
+          value={counts[3] ?? 0}
+          sub="Passed PC, all terms"
           icon={<CheckIcon />}
+          href={viewHref('PC', 'forwarded')}
         />
       </div>
 
@@ -301,7 +303,7 @@ export default async function PCOverview() {
 
       {me && (
         <div className="mt-5">
-          <RecentActivity userId={me.id} />
+          <RecentActivity userId={me.id} role="PC" />
         </div>
       )}
     </div>

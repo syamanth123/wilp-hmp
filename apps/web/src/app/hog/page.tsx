@@ -1,23 +1,27 @@
 import Link from 'next/link';
-import { prisma, HandoutStatus } from '@hmp/db';
+import { prisma } from '@hmp/db';
 import { buttonVariants } from '@hmp/ui';
 import { getSessionUser } from '@hmp/auth';
 import { SlaWidgets } from '@/components/sla-widgets';
 import { RecentActivity } from '@/components/recent-activity';
+import { viewHref, viewWhere } from '@/lib/request-views';
 
 function StatCard({
   label,
   value,
   sub,
   icon,
+  href,
 }: {
   label: string;
   value: number | string;
   sub: string;
   icon: React.ReactNode;
+  /** The list this number counts. Card and list use the same query. */
+  href?: string;
 }) {
-  return (
-    <div className="glass-stat rounded-[10px] p-[18px_20px]">
+  const body = (
+    <div className="glass-stat h-full rounded-[10px] p-[18px_20px]">
       <div className="stat-accent">{icon}</div>
       <div
         style={{
@@ -40,10 +44,17 @@ function StatCard({
           color: 'var(--bits-navy)',
         }}
       >
-        {value}
+        <span data-testid="stat-value">{value}</span>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sub}</div>
     </div>
+  );
+  return href ? (
+    <Link href={href} data-testid="stat-card" className="block no-underline hover:opacity-90">
+      {body}
+    </Link>
+  ) : (
+    body
   );
 }
 
@@ -127,42 +138,12 @@ function FlowIcon() {
   );
 }
 
-const GROUPS = [
-  {
-    label: 'Pending allocation',
-    statuses: [HandoutStatus.REQUESTED],
-    description: 'Awaiting faculty allocation.',
-  },
-  {
-    label: 'Final approval queue',
-    statuses: [HandoutStatus.UNDER_REVIEW],
-    description: 'PC approved, HOG sign-off pending.',
-  },
-  {
-    label: 'In progress',
-    statuses: [
-      HandoutStatus.ALLOCATED,
-      HandoutStatus.ASSIGNED,
-      HandoutStatus.IN_PROGRESS,
-      HandoutStatus.SUBMITTED,
-      HandoutStatus.REWORK_REQUESTED,
-    ],
-    description: 'PC + Faculty working.',
-  },
-  {
-    label: 'Approved',
-    statuses: [HandoutStatus.APPROVED, HandoutStatus.PUBLISHED],
-    description: 'Approved this term.',
-  },
-];
-
 export default async function HOGOverview() {
   const me = await getSessionUser();
+  // Each card counts exactly what its list shows (lib/request-views.ts).
+  const CARDS = ['pending-allocation', 'final-approval', 'in-progress', 'approved'] as const;
   const counts = await Promise.all(
-    GROUPS.map(async (g) => ({
-      ...g,
-      count: await prisma.handoutRequest.count({ where: { status: { in: g.statuses } } }),
-    })),
+    CARDS.map((key) => prisma.handoutRequest.count({ where: viewWhere('HOG', '', key) })),
   );
 
   return (
@@ -205,27 +186,31 @@ export default async function HOGOverview() {
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Pending allocation"
-          value={counts[0]?.count ?? 0}
-          sub="Awaiting faculty allocation"
+          value={counts[0] ?? 0}
+          sub="Waiting for faculty allocation"
           icon={<UsersIcon />}
+          href={viewHref('HOG', 'pending-allocation')}
         />
         <StatCard
           label="Final approval queue"
-          value={counts[1]?.count ?? 0}
-          sub="HOG sign-off pending"
+          value={counts[1] ?? 0}
+          sub="Waiting for your sign-off"
           icon={<ClockIcon />}
+          href={viewHref('HOG', 'final-approval')}
         />
         <StatCard
           label="In progress"
-          value={counts[2]?.count ?? 0}
-          sub="Faculty + PC working"
+          value={counts[2] ?? 0}
+          sub="With PC, faculty or SME"
           icon={<FlowIcon />}
+          href={viewHref('HOG', 'in-progress')}
         />
         <StatCard
           label="Approved / Published"
-          value={counts[3]?.count ?? 0}
-          sub="Done this term"
+          value={counts[3] ?? 0}
+          sub="All terms"
           icon={<CheckIcon />}
+          href={viewHref('HOG', 'approved')}
         />
       </div>
 
@@ -233,7 +218,7 @@ export default async function HOGOverview() {
 
       {me && (
         <div className="mt-5">
-          <RecentActivity userId={me.id} />
+          <RecentActivity userId={me.id} role="HOG" />
         </div>
       )}
     </div>

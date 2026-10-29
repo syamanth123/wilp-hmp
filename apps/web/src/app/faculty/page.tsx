@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { prisma, HandoutStatus, RoleName } from '@hmp/db';
+import { prisma, RoleName } from '@hmp/db';
 import { buttonVariants } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { SlaWidgets } from '@/components/sla-widgets';
@@ -8,6 +8,8 @@ import { computeFacultySignals } from '@/lib/faculty-signals';
 import { nextEvents } from '@hmp/db/src/dibba-schedule';
 import { loadFacultySchedule } from '@hmp/db/src/dibba-schedule/load';
 import { NextEventsCard } from '@/components/next-events-card';
+import { viewHref, viewWhere } from '@/lib/request-views';
+import { loadUnreadCommentIds } from '@/lib/unread-comments';
 
 const fmtTermEnd = new Intl.DateTimeFormat('en-IN', {
   day: '2-digit',
@@ -21,15 +23,18 @@ function ProgressCard({
   max,
   sub,
   pct,
+  href,
 }: {
   label: string;
   value: number;
   max?: number;
   sub: string;
   pct: number;
+  /** The list this number counts. Card and list use the same query. */
+  href?: string;
 }) {
-  return (
-    <div className="glass-stat rounded-[10px] p-5">
+  const body = (
+    <div className="glass-stat h-full rounded-[10px] p-5">
       <div
         style={{
           fontSize: 12,
@@ -52,7 +57,7 @@ function ProgressCard({
           marginBottom: 4,
         }}
       >
-        {value}
+        <span data-testid="stat-value">{value}</span>
         {max != null ? (
           <span style={{ fontSize: 20, color: 'var(--muted)', fontWeight: 400 }}>/{max}</span>
         ) : null}
@@ -63,54 +68,45 @@ function ProgressCard({
       <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sub}</div>
     </div>
   );
+  return href ? (
+    <Link href={href} data-testid="stat-card" className="block no-underline hover:opacity-90">
+      {body}
+    </Link>
+  ) : (
+    body
+  );
 }
 
 export default async function FacultyOverview() {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
 
-  const baseWhere = { assignments: { some: { facultyId: me.id, active: true } } };
-
-  const [pending, editing, awaiting, done, comments, signals] = await Promise.all([
-    prisma.handoutRequest.count({
-      where: {
-        status: HandoutStatus.ASSIGNED,
-        assignments: { some: { facultyId: me.id, active: true, acceptedAt: null } },
-      },
-    }),
-    prisma.handoutRequest.count({
-      where: {
-        status: {
-          in: [HandoutStatus.ASSIGNED, HandoutStatus.IN_PROGRESS, HandoutStatus.REWORK_REQUESTED],
+  // Each card counts exactly what its list shows (lib/request-views.ts).
+  const [pending, editing, awaiting, done, comments, unreadCommentIds, signals] = await Promise.all(
+    [
+      prisma.handoutRequest.count({ where: viewWhere('FACULTY', me.id, 'to-accept') }),
+      prisma.handoutRequest.count({ where: viewWhere('FACULTY', me.id, 'in-progress') }),
+      prisma.handoutRequest.count({ where: viewWhere('FACULTY', me.id, 'with-reviewers') }),
+      prisma.handoutRequest.count({ where: viewWhere('FACULTY', me.id, 'done') }),
+      prisma.comment.findMany({
+        where: {
+          handout: { request: { assignments: { some: { facultyId: me.id, active: true } } } },
+          authorId: { not: me.id },
         },
-        assignments: { some: { facultyId: me.id, active: true, acceptedAt: { not: null } } },
-      },
-    }),
-    prisma.handoutRequest.count({
-      where: {
-        ...baseWhere,
-        status: { in: [HandoutStatus.SUBMITTED, HandoutStatus.UNDER_REVIEW] },
-      },
-    }),
-    prisma.handoutRequest.count({
-      where: { ...baseWhere, status: { in: [HandoutStatus.APPROVED, HandoutStatus.PUBLISHED] } },
-    }),
-    prisma.comment.findMany({
-      where: {
-        handout: { request: { assignments: { some: { facultyId: me.id, active: true } } } },
-        authorId: { not: me.id },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      select: {
-        id: true,
-        body: true,
-        createdAt: true,
-        author: { select: { name: true } },
-        handout: { select: { request: { select: { refNo: true, id: true } } } },
-      },
-    }),
-    computeFacultySignals(me.id),
-  ]);
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          body: true,
+          createdAt: true,
+          author: { select: { name: true } },
+          handout: { select: { request: { select: { refNo: true, id: true } } } },
+        },
+      }),
+      loadUnreadCommentIds(me.id),
+      computeFacultySignals(me.id),
+    ],
+  );
+  const newComments = unreadCommentIds.size;
   const checklistDoneCount = signals?.items.filter((i) => i.done).length ?? 0;
 
   const total = pending + editing + awaiting + done;
@@ -155,14 +151,20 @@ export default async function FacultyOverview() {
           label="Overall completion"
           value={done}
           max={total}
-          sub={`${completePct}% of assignments done`}
+          sub={`${completePct}% of your assignments approved or published`}
           pct={completePct}
+          href={viewHref('FACULTY', 'done')}
         />
         <ProgressCard
-          label="In-flight"
+          label="In progress"
           value={editing}
-          sub="Currently editing or rework"
+          sub={
+            awaiting > 0
+              ? `Being written or revised · ${awaiting} with reviewers`
+              : 'Being written or revised'
+          }
           pct={total > 0 ? (editing / total) * 100 : 0}
+          href={viewHref('FACULTY', 'in-progress')}
         />
         <ProgressCard
           label="Days remaining"
@@ -182,8 +184,8 @@ export default async function FacultyOverview() {
         {/* Reviewer comments */}
         <div className="glass-panel overflow-hidden rounded-[10px]">
           <div className="panel-head">
-            <h3>Reviewer comments</h3>
-            {comments.length > 0 && (
+            <h3>Latest comments</h3>
+            {newComments > 0 && (
               <span
                 style={{
                   fontSize: 12,
@@ -195,7 +197,7 @@ export default async function FacultyOverview() {
                   fontWeight: 600,
                 }}
               >
-                {comments.length} new
+                {newComments} new
               </span>
             )}
           </div>
@@ -218,6 +220,14 @@ export default async function FacultyOverview() {
                   <div className="mb-1 flex items-center justify-between">
                     <span style={{ fontWeight: 600, fontSize: 13 }}>
                       {c.author?.name ?? 'Reviewer'}
+                      {unreadCommentIds.has(c.id) && (
+                        <span
+                          data-testid="comment-new"
+                          style={{ marginLeft: 6, fontSize: 11, color: '#8b5a07', fontWeight: 600 }}
+                        >
+                          New
+                        </span>
+                      )}
                     </span>
                     <Link
                       href={`/faculty/assignments/${c.handout.request.id}`}
@@ -265,7 +275,8 @@ export default async function FacultyOverview() {
           ) : (
             <div className="panel-body flex flex-col gap-2">
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
-                {checklistDoneCount}/{signals.items.length} signals detected on your latest version
+                {checklistDoneCount} of {signals.items.length} checklist items found in your latest
+                saved version
               </div>
               {signals.items.map((item, i) => (
                 <div
@@ -325,7 +336,7 @@ export default async function FacultyOverview() {
       </div>
 
       <div className="mt-5">
-        <RecentActivity userId={me.id} />
+        <RecentActivity userId={me.id} role="FACULTY" />
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ const ACTIVE_STATUSES: HandoutStatus[] = [
   HandoutStatus.ASSIGNED,
   HandoutStatus.IN_PROGRESS,
   HandoutStatus.REWORK_REQUESTED,
+  HandoutStatus.SME_REVIEW,
   HandoutStatus.SUBMITTED,
   HandoutStatus.UNDER_REVIEW,
 ];

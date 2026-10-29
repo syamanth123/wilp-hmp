@@ -17,9 +17,7 @@ const BUCKETS_BY_ROLE: Record<Role, Bucket[]> = {
     { label: 'Awaiting assignment confirm', statuses: [HandoutStatus.ALLOCATED] },
     { label: 'Submitted for review', statuses: [HandoutStatus.SUBMITTED] },
   ],
-  IC: [
-    { label: 'Awaiting publish', statuses: [HandoutStatus.APPROVED] },
-  ],
+  IC: [{ label: 'Awaiting publish', statuses: [HandoutStatus.APPROVED] }],
   FACULTY: [
     {
       label: 'My assignments in flight',
@@ -41,7 +39,11 @@ function toneVar(tone: Tone): string {
 }
 
 function statusLabel(tone: Tone): string {
-  return tone === 'danger' ? 'Overdue items present' : tone === 'warn' ? 'Items due soon' : 'On track';
+  return tone === 'danger'
+    ? 'Overdue items present'
+    : tone === 'warn'
+      ? 'Items due soon'
+      : 'On track';
 }
 
 function StatusIcon({ tone }: { tone: Tone }) {
@@ -84,10 +86,16 @@ function StatusIcon({ tone }: { tone: Tone }) {
 
 export async function SlaWidgets({ role, facultyId }: { role: Role; facultyId?: string }) {
   const buckets = BUCKETS_BY_ROLE[role];
+  // Faculty see only their own assignments; the other roles see everything.
+  const scope =
+    role === 'FACULTY'
+      ? // No id means nothing to show, never everyone's requests.
+        { assignments: { some: { facultyId: facultyId ?? '', active: true } } }
+      : undefined;
   const data = await Promise.all(
     buckets.map(async (b) => ({
       ...b,
-      counts: await countSlaBucketsForStatuses(b.statuses),
+      counts: await countSlaBucketsForStatuses(b.statuses, scope),
     })),
   );
 
@@ -97,12 +105,17 @@ export async function SlaWidgets({ role, facultyId }: { role: Role; facultyId?: 
         const tone = statusTone(d.counts.overdue, d.counts.dueSoon);
         const col = toneVar(tone);
         return (
-          <div
-            key={d.label}
-            className="glass-stat p-5"
-            style={{ borderLeft: `3px solid ${col}` }}
-          >
-            <div className="flex items-center justify-between" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', fontWeight: 600 }}>
+          <div key={d.label} className="glass-stat p-5" style={{ borderLeft: `3px solid ${col}` }}>
+            <div
+              className="flex items-center justify-between"
+              style={{
+                fontSize: 12,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                color: 'var(--muted)',
+                fontWeight: 600,
+              }}
+            >
               <span>{d.label}</span>
               <span style={{ color: col, display: 'inline-flex' }}>
                 <StatusIcon tone={tone} />
@@ -119,7 +132,6 @@ export async function SlaWidgets({ role, facultyId }: { role: Role; facultyId?: 
           </div>
         );
       })}
-      {role === 'FACULTY' && facultyId && null}
     </div>
   );
 }

@@ -6,7 +6,7 @@ const CONFIG: Record<HandoutStatus, { label: string; cls: string; dot?: boolean 
   ALLOCATED: { label: 'Allocated', cls: 'badge-navy' },
   ASSIGNED: { label: 'Assigned', cls: 'badge-navy' },
   IN_PROGRESS: { label: 'In Progress', cls: 'badge-gold', dot: true },
-  SME_REVIEW: { label: 'SME Review', cls: 'badge-gold', dot: true },
+  SME_REVIEW: { label: 'With subject expert for review', cls: 'badge-gold', dot: true },
   SUBMITTED: { label: 'Submitted', cls: 'badge-gold', dot: true },
   UNDER_REVIEW: { label: 'Under Review', cls: 'badge-gold', dot: true },
   REWORK_REQUESTED: { label: 'Rework Requested', cls: 'badge-red', dot: true },
@@ -15,6 +15,11 @@ const CONFIG: Record<HandoutStatus, { label: string; cls: string; dot?: boolean 
   ARCHIVED: { label: 'Archived', cls: 'badge-gray' },
   REJECTED: { label: 'Rejected', cls: 'badge-red' },
 };
+
+/** The plain-words label for a status (one source for badges, filters, counts). */
+export function statusLabel(status: HandoutStatus): string {
+  return CONFIG[status]?.label ?? status;
+}
 
 export function StatusBadge({ status }: { status: HandoutStatus }) {
   const { label, cls, dot } = CONFIG[status];
@@ -30,6 +35,7 @@ export function StatusBadge({ status }: { status: HandoutStatus }) {
         fontWeight: 600,
       }}
       className={cls}
+      data-status={status}
     >
       {dot && (
         <span
