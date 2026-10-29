@@ -29,6 +29,7 @@ import { EditorPanel } from './editor-panel';
 import { QualityPanel } from './quality-panel';
 import { StructuredEditor } from './structured-editor/StructuredEditor';
 import { ConvertBanner } from './structured-editor/ConvertBanner';
+import { aiFeaturesEnabled } from '@/lib/features';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
 // for the rationale (Next.js production-build RSC caching vs revalidatePath).
@@ -70,6 +71,7 @@ export default async function FacultyAssignmentDetail({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  const aiEnabled = aiFeaturesEnabled();
   const loaded = await loadHandoutForFaculty(params.id, me.id);
   if (!loaded) {
     // Either request doesn't exist or this faculty is not assigned.
@@ -175,8 +177,8 @@ export default async function FacultyAssignmentDetail({
       )}
 
       {EDITABLE.has(status) && handout && currentVersion && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
+        <div className={aiEnabled ? 'grid gap-4 lg:grid-cols-3' : 'grid gap-4'}>
+          <Card className={aiEnabled ? 'lg:col-span-2' : undefined}>
             <CardHeader>
               <CardTitle>
                 {status === HandoutStatus.REWORK_REQUESTED
@@ -203,6 +205,7 @@ export default async function FacultyAssignmentDetail({
                       initialData={parsed.data}
                       isRework={status === HandoutStatus.REWORK_REQUESTED}
                       autoFetch={parseAutoFetchSearchParams(searchParams)}
+                      aiEnabled={aiEnabled}
                     />
                   );
                 }
@@ -219,17 +222,19 @@ export default async function FacultyAssignmentDetail({
               })()}
             </CardContent>
           </Card>
-          <Card className="lg:sticky lg:top-20 lg:col-span-1 lg:self-start">
-            <CardHeader>
-              <CardTitle>AI quality check</CardTitle>
-              <CardDescription>
-                Bloom's taxonomy + syllabus coverage on the latest saved version.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <QualityPanel requestId={request.id} />
-            </CardContent>
-          </Card>
+          {aiEnabled && (
+            <Card className="lg:sticky lg:top-20 lg:col-span-1 lg:self-start">
+              <CardHeader>
+                <CardTitle>AI quality check</CardTitle>
+                <CardDescription>
+                  Bloom's taxonomy + syllabus coverage on the latest saved version.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <QualityPanel requestId={request.id} />
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -292,7 +297,7 @@ export default async function FacultyAssignmentDetail({
         </Card>
       )}
 
-      {handout && <QualityReportCard handoutId={handout.id} />}
+      {aiEnabled && handout && <QualityReportCard handoutId={handout.id} />}
 
       <Card>
         <CardHeader>

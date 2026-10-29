@@ -17,7 +17,8 @@ interface Props {
   onSave: () => void;
   onPreview: () => void;
   onSubmit: () => void;
-  onOpenAiDraft: () => void;
+  /** Present only when AI features are switched on. */
+  onOpenAiDraft?: () => void;
 }
 
 /**
@@ -54,7 +55,7 @@ export function EditorToolbar({
 
   return (
     <div
-      className="sticky top-0 z-20 -mx-1 rounded-lg border bg-white/95 px-3 py-2 shadow-sm backdrop-blur"
+      className="sticky top-[72px] z-20 -mx-1 rounded-lg border bg-white px-3 py-2 shadow-sm"
       data-testid="bits-editor-toolbar"
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -111,19 +112,21 @@ export function EditorToolbar({
               role="menu"
               className="absolute right-0 z-30 mt-1 w-72 rounded-md border bg-white p-2 shadow-lg"
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMoreOpen(false);
-                  onOpenAiDraft();
-                }}
-                className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50"
-                data-testid="bits-ai-open"
-              >
-                AI draft — start from the course title
-              </button>
-              <div className="mt-1 border-t px-2 pt-2">
+              {onOpenAiDraft && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    onOpenAiDraft();
+                  }}
+                  className="mb-1 w-full rounded border-b px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+                  data-testid="bits-ai-open"
+                >
+                  AI draft — start from the course title
+                </button>
+              )}
+              <div className="px-2 pt-1">
                 <label htmlFor="bits-version-notes" className="text-muted-foreground text-xs">
                   Note for this version (optional)
                 </label>

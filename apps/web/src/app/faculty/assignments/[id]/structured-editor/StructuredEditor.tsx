@@ -1,15 +1,8 @@
 'use client';
 
 import { useState, useTransition, useEffect, useRef } from 'react';
-import { Button } from '@hmp/ui';
 import type { BitsHandoutV1 } from '@hmp/db';
 import { saveStructuredDraftAction, submitStructuredForReviewAction } from '../structured-actions';
-import { CodedListSection } from './sections/CodedListSection';
-import { PartBSessions } from './sections/PartBSessions';
-import { Experiential } from './sections/Experiential';
-import { EvaluationScheme } from './sections/EvaluationScheme';
-import { ImportantLinks } from './sections/ImportantLinks';
-import { RichTextSubEditor } from './RichTextSubEditor';
 import { PreviewOverlay } from './PreviewOverlay';
 import { StructuredAiDraftDialog } from './StructuredAiDraftDialog';
 import { AutoFetchBanner } from './AutoFetchBanner';
@@ -17,6 +10,17 @@ import { EditorToolbar } from './EditorToolbar';
 import { DocumentPage } from './document/DocumentPage';
 import { HeaderBlock } from './document/HeaderBlock';
 import { CourseDetailsBlock } from './document/CourseDetailsBlock';
+import {
+  CodedTable,
+  CourseDescriptionBody,
+  CoursePlanTable,
+  EvaluationBody,
+  ExperientialBody,
+  ImportantNotesBody,
+  SectionHeading,
+} from './document/Sections';
+import { RichTextSubEditor } from './RichTextSubEditor';
+import { isEvaluationValid } from './sections/evaluation-validity';
 
 interface Props {
   requestId: string;
@@ -31,21 +35,68 @@ interface Props {
     tier: 'prior-version' | 'import' | 'empty';
     detail: string;
   };
+  /** AI_FEATURES_ENABLED, read on the server. Off: no AI draft anywhere. */
+  aiEnabled?: boolean;
+}
+
+function looksLikeUrl(s: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Structured handout editor. One `BitsHandoutV1` state; the page is drawn as
- * the handout itself (handout-editor-ux D1/D2) and edited in place, with a
- * separate full-screen Preview rendered by the unchanged `renderBitsHandout()`
- * (D6). On Save / Submit the full state is JSON-serialized and Zod-parsed
- * server-side — the actions, schema and workflow are unchanged.
- *
- * Step 1 of the redesign converts the letterhead and the course-details table;
- * the sections after it keep their existing forms until step 2.
+ * The first reason this handout cannot be saved yet, in plain words, or null.
+ * Mirrors what the schema would reject on the server, so faculty see the
+ * problem before pressing Save instead of after (handout-editor-ux D4).
+ */
+export function saveBlocker(d: BitsHandoutV1): string | null {
+  const a = d.partA;
+  if (a.courseNumbers.length === 0) return 'Add the course number before saving.';
+  if (a.courseTitle.trim() === '') return 'Add the course title before saving.';
+  if (a.instructors.length === 0) return 'Add at least one instructor before saving.';
+  if (a.textBooks.length === 0) return 'Add at least one text book before saving.';
+  if (d.partB.sessions.some((s) => s.sessionNumber.trim() === ''))
+    return 'Every row of the course plan needs a session number.';
+  if (!looksLikeUrl(d.importantLinks.elearnPortalUrl))
+    return 'The eLearn portal address must start with https:// before saving.';
+  if (!isEvaluationValid(d.evaluation))
+    return 'Evaluation weights must add up to 100% before you can save.';
+  return null;
+}
+
+/** The first reason it cannot be submitted (on top of saveBlocker), or null. */
+export function submitBlocker(d: BitsHandoutV1): string | null {
+  const save = saveBlocker(d);
+  if (save) return save;
+  const noCo = d.partA.courseObjectives.length === 0;
+  const noLo = d.partA.learningOutcomes.length === 0;
+  if (noCo && noLo)
+    return 'Add at least one course objective and one learning outcome before submitting.';
+  if (noCo) return 'Add at least one course objective before submitting.';
+  if (noLo) return 'Add at least one learning outcome before submitting.';
+  return null;
+}
+
+/**
+ * Structured handout editor (handout-editor-ux). The page IS the handout: the
+ * published stylesheet, the same sections in the same order as
+ * `renderBitsHandout()`, every value edited in place. Preview opens the
+ * unchanged renderer full-screen. Save / Submit post the whole `BitsHandoutV1`
+ * to the unchanged server actions (Zod-validated there).
  *
  * No auto-save; beforeunload warning when dirty.
  */
-export function StructuredEditor({ requestId, initialData, isRework, autoFetch }: Props) {
+export function StructuredEditor({
+  requestId,
+  initialData,
+  isRework,
+  autoFetch,
+  aiEnabled = false,
+}: Props) {
   const [data, setData] = useState<BitsHandoutV1>(initialData);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -55,14 +106,7 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
   const [pending, startTransition] = useTransition();
   const snapshotRef = useRef(JSON.stringify(initialData));
   const isDirty = JSON.stringify(data) !== snapshotRef.current;
-  // EvaluationScheme reports its UI-only validity (sub-component weights sum to
-  // 100) — a BITS convention enforced at the editor layer, not by the schema.
-  const [evalValid, setEvalValid] = useState(true);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
-  const availableReferences = [
-    ...data.partA.textBooks.map((b) => b.code),
-    ...data.partA.referenceBooks.map((b) => b.code),
-  ];
 
   useEffect(() => {
     if (!isDirty) return;
@@ -115,21 +159,6 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
       isRework ? 'Resubmitted after rework.' : 'Submitted for review.',
     );
 
-  const saveBlockedReason = !evalValid
-    ? 'Evaluation weights must add up to 100% before you can save.'
-    : null;
-  const noCo = data.partA.courseObjectives.length === 0;
-  const noLo = data.partA.learningOutcomes.length === 0;
-  const submitBlockedReason =
-    saveBlockedReason ??
-    (noCo && noLo
-      ? 'Add at least one course objective and one learning outcome before submitting.'
-      : noCo
-        ? 'Add at least one course objective before submitting.'
-        : noLo
-          ? 'Add at least one learning outcome before submitting.'
-          : null);
-
   if (submitted) {
     return (
       <p className="text-sm text-emerald-600">
@@ -138,8 +167,22 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
     );
   }
 
+  const partA = data.partA;
+  const setPartA = (next: typeof partA) => setData({ ...data, partA: next });
+  const m = data.metadata;
+  const footerSegs = [
+    m.formNumber ? `Form ${m.formNumber}` : null,
+    m.documentTitle,
+    m.semester,
+    partA.versionNo != null ? `Version ${partA.versionNo}` : null,
+    partA.date || null,
+  ].filter(Boolean);
+
+  let n = 0;
+  const next = () => (n += 1);
+
   return (
-    <div className="space-y-4" data-testid="bits-structured-editor">
+    <div className="space-y-3" data-testid="bits-structured-editor">
       {autoFetch && (
         <AutoFetchBanner requestId={requestId} tier={autoFetch.tier} detail={autoFetch.detail} />
       )}
@@ -149,14 +192,14 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
         pending={pending}
         savedAtLabel={savedAtLabel}
         isRework={isRework}
-        saveBlockedReason={saveBlockedReason}
-        submitBlockedReason={submitBlockedReason}
+        saveBlockedReason={saveBlocker(data)}
+        submitBlockedReason={submitBlocker(data)}
         notes={notes}
         onNotesChange={setNotes}
         onSave={save}
         onPreview={() => setPreviewOpen(true)}
         onSubmit={submit}
-        onOpenAiDraft={() => setAiDialogOpen(true)}
+        onOpenAiDraft={aiEnabled ? () => setAiDialogOpen(true) : undefined}
       />
 
       {error && (
@@ -175,133 +218,127 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
       </p>
 
       <DocumentPage>
-        <HeaderBlock
-          value={data.metadata}
-          onChange={(metadata) => setData({ ...data, metadata })}
-        />
-        <CourseDetailsBlock
-          value={data.partA}
-          semester={data.metadata.semester}
-          onChange={(partA) => setData({ ...data, partA })}
-        />
-        <div className="hed-section-divider">
-          The sections below move onto the page in the next step
-        </div>
-      </DocumentPage>
+        <HeaderBlock value={m} onChange={(metadata) => setData({ ...data, metadata })} />
+        <CourseDetailsBlock value={partA} semester={m.semester} onChange={setPartA} />
 
-      <div className="space-y-6">
-        <section aria-label="Course Description" className="space-y-1">
-          <h3 className="text-base font-semibold">Course Description</h3>
-          <RichTextSubEditor
-            value={data.partA.courseDescription}
-            onChange={(html) =>
-              setData({ ...data, partA: { ...data.partA, courseDescription: html } })
-            }
-          />
-        </section>
-        {data.partA.laboratoryComponent !== undefined ? (
-          <section aria-label="Laboratory Component" className="space-y-1">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold">Laboratory Component</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setData({ ...data, partA: { ...data.partA, laboratoryComponent: undefined } })
-                }
-              >
-                Remove
-              </Button>
-            </div>
-            <RichTextSubEditor
-              value={data.partA.laboratoryComponent}
-              onChange={(html) =>
-                setData({ ...data, partA: { ...data.partA, laboratoryComponent: html } })
-              }
-            />
-          </section>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setData({ ...data, partA: { ...data.partA, laboratoryComponent: '<p></p>' } })
-            }
-          >
-            + Add Laboratory Component
-          </Button>
-        )}
-        <CodedListSection
-          title="Course Objectives"
-          codePrefix="CO"
-          rightLabel="Description"
-          rightFieldKey="description"
-          codeRegex={/^CO\d+$/}
-          value={data.partA.courseObjectives}
-          onChange={(objs) =>
-            setData({ ...data, partA: { ...data.partA, courseObjectives: objs } })
+        <SectionHeading n={next()} title="Course Description" />
+        <CourseDescriptionBody value={partA} onChange={setPartA} />
+
+        <SectionHeading n={next()} title="Scope and Objectives" />
+        <CodedTable
+          rows={partA.courseObjectives}
+          onChange={(rows) => setPartA({ ...partA, courseObjectives: rows })}
+          prefix="CO"
+          codeHeader="CO"
+          textHeader="Description"
+          field="description"
+          className="bits-handout-coded"
+          placeholder="Click to add course objective"
+          addLabel="Add objective"
+          emptyText="No objectives yet."
+          testPrefix="CO"
+          problem={
+            partA.courseObjectives.length === 0
+              ? 'Add at least one course objective before submitting.'
+              : null
           }
-          makeNew={(code) => ({ code, description: '' })}
         />
-        <CodedListSection
-          title="Text Books"
-          codePrefix="T"
-          rightLabel="Citation"
-          rightFieldKey="citation"
-          codeRegex={/^T\d+$/}
-          value={data.partA.textBooks}
-          onChange={(books) => setData({ ...data, partA: { ...data.partA, textBooks: books } })}
-          makeNew={(code) => ({ code, citation: '' })}
-        />
-        <CodedListSection
-          title="Reference Books"
-          codePrefix="R"
-          rightLabel="Citation"
-          rightFieldKey="citation"
-          codeRegex={/^R\d+$/}
-          allowEmpty
-          value={data.partA.referenceBooks}
-          onChange={(books) =>
-            setData({ ...data, partA: { ...data.partA, referenceBooks: books } })
+
+        <SectionHeading n={next()} title="Learning Outcomes" />
+        <CodedTable
+          rows={partA.learningOutcomes}
+          onChange={(rows) => setPartA({ ...partA, learningOutcomes: rows })}
+          prefix="LO"
+          codeHeader="LO"
+          textHeader="Description"
+          field="description"
+          className="bits-handout-coded"
+          placeholder="Click to add learning outcome"
+          addLabel="Add outcome"
+          emptyText="No learning outcomes yet."
+          testPrefix="LO"
+          problem={
+            partA.learningOutcomes.length === 0
+              ? 'Add at least one learning outcome before submitting.'
+              : null
           }
-          makeNew={(code) => ({ code, citation: '' })}
         />
-        <CodedListSection
-          title="Learning Outcomes"
-          codePrefix="LO"
-          rightLabel="Description"
-          rightFieldKey="description"
-          codeRegex={/^LO\d+$/}
-          value={data.partA.learningOutcomes}
-          onChange={(los) => setData({ ...data, partA: { ...data.partA, learningOutcomes: los } })}
-          makeNew={(code) => ({ code, description: '' })}
+
+        <SectionHeading n={next()} title="Text Books" />
+        <CodedTable
+          rows={partA.textBooks}
+          onChange={(rows) => setPartA({ ...partA, textBooks: rows })}
+          prefix="T"
+          codeHeader="Code"
+          textHeader="Citation"
+          field="citation"
+          className="bits-handout-books"
+          placeholder="Click to add a text book: author, title, publisher, year"
+          addLabel="Add text book"
+          emptyText="No text books yet."
+          testPrefix="T"
+          minRows={1}
         />
-        <PartBSessions
-          value={data.partB.sessions}
+
+        <SectionHeading n={next()} title="Reference Material" />
+        <CodedTable
+          rows={partA.referenceBooks}
+          onChange={(rows) => setPartA({ ...partA, referenceBooks: rows })}
+          prefix="R"
+          codeHeader="Code"
+          textHeader="Citation"
+          field="citation"
+          className="bits-handout-books"
+          placeholder="Click to add a reference: author, title, publisher, year"
+          addLabel="Add reference"
+          emptyText="No reference material (optional)."
+          testPrefix="R"
+        />
+
+        <SectionHeading n={next()} title="Course Plan" />
+        <CoursePlanTable
+          sessions={data.partB.sessions}
           onChange={(sessions) => setData({ ...data, partB: { sessions } })}
-          availableReferences={availableReferences}
         />
-        <Experiential
+
+        <SectionHeading n={next()} title="Experiential Learning" />
+        <ExperientialBody
           value={data.experientialLearning}
           onChange={(experientialLearning) => setData({ ...data, experientialLearning })}
         />
-        <EvaluationScheme
+
+        <SectionHeading n={next()} title="Evaluation Scheme" />
+        <EvaluationBody
           value={data.evaluation}
           onChange={(evaluation) => setData({ ...data, evaluation })}
-          onValidityChange={setEvalValid}
         />
-        <ImportantLinks
-          value={data.importantLinks}
-          onChange={(importantLinks) => setData({ ...data, importantLinks })}
+
+        <SectionHeading n={next()} title="Important Notes & Links" />
+        <ImportantNotesBody
+          evaluation={data.evaluation}
+          links={data.importantLinks}
+          onEvaluation={(evaluation) => setData({ ...data, evaluation })}
+          onLinks={(importantLinks) => setData({ ...data, importantLinks })}
         />
-        <section aria-label="Evaluation Guidelines" className="space-y-1">
-          <h3 className="text-base font-semibold">Evaluation Guidelines</h3>
-          <RichTextSubEditor
-            value={data.evaluationGuidelines}
-            onChange={(html) => setData({ ...data, evaluationGuidelines: html })}
-          />
-        </section>
-      </div>
+
+        <SectionHeading n={next()} title="Evaluation Guidelines" />
+        <RichTextSubEditor
+          variant="page"
+          minHeightPx={40}
+          value={data.evaluationGuidelines}
+          onChange={(html) => setData({ ...data, evaluationGuidelines: html })}
+          placeholder="Click to add evaluation guidelines (optional)."
+          label="Evaluation guidelines"
+          testId="bits-eval-guidelines"
+        />
+
+        <div className="bits-handout-footer">
+          <div>
+            <strong>BITS Pilani Work Integrated Learning Programmes Division</strong>
+          </div>
+          <div>{footerSegs.join(' · ')}</div>
+        </div>
+      </DocumentPage>
 
       {previewOpen && (
         <PreviewOverlay
@@ -311,12 +348,14 @@ export function StructuredEditor({ requestId, initialData, isRework, autoFetch }
           onClose={() => setPreviewOpen(false)}
         />
       )}
-      <StructuredAiDraftDialog
-        requestId={requestId}
-        open={aiDialogOpen}
-        onClose={() => setAiDialogOpen(false)}
-        onLoadIntoEditor={(next) => setData(next)}
-      />
+      {aiEnabled && (
+        <StructuredAiDraftDialog
+          requestId={requestId}
+          open={aiDialogOpen}
+          onClose={() => setAiDialogOpen(false)}
+          onLoadIntoEditor={(nextData) => setData(nextData)}
+        />
+      )}
     </div>
   );
 }
