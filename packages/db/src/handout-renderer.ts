@@ -173,6 +173,15 @@ const PRINT_CSS = `
   .bits-handout tr { page-break-inside: avoid; }
 }`.trim();
 
+/**
+ * The handout stylesheet exactly as `renderBitsHandout()` inlines it (screen +
+ * print). Exported so the document-style editor can draw its page with the SAME
+ * fonts, tables and spacing as the published handout (handout-editor-ux D1).
+ * Changing this changes every rendered handout.
+ */
+export const BITS_HANDOUT_CSS = `${CSS}
+${PRINT_CSS}`;
+
 // === Section renderers ===
 
 function renderHeader(m: BitsHandoutV1['metadata'], logoSrc?: string): string {
