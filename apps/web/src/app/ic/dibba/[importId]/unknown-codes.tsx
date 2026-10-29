@@ -45,8 +45,8 @@ export function UnknownCodes({
       <div data-testid="dibba-unknown-notfound">
         <p className="font-medium">Not found in the catalogue ({notFound.length} codes)</p>
         <p className="text-muted-foreground text-xs">
-          Valid course numbers with no Course row yet. Adding them under Admin → Programmes links
-          them here on the next page load — no re-upload needed.
+          Valid course numbers that aren&apos;t in the course catalogue yet. Ask the administrator
+          to add them; they link up here automatically, with no need to upload again.
         </p>
         {visible.length > 0 && <CodeList codes={visible} />}
         {rest.length > 0 && (

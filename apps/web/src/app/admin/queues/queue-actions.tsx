@@ -38,14 +38,14 @@ export function FailedJobActions({ queue, jobId }: { queue: QueueName; jobId: st
         disabled={pending}
         onClick={() => run(retryFailedJobAction, fd())}
       >
-        Retry
+        Retry job
       </Button>
       <Button
         size="sm"
         variant="destructive"
         disabled={pending}
         onClick={() => {
-          if (confirm(`Delete failed job ${jobId}? This cannot be undone.`))
+          if (confirm(`Delete this failed job? This cannot be undone.`))
             run(deleteFailedJobAction, fd());
         }}
       >
@@ -71,7 +71,7 @@ export function ClearCompletedButton({ queue }: { queue: QueueName }) {
         disabled={pending}
         onClick={() => run(clearCompletedAction, fd())}
       >
-        {pending ? 'Clearing…' : 'Clear completed'}
+        {pending ? 'Clearing…' : 'Clear finished jobs'}
       </Button>
       {error && <span className="text-destructive text-xs">{error}</span>}
     </div>

@@ -188,7 +188,7 @@ test.describe('SME approval gate — multi-role loop', () => {
     // client-side success message gets swapped out by the re-render before
     // Playwright can observe it (the m5 lesson: assert persistent state, not a
     // transient success banner).
-    await expect(page.getByTestId('sme-review-readonly')).toContainText('REWORK_REQUESTED', {
+    await expect(page.getByTestId('sme-review-readonly')).toContainText('Changes requested', {
       timeout: 15_000,
     });
 
@@ -245,9 +245,12 @@ test.describe('SME approval gate — multi-role loop', () => {
     // Persistent post-revalidate state (panel replaced by the read-only note,
     // now showing the SUBMITTED status) — not the transient success banner.
     // See the m5 lesson note in the revert test above.
-    await expect(page.getByTestId('sme-review-readonly')).toContainText('SUBMITTED', {
-      timeout: 15_000,
-    });
+    await expect(page.getByTestId('sme-review-readonly')).toContainText(
+      'Submitted – waiting for PC',
+      {
+        timeout: 15_000,
+      },
+    );
 
     // ── DB: SUBMITTED (PC's queue) + an SME_REVIEW/APPROVED approval ──────────
     await expect
@@ -292,7 +295,7 @@ test.describe('SME approval gate — multi-role loop', () => {
     await signIn(page, 'pc@hmp.local');
     await page.goto(`/pc/requests/${requestId}`);
     await expect(page.getByRole('heading', { name: /review submission/i })).toBeVisible();
-    await expect(page.getByText(/^Submitted$/).first()).toBeVisible();
+    await expect(page.locator('[data-status="SUBMITTED"]').first()).toBeVisible();
   });
 
   test('faculty submit routes through the SME gate → SME_REVIEW (+ notifies the SME)', async ({

@@ -61,20 +61,22 @@ test('Structured editor â€” full flow on the document page (auto-fetch banner â†
   // Prompt 12-b: SME is mandatory at allocation. Pick the first seeded SME.
   await page.getByTestId('sme-picker').selectOption({ index: 1 });
   await page.getByRole('button', { name: /allocate/i }).click();
-  await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ALLOCATED"]').first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 
   await signIn(page, 'pc@hmp.local');
   await page.goto(`/pc/requests/${requestId}`);
   await page.getByRole('button', { name: /confirm allocation/i }).click();
-  await expect(page.getByText(/ASSIGNED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ASSIGNED"]').first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 
   await signIn(page, 'faculty@hmp.local');
   await page.goto(`/faculty/assignments/${requestId}`);
   await page.getByRole('button', { name: /accept assignment/i }).click();
   await page.getByRole('button', { name: /start editing/i }).click();
-  await expect(page.getByText(/IN_PROGRESS/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="IN_PROGRESS"]').first()).toBeVisible({
+    timeout: 10_000,
+  });
   // 11e auto-fetch: the redirect after startEditingAction adds
   // `?autoFetched=empty` to the URL; the banner renders above the structured
   // editor. In a fresh-DB test path there's no prior version for this course,

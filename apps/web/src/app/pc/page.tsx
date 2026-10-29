@@ -174,7 +174,7 @@ export default async function PCOverview() {
             Programme Committee
           </h1>
           <p style={{ color: 'var(--muted)', marginTop: 4, fontSize: 14 }}>
-            Confirm assignments and run the review loop.
+            Confirm allocations and review submitted handouts.
           </p>
         </div>
         <div className="flex gap-2">

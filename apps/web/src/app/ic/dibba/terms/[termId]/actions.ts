@@ -7,6 +7,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { updateAcademicTerm } from '@hmp/db/src/dibba-import';
 import { dibbaErrorMessage } from '../../errors';
 import { isoDate } from '../../date-input';
+import { formError } from '@/lib/form-error';
 
 /** Term edit (Phase 4, plan D3): auth, zod, db core, revalidate — nothing else. */
 
@@ -37,7 +38,7 @@ export async function updateTermAction(
     endDate: formData.get('endDate'),
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+    return { error: formError(parsed.error) };
   }
   try {
     await updateAcademicTerm(prisma, { ...parsed.data, actorId: me.id });

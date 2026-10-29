@@ -17,6 +17,7 @@ import {
 import { StatusBadge } from '@/components/status-badge';
 import { RequestListToolbar } from '@/components/request-list-toolbar';
 import { filterQuery, listWhere, parseListFilter } from '@/lib/request-views';
+import { formatDate } from '@/lib/format-date';
 
 const PAGE_SIZE = 25;
 
@@ -84,7 +85,7 @@ export default async function FacultyAssignmentsList({
                       {r.offering.semester.programme.code} · {r.offering.semester.name}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
-                      {a?.acceptedAt ? new Date(a.acceptedAt).toLocaleDateString() : 'pending'}
+                      {a?.acceptedAt ? formatDate(a.acceptedAt) : 'Not accepted yet'}
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={r.status} />

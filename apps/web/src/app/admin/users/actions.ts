@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { prisma, RoleName, FacultyType } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { audit } from '@/lib/audit';
+import { formError } from '@/lib/form-error';
 
 const createSchema = z.object({
   email: z.string().email(),
@@ -25,7 +26,13 @@ export async function createUserAction(formData: FormData) {
     facultyType: formData.get('facultyType') || undefined,
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+    return {
+      error: formError(parsed.error, {
+        password: 'Password',
+        role: 'Role',
+        facultyType: 'Faculty type',
+      }),
+    };
   }
   const { email, name, password, role, facultyType } = parsed.data;
   const exists = await prisma.user.findUnique({ where: { email } });

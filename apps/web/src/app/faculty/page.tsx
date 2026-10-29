@@ -10,12 +10,10 @@ import { loadFacultySchedule } from '@hmp/db/src/dibba-schedule/load';
 import { NextEventsCard } from '@/components/next-events-card';
 import { viewHref, viewWhere } from '@/lib/request-views';
 import { loadUnreadCommentIds } from '@/lib/unread-comments';
+import { dateFormatter } from '@/lib/format-date';
 
-const fmtTermEnd = new Intl.DateTimeFormat('en-IN', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-});
+// One date style everywhere, in India time (lib/format-date.ts).
+const fmtTermEnd = dateFormatter;
 
 function ProgressCard({
   label,
@@ -134,7 +132,7 @@ export default async function FacultyOverview() {
               margin: 0,
             }}
           >
-            Faculty Dashboard
+            Faculty dashboard
           </h1>
           <p style={{ color: 'var(--muted)', marginTop: 4, fontSize: 14 }}>
             Accept assignments and edit your handouts.

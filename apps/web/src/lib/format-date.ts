@@ -64,3 +64,8 @@ export function formatDateTime(value: DateInput, fallback = '—'): string {
   if (!d) return fallback;
   return `${formatDate(d)}, ${formatTime(d)}`;
 }
+
+/** Drop-in for an `Intl.DateTimeFormat` used as `fmt.format(date)`: "05 Dec 2026". */
+export const dateFormatter = { format: (d: DateInput) => formatDate(d) };
+/** Drop-in for an `Intl.DateTimeFormat` used as `fmt.format(date)`: "05 Dec 2026, 3:40 pm". */
+export const dateTimeFormatter = { format: (d: DateInput) => formatDateTime(d) };

@@ -145,10 +145,10 @@ export function StructuredAiDraftDialog({ requestId, open, onClose, onLoadIntoEd
           }}
         >
           <div>
-            <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>AI Draft (structured)</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>AI draft</h2>
             <p style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-              Generates a starting BitsHandoutV1 from your course context. Review and edit before
-              saving — AI output is a starting point, not a finished handout.
+              Creates a first draft of your handout from the course details. Review and edit it
+              before saving — it is a starting point, not a finished handout.
             </p>
           </div>
           <button
@@ -208,12 +208,12 @@ export function StructuredAiDraftDialog({ requestId, open, onClose, onLoadIntoEd
               >
                 {draft.source === 'stub' ? (
                   <span>
-                    <strong>Using template stub.</strong> AI is not configured; results are a
-                    generic starting point, not customized to your course.
+                    <strong>Generic template.</strong> AI isn&apos;t available, so this is not
+                    tailored to your course.
                   </span>
                 ) : draft.source === 'cache' ? (
                   <span>
-                    <strong>Reused recent AI draft.</strong> Model: <code>{draft.model}</code>.{' '}
+                    <strong>Your recent AI draft.</strong>{' '}
                     <button
                       type="button"
                       onClick={() => runGenerate(true)}
@@ -234,7 +234,7 @@ export function StructuredAiDraftDialog({ requestId, open, onClose, onLoadIntoEd
                   </span>
                 ) : (
                   <span>
-                    <strong>AI-generated.</strong> Model: <code>{draft.model}</code>.{' '}
+                    <strong>AI draft ready.</strong>{' '}
                     <button
                       type="button"
                       onClick={() => runGenerate(true)}
@@ -273,7 +273,7 @@ export function StructuredAiDraftDialog({ requestId, open, onClose, onLoadIntoEd
                 <dt className="text-muted-foreground">Part B sessions</dt>
                 <dd>{draft.data.partB.sessions.length} entries</dd>
                 <dt className="text-muted-foreground">Evaluation components</dt>
-                <dd>{draft.data.evaluation.components.length} EC(s)</dd>
+                <dd>{draft.data.evaluation.components.length} evaluation components</dd>
               </dl>
             </>
           )}

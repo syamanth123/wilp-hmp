@@ -9,6 +9,7 @@ import {
   deriveDibbaLabel,
   validateDibbaUpload,
 } from './upload-validation';
+import { uploadFailureMessage } from '@/lib/upload-errors';
 
 /**
  * IC Dibba upload (plan §1). Posts the file to the upload Route Handler (a
@@ -31,12 +32,8 @@ interface Props {
   terms: Array<{ id: string; name: string }>;
 }
 
-function describeFailure(res: UploadResponse, httpStatus: number): string {
-  if (res.error === 'rate_limited') return 'Too many uploads in the last hour — try again later.';
-  if (res.error === 'bad_response')
-    return `The server returned an unexpected response (HTTP ${httpStatus}).`;
-  const code = res.error ?? `http_${httpStatus}`;
-  return res.detail ? `${code} — ${res.detail}` : code;
+function describeFailure(res: UploadResponse): string {
+  return uploadFailureMessage(res.error, res.detail);
 }
 
 const fmt = new Intl.NumberFormat('en-IN');
@@ -93,7 +90,7 @@ export function UploadDibbaForm({ terms }: Props) {
       const r = await fetch('/api/ic/dibba-imports/upload', { method: 'POST', body: fd });
       const json: UploadResponse = await r.json().catch(() => ({ error: 'bad_response' }));
       if (!r.ok || !json.ok || !json.importId) {
-        setError(describeFailure(json, r.status));
+        setError(describeFailure(json));
         return;
       }
       setDone(json);

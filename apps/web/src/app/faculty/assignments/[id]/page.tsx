@@ -30,6 +30,7 @@ import { QualityPanel } from './quality-panel';
 import { StructuredEditor } from './structured-editor/StructuredEditor';
 import { ConvertBanner } from './structured-editor/ConvertBanner';
 import { aiFeaturesEnabled } from '@/lib/features';
+import { formatDate } from '@/lib/format-date';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
 // for the rationale (Next.js production-build RSC caching vs revalidatePath).
@@ -120,8 +121,8 @@ export default async function FacultyAssignmentDetail({
             <p className="text-muted-foreground mt-1 text-xs">
               {request.offering.semester.programme.code} · {request.offering.semester.name} ·{' '}
               {assignment.acceptedAt
-                ? `accepted ${new Date(assignment.acceptedAt).toLocaleDateString()}`
-                : 'pending acceptance'}
+                ? `accepted ${formatDate(assignment.acceptedAt)}`
+                : 'not accepted yet'}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -310,8 +311,8 @@ export default async function FacultyAssignmentDetail({
         <CardHeader>
           <CardTitle>Attachments</CardTitle>
           <CardDescription>
-            Supplementary files for this handout (exam papers, slides, references). Visible to all
-            reviewers; editable by you while the handout is in progress.
+            Supplementary files for this handout (exam papers, slides, references), visible to all
+            reviewers. Adding files is switched off for now.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -1,6 +1,7 @@
 import { latestQualityReport } from '@hmp/ai';
 import { aiFeaturesEnabled } from '@/lib/features';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
+import { formatDateTime } from '@/lib/format-date';
 
 const BLOOM_LABELS: Array<{ key: keyof QualityBlooms; label: string }> = [
   { key: 'remember', label: 'Remember' },
@@ -40,16 +41,14 @@ export async function QualityReportCard({ handoutId }: { handoutId: string }) {
       <CardHeader className="flex flex-row items-start justify-between space-y-0">
         <div>
           <CardTitle>AI quality report</CardTitle>
-          <CardDescription>
-            Latest run · {report.model} · {new Date(report.createdAt).toLocaleString()}
-          </CardDescription>
+          <CardDescription>Last checked {formatDateTime(report.createdAt)}</CardDescription>
         </div>
         <Badge
           variant={
             report.score >= 0.7 ? 'success' : report.score >= 0.4 ? 'secondary' : 'destructive'
           }
         >
-          score {(report.score * 100).toFixed(0)}
+          Score {(report.score * 100).toFixed(0)}/100
         </Badge>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">

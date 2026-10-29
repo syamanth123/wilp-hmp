@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { prisma } from '@hmp/db';
 import { statusLabel } from '@/components/status-badge';
 import { aiFeaturesEnabled } from '@/lib/features';
+import { actionSentence, entityLabel } from '@/lib/labels';
 
 function StatCard({
   label,
@@ -262,7 +263,7 @@ export default async function AdminOverview() {
               margin: 0,
             }}
           >
-            Admin Overview
+            Admin overview
           </h1>
           <p style={{ color: 'var(--muted)', marginTop: 4, fontSize: 14 }}>
             System health, user management, and configuration.
@@ -283,7 +284,12 @@ export default async function AdminOverview() {
           href="/admin/users?show=active"
         />
         <StatCard label="Programmes" value={programmes} sub="Configured" icon={<ProgIcon />} />
-        <StatCard label="Courses" value={courses} sub="Master catalog" icon={<FileIcon />} />
+        <StatCard
+          label="Courses"
+          value={courses}
+          sub="In the course catalogue"
+          icon={<FileIcon />}
+        />
         <StatCard
           label="Handout requests"
           value={requests}
@@ -324,10 +330,10 @@ export default async function AdminOverview() {
                     className="row-title"
                     style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
                   >
-                    {r.action}
+                    {actionSentence(r.action)}
                   </div>
                   <div className="row-meta">
-                    {r.actor?.name ?? r.actor?.email ?? '—'} · {r.entity}
+                    {r.actor?.name ?? r.actor?.email ?? 'Automatic'} · {entityLabel(r.entity)}
                   </div>
                 </div>
                 <span className="row-time">{timeAgo(new Date(r.createdAt))}</span>
@@ -409,7 +415,7 @@ export default async function AdminOverview() {
               <span className="qa-icon">
                 <FileIcon />
               </span>
-              Corpus imports
+              Past handouts library
             </Link>
           </div>
         </div>
@@ -420,7 +426,6 @@ export default async function AdminOverview() {
           </div>
           <div className="panel-body flex flex-col gap-3">
             {[
-              { label: 'Node.js', value: process.version },
               ...(aiEnabled ? [{ label: 'AI provider', value: aiProvider }] : []),
               { label: 'Audit log entries', value: audits.toString() },
               { label: 'Total requests', value: requests.toString() },

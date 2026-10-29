@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '@hmp/ui';
 import { createUserAction } from './actions';
 import { generatePassword } from '@/lib/generate-password';
+import { roleLabel } from '@/lib/labels';
 
 export function UserCreateForm({ roles }: { roles: string[] }) {
   const [error, setError] = useState<string | undefined>();
@@ -85,13 +86,13 @@ export function UserCreateForm({ roles }: { roles: string[] }) {
             >
               {roles.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {roleLabel(r)}
                 </option>
               ))}
             </select>
           </div>
           <div>
-            <Label htmlFor="facultyType">Faculty Type</Label>
+            <Label htmlFor="facultyType">Faculty type</Label>
             <select
               id="facultyType"
               name="facultyType"

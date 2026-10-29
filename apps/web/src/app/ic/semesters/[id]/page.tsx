@@ -1,16 +1,11 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma, RoleName } from '@hmp/db';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Label,
-} from '@hmp/ui';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Label } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { SemesterDatesForm } from './form';
+import { formatDate } from '@/lib/format-date';
+import { termLabel } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,15 +28,11 @@ export default async function SemesterEditPage({ params }: { params: { id: strin
   });
   if (!semester) notFound();
 
-  const toInputDate = (d: Date | null) =>
-    d ? new Date(d).toISOString().slice(0, 10) : '';
+  const toInputDate = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
   return (
     <div className="space-y-4">
-      <Link
-        href="/ic/semesters"
-        className="text-sm text-muted-foreground hover:text-foreground"
-      >
+      <Link href="/ic/semesters" className="text-muted-foreground hover:text-foreground text-sm">
         ← Back to semesters
       </Link>
 
@@ -51,12 +42,12 @@ export default async function SemesterEditPage({ params }: { params: { id: strin
             {semester.programme.code} · {semester.name}
           </CardTitle>
           <CardDescription>
-            {semester.programme.name} · {semester.term} · {semester.year}
+            {semester.programme.name} · {termLabel(semester.term)} · {semester.year}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
-          <Field label="Term start">{new Date(semester.startDate).toLocaleDateString()}</Field>
-          <Field label="Term end">{new Date(semester.endDate).toLocaleDateString()}</Field>
+          <Field label="Term start">{formatDate(semester.startDate)}</Field>
+          <Field label="Term end">{formatDate(semester.endDate)}</Field>
         </CardContent>
       </Card>
 
@@ -64,8 +55,8 @@ export default async function SemesterEditPage({ params }: { params: { id: strin
         <CardHeader>
           <CardTitle>Exam date &amp; EC1 deadline</CardTitle>
           <CardDescription>
-            Used for publish-phase reminders and propagated to LMS sync. Clear a field to remove
-            the date.
+            Used for reminders and sent to Taxila when a handout is published. Clear a field to
+            remove the date.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -88,4 +79,3 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
-

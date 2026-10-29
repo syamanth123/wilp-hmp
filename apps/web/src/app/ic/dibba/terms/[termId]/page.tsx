@@ -7,6 +7,7 @@ import { Stat } from '../../stat';
 import { fmtDate, fmtInt } from '../../format';
 import { toDateInputValue } from '../../date-input';
 import { EditTermForm } from './edit-term-form';
+import { termLabel } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export default async function ICTermPage({ params }: { params: { termId: string 
             {term.name}
           </h1>
           <p className="text-muted-foreground text-sm">
-            {term.term} {term.year} · {fmtDate.format(term.startDate)} –{' '}
+            {termLabel(term.term)} {term.year} · {fmtDate.format(term.startDate)} –{' '}
             {fmtDate.format(term.endDate)}
           </p>
         </div>

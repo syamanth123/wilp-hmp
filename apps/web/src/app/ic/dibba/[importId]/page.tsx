@@ -142,7 +142,7 @@ export default async function DibbaPreviewPage({ params }: { params: { importId:
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Parser warnings ({fmtInt.format(imp.warnings.length)})
+            Things to check ({fmtInt.format(imp.warnings.length)})
           </CardTitle>
           <CardDescription>
             Shown in full. The parser never silently &ldquo;fixes&rdquo; a header or a merged cell —

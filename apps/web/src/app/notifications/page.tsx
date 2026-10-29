@@ -4,6 +4,7 @@ import { prisma, NotificationStatus } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { markAllReadAction, markReadAction } from './actions';
+import { formatDateTime } from '@/lib/format-date';
 
 const PAGE_SIZE = 25;
 
@@ -43,7 +44,7 @@ export default async function NotificationsPage({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Notifications</h1>
-          <p className="text-muted-foreground text-sm">In-portal messages from workflow events.</p>
+          <p className="text-muted-foreground text-sm">Updates about your handouts.</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -80,9 +81,7 @@ export default async function NotificationsPage({
                 <CardTitle className="text-base">{n.subject}</CardTitle>
                 {isUnread && <Badge>Unread</Badge>}
               </div>
-              <CardDescription className="text-xs">
-                {new Date(n.createdAt).toLocaleString()}
-              </CardDescription>
+              <CardDescription className="text-xs">{formatDateTime(n.createdAt)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm">{n.body}</p>

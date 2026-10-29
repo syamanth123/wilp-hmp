@@ -13,12 +13,13 @@ export default async function SmeBulkReviewPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Bulk review (SME)</CardTitle>
+          <CardTitle>Bulk review handouts</CardTitle>
           <CardDescription>
-            Upload a CSV with columns <code>request_reference</code>, <code>action</code>,{' '}
-            <code>comment</code>. Actions: <code>sme_approve</code> (forward to the Programme
-            Committee) or <code>sme_revert</code> (send back to faculty — comment required). Only
-            requests in SME_REVIEW assigned to you are in your queue.
+            Approve, or send back for changes, many handouts at once from one spreadsheet. Columns:{' '}
+            <code>request_reference</code>, <code>action</code> (<code>sme_approve</code> to forward
+            to the Programme Committee, or <code>sme_revert</code> to send back to the faculty
+            member) and <code>comment</code> (required for <code>sme_revert</code>). Only handouts
+            waiting for your review can be included.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -27,7 +28,7 @@ export default async function SmeBulkReviewPage() {
             className={buttonVariants({ variant: 'outline', size: 'sm' })}
             download
           >
-            Download CSV template
+            Download template
           </a>
           <BulkReviewForm action={smeBulkReviewAction} />
         </CardContent>

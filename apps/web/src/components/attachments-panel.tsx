@@ -11,6 +11,7 @@ import {
   ALLOWED_MIME_TYPES,
 } from '@/lib/attachment-validation';
 import type { AttachmentView } from '@/lib/attachments';
+import { formatDate } from '@/lib/format-date';
 
 interface Props {
   requestId: string;
@@ -25,6 +26,22 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Attachment upload failures in plain words (never a raw code). */
+function attachmentErrorMessage(code?: string, message?: string): string {
+  switch (code) {
+    case 'attachments_disabled':
+      return 'Attachments are switched off for now.';
+    case 'storage_unavailable':
+      return "File storage isn't available right now. Try again later.";
+    case 'request_not_found':
+      return 'This handout no longer exists. Refresh the page.';
+    case 'forbidden':
+      return "You can't add files to this handout.";
+    default:
+      return message && /s/.test(message) ? message : 'Upload failed. Please try again.';
+  }
 }
 
 export function AttachmentsPanel({ requestId, initial, canUpload, currentUserId }: Props) {
@@ -51,7 +68,7 @@ export function AttachmentsPanel({ requestId, initial, canUpload, currentUserId 
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-        setError(j.message ?? j.error ?? `Upload failed (${res.status}).`);
+        setError(attachmentErrorMessage(j.error, j.message));
         return;
       }
       router.refresh();
@@ -119,8 +136,7 @@ export function AttachmentsPanel({ requestId, initial, canUpload, currentUserId 
                   {a.filename}
                 </a>
                 <div className="text-muted-foreground text-xs">
-                  {formatBytes(a.size)} · {a.uploaderName} ·{' '}
-                  {new Date(a.uploadedAt).toLocaleDateString()}
+                  {formatBytes(a.size)} · {a.uploaderName} · {formatDate(a.uploadedAt)}
                 </div>
               </div>
               {canUpload && a.uploaderId === currentUserId && (

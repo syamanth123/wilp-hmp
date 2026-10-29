@@ -63,7 +63,7 @@ export async function commitImportAction(
   if (!result.ok) {
     return {
       ok: false,
-      error: `Validation failed (${result.errors.length} rows). Re-run preview.`,
+      error: `${result.errors.length} rows have problems. Click Preview to see them.`,
     };
   }
 
@@ -256,9 +256,10 @@ export async function commitImportAction(
     imported = txResult.count;
     snapshotId = txResult.snapshotId;
   } catch (err) {
+    console.error('erp_import_failed', err);
     return {
       ok: false,
-      error: `Import rolled back: ${err instanceof Error ? err.message : 'unknown error'}`,
+      error: 'Nothing was imported because something went wrong. Check the file and try again.',
     };
   }
 

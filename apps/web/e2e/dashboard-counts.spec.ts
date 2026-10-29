@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from '@playwright/test';
 import { seedHandoutAtStatus, cleanupTestHandouts } from './fixtures/handout';
 
 // Every number on a dashboard card must equal the list it links to, for the
@@ -26,6 +26,12 @@ async function signIn(page: Page, email: string) {
   await page.getByLabel('Password').fill('password');
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL((url) => !url.pathname.startsWith('/login'));
+}
+
+/** A fresh browser context, so no session carries over from the last user. */
+async function freshPage(browser: Browser): Promise<Page> {
+  const context = await browser.newContext();
+  return context.newPage();
 }
 
 async function readCards(page: Page): Promise<{ value: number; href: string }[]> {
@@ -83,20 +89,23 @@ test.describe('Dashboard cards match the lists they link to', () => {
     });
   }
 
-  test('a handout with the subject expert shows in every list that covers it', async ({ page }) => {
+  test('a handout with the subject expert shows in every list that covers it', async ({
+    browser,
+  }) => {
     for (const [email, list] of [
       ['hog@hmp.local', '/hog/requests?status=SME_REVIEW'],
       ['pc@hmp.local', '/pc/requests?status=SME_REVIEW'],
       ['faculty@hmp.local', '/faculty/assignments?status=SME_REVIEW'],
       ['ic@hmp.local', '/ic/requests?status=SME_REVIEW'],
     ] as const) {
-      await page.context().clearCookies();
+      const page = await freshPage(browser);
       await signIn(page, email);
       await page.goto(list);
       await expect(page.locator('[data-status="SME_REVIEW"]').first()).toBeVisible();
       await expect(page.locator('[data-status="SME_REVIEW"]').first()).toHaveText(
         'With subject expert for review',
       );
+      await page.context().close();
     }
   });
 

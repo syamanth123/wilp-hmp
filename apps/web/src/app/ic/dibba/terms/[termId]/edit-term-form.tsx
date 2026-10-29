@@ -67,9 +67,9 @@ export function EditTermForm({ term }: Props) {
           defaultValue={term.term}
           className="bg-background h-9 w-full rounded-md border px-2 text-sm"
         >
-          <option value="FIRST">FIRST</option>
-          <option value="SECOND">SECOND</option>
-          <option value="SUMMER">SUMMER</option>
+          <option value="FIRST">Semester 1</option>
+          <option value="SECOND">Semester 2</option>
+          <option value="SUMMER">Summer term</option>
         </select>
       </div>
       <div>

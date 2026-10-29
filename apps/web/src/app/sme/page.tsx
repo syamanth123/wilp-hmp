@@ -3,6 +3,7 @@ import { prisma, RoleName, HandoutStatus, ApprovalStage, ApprovalDecision } from
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, buttonVariants } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { viewHref, viewWhere } from '@/lib/request-views';
+import { formatDate } from '@/lib/format-date';
 
 // Workflow landing pages MUST be force-dynamic (RSC caching vs revalidate).
 export const dynamic = 'force-dynamic';
@@ -60,8 +61,8 @@ export default async function SmeOverview() {
         <div>
           <h1 className="text-2xl font-semibold">Welcome, {me.name}</h1>
           <p className="text-muted-foreground text-sm">
-            Subject Matter Expert dashboard. Approve faculty submissions or send them back with
-            comments before they reach the Programme Committee.
+            Approve faculty handouts, or send them back with comments, before they go to the
+            Programme Committee.
           </p>
         </div>
         <Link
@@ -144,8 +145,7 @@ export default async function SmeOverview() {
                       <span className="text-muted-foreground">{r.offering.course.title}</span>
                     </div>
                     <div className="text-muted-foreground mt-1 text-xs">
-                      Faculty: {r.assignments[0]?.faculty.name ?? '—'} ·{' '}
-                      {new Date(r.updatedAt).toLocaleDateString()}
+                      Faculty: {r.assignments[0]?.faculty.name ?? '—'} · {formatDate(r.updatedAt)}
                     </div>
                   </div>
                   <Link

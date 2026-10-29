@@ -20,6 +20,8 @@ import { RowActions } from './row-actions';
 import { BulkApproveWidget } from './bulk-approve-widget';
 import { basename } from 'node:path';
 import Link from 'next/link';
+import { formatDate } from '@/lib/format-date';
+import { corpusMethodLabel } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,12 +109,11 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Corpus imports</CardTitle>
+          <CardTitle>Past handouts library</CardTitle>
           <CardDescription>
-            BITS handout corpus ingestion (Prompts 11f-a + 11f-b1 + 11f-b2). Each row is one source
-            `.docx` parsed by <code>parseDocxToHandout</code>; rows are upserted by `sourceFile` so
-            re-running the import is idempotent. Approved rows surface to faculty via auto- fetch
-            Tier 2 (Prompt 11f-b2).
+            Past BITS handouts read from Word files, one row per file. Running the import again
+            updates rows and never creates duplicates. When a handout is approved for reuse, faculty
+            starting a handout for that course get it as their starting draft.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -136,9 +137,7 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
             ({total > 0 ? Math.round((approvedCount / total) * 100) : 0}%)
           </CardTitle>
           <CardDescription>
-            Filter by extraction method, approval state, or course-code prefix via the URL search
-            params (e.g. <code>?method=FAILED</code>, <code>?prefix=EE</code>,{' '}
-            <code>?approved=yes</code>).
+            Click a reading result below to see only those handouts.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -151,7 +150,7 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
                   href={`/admin/corpus-imports?method=${m}`}
                   className="rounded-full border px-3 py-1 text-xs hover:bg-slate-50"
                 >
-                  <span className="font-mono">{m}</span>
+                  <span>{corpusMethodLabel(m)}</span>
                   <span className="ml-2 font-semibold">{count}</span>
                 </a>
               );
@@ -172,8 +171,8 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
                 <TableRow>
                   <TableHead>File</TableHead>
                   <TableHead>Course</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Data</TableHead>
+                  <TableHead>Reading result</TableHead>
+                  <TableHead>Usable content</TableHead>
                   <TableHead>Warnings / Errors</TableHead>
                   <TableHead>Imported</TableHead>
                   <TableHead>Actions</TableHead>
@@ -204,7 +203,7 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
                           className="mt-1 inline-block text-[11px] text-blue-700 underline"
                           data-testid="corpus-row-create-course-link"
                         >
-                          Course row not found — create it?
+                          Course isn't in the catalogue — add it?
                         </Link>
                       )}
                     </TableCell>
@@ -237,7 +236,7 @@ export default async function AdminCorpusImportsPage({ searchParams }: PageProps
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
-                      {r.importedAt.toLocaleDateString()}
+                      {formatDate(r.importedAt)}
                     </TableCell>
                     <TableCell>
                       <RowActions id={r.id} approvedForReuse={r.approvedForReuse} />
@@ -264,8 +263,8 @@ function MethodBadge({ method }: { method: CorpusExtractionMethod }) {
           ? 'border-red-300 bg-red-50 text-red-700'
           : 'border-slate-300 bg-slate-50 text-slate-700';
   return (
-    <Badge variant="outline" className={`font-mono text-[10px] ${className}`}>
-      {method}
+    <Badge variant="outline" className={`text-[10px] ${className}`}>
+      {corpusMethodLabel(method)}
     </Badge>
   );
 }

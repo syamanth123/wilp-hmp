@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { prisma } from '@hmp/db';
 import { requestHref, type ViewerRole } from '@/lib/request-links';
+import { actionSentence } from '@/lib/labels';
+import { formatDateTime } from '@/lib/format-date';
 
 const ICON_PROPS = {
   width: 18,
@@ -131,7 +133,7 @@ export async function RecentActivity({
               </div>
               <div className="row-body">
                 <div className="row-title">
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.action}</span>
+                  <span style={{ fontSize: 13 }}>{actionSentence(r.action)}</span>
                   {r.request?.refNo && r.requestId && (
                     <>
                       {' '}
@@ -148,10 +150,7 @@ export async function RecentActivity({
                     </>
                   )}
                 </div>
-                <div className="row-meta">
-                  {r.entity}
-                  {r.entityId ? ` · ${r.entityId}` : ''}
-                </div>
+                <div className="row-meta">{formatDateTime(r.createdAt)}</div>
               </div>
               <span className="row-time">{timeAgo(new Date(r.createdAt))}</span>
             </div>

@@ -7,6 +7,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { createAcademicTerm, discardDibbaImport } from '@hmp/db/src/dibba-import';
 import { dibbaErrorMessage } from './errors';
 import { isoDate } from './date-input';
+import { GENERIC_ERROR, formError } from '@/lib/form-error';
 
 /**
  * IC Course Dibba — list-page mutations (Phase 3, plan §2/D5/D9/D11). Thin
@@ -39,7 +40,7 @@ export async function createTermAction(
     endDate: formData.get('endDate'),
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+    return { error: formError(parsed.error) };
   }
   try {
     const { termId } = await createAcademicTerm(prisma, { ...parsed.data, actorId: me.id });
@@ -57,7 +58,7 @@ export async function discardDraftAction(
 ): Promise<{ ok: true } | { error: string }> {
   const me = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = importIdSchema.safeParse({ importId: formData.get('importId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
   try {
     await discardDibbaImport(prisma, { importId: parsed.data.importId, actorId: me.id });
     revalidatePath('/ic/dibba');

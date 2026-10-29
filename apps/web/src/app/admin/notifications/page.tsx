@@ -15,6 +15,14 @@ import {
 } from '@hmp/ui';
 import { loadWorkflowConfig } from '@/lib/sla';
 import { RunSweepPanel } from './run-sweep-panel';
+import { channelLabel } from '@/lib/labels';
+
+/** "handout.rework_requested" → "Rework requested". */
+function eventName(key: string): string {
+  const last = key.split('.').pop() ?? key;
+  const words = last.replace(/_/g, ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +36,8 @@ export default async function NotificationsConfigPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>SLA configuration</CardTitle>
-          <CardDescription>Read-only summary of the active SLA window per stage.</CardDescription>
+          <CardTitle>Time limits</CardTitle>
+          <CardDescription>How many hours each step may take.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
@@ -55,12 +63,10 @@ export default async function NotificationsConfigPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Reminder sweep</CardTitle>
+          <CardTitle>Send reminders</CardTitle>
           <CardDescription>
-            Manually scan active requests and emit due-soon / overdue notifications. Schedule the
-            same endpoint (<code className="font-mono text-xs">POST /api/cron/reminders</code>) via
-            Railway/Vercel cron with the <code className="font-mono text-xs">CRON_SECRET</code>{' '}
-            bearer.
+            Check every open request now and send due-soon and overdue reminders to the people who
+            have it.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -70,14 +76,17 @@ export default async function NotificationsConfigPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Notification Templates</CardTitle>
-          <CardDescription>Read-only. Tokens like {'{{refNo}}'} are substituted at send time.</CardDescription>
+          <CardTitle>Message templates</CardTitle>
+          <CardDescription>
+            Read-only. Words in {'{{double braces}}'} are filled in when the message is sent, e.g.
+            the request number.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Key</TableHead>
+                <TableHead>Event</TableHead>
                 <TableHead>Subject</TableHead>
                 <TableHead>Channels</TableHead>
                 <TableHead>Status</TableHead>
@@ -86,17 +95,21 @@ export default async function NotificationsConfigPage() {
             <TableBody>
               {templates.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell className="font-mono text-xs">{t.key}</TableCell>
+                  <TableCell className="text-xs">{eventName(t.key)}</TableCell>
                   <TableCell>{t.subject}</TableCell>
                   <TableCell className="flex flex-wrap gap-1">
                     {t.channels.map((c) => (
                       <Badge key={c} variant="secondary">
-                        {c}
+                        {channelLabel(c)}
                       </Badge>
                     ))}
                   </TableCell>
                   <TableCell>
-                    {t.active ? <Badge variant="success">Active</Badge> : <Badge variant="destructive">Inactive</Badge>}
+                    {t.active ? (
+                      <Badge variant="success">Active</Badge>
+                    ) : (
+                      <Badge variant="destructive">Inactive</Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

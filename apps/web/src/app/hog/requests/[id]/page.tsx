@@ -119,7 +119,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
             </CardDescription>
             <p className="text-muted-foreground mt-1 text-xs">
               {request.offering.semester.programme.code} · {request.offering.semester.name} ·{' '}
-              initiated by {request.initiator.name}
+              requested by {request.initiator.name}
             </p>
           </div>
           <div className="flex items-center gap-3">

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from '@playwright/test';
 import { prisma } from '@hmp/db';
 import { seedHandoutAtStatus, cleanupTestHandouts } from './fixtures/handout';
 
@@ -11,8 +11,14 @@ import { seedHandoutAtStatus, cleanupTestHandouts } from './fixtures/handout';
 //   HOG  review handouts          UNDER_REVIEW → APPROVED
 // plus: an empty upload is refused with a plain message.
 
+/** Signs in on a fresh browser context, so no session carries over between users. */
+async function signInFresh(browser: Browser, email: string): Promise<Page> {
+  const page = await (await browser.newContext()).newPage();
+  await signIn(page, email);
+  return page;
+}
+
 async function signIn(page: Page, email: string) {
-  await page.context().clearCookies();
   await page.goto('/login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill('password');
@@ -61,11 +67,11 @@ test.afterAll(async () => {
   await cleanupTestHandouts();
 });
 
-test('HOG and PC bulk tools work from the menu, each with a small CSV', async ({ page }) => {
+test('HOG and PC bulk tools work from the menu, each with a small CSV', async ({ browser }) => {
   test.setTimeout(180_000);
 
   // A fresh request waiting for allocation (IC creates it the normal way).
-  await signIn(page, 'ic@hmp.local');
+  let page = await signInFresh(browser, 'ic@hmp.local');
   await page.goto('/ic/requests/new');
   await page.getByLabel('Programme').selectOption({ index: 1 });
   await page.getByLabel('Semester').selectOption({ index: 1 });
@@ -79,7 +85,7 @@ test('HOG and PC bulk tools work from the menu, each with a small CSV', async ({
   });
 
   // HOG: hub → allocate tool → 1-row CSV.
-  await signIn(page, 'hog@hmp.local');
+  page = await signInFresh(browser, 'hog@hmp.local');
   await openHub(
     page,
     '/hog',
@@ -98,7 +104,7 @@ test('HOG and PC bulk tools work from the menu, each with a small CSV', async ({
   expect(await statusOf(newRef)).toBe('ALLOCATED');
 
   // PC: hub → confirm allocations → 1-row CSV.
-  await signIn(page, 'pc@hmp.local');
+  page = await signInFresh(browser, 'pc@hmp.local');
   await openHub(
     page,
     '/pc',
@@ -131,7 +137,7 @@ test('HOG and PC bulk tools work from the menu, each with a small CSV', async ({
   expect(await statusOf(submitted.refNo)).toBe('UNDER_REVIEW');
 
   // HOG: review handouts → final approval of the same handout.
-  await signIn(page, 'hog@hmp.local');
+  page = await signInFresh(browser, 'hog@hmp.local');
   await page.goto('/hog/bulk');
   await page.getByTestId('bulk-tool-hog-review').getByRole('link', { name: 'Open' }).click();
   await upload(page, `request_reference,action,comment\n${submitted.refNo},hog_final_approve,`);

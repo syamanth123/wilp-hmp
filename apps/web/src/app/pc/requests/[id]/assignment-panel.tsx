@@ -40,14 +40,14 @@ export function AssignmentPanel({ requestId }: { requestId: string }) {
   if (done === 'confirmed') {
     return (
       <p className="text-sm text-emerald-600" data-testid="assignment-success">
-        Allocation confirmed. Status moved to ASSIGNED — the faculty can now begin work.
+        Allocation confirmed. Allocation confirmed — the faculty member can now start.
       </p>
     );
   }
   if (done === 'rejected') {
     return (
       <p className="text-sm text-amber-600" data-testid="assignment-success">
-        Allocation rejected. Sent back to HOG (status REQUESTED) for re-allocation.
+        Allocation rejected. Sent back to the Head of Group to allocate again.
       </p>
     );
   }

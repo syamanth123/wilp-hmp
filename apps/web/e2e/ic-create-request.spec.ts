@@ -26,5 +26,5 @@ test('IC creates a handout request end-to-end', async ({ page }) => {
 
   await page.waitForURL(/\/ic\/requests\/c[a-z0-9]{20,}/i);
   await expect(page.locator('text=/HMP-\\d{4}-\\d{4}/')).toBeVisible();
-  await expect(page.getByText(/REQUESTED/i).first()).toBeVisible();
+  await expect(page.locator('[data-status="REQUESTED"]').first()).toBeVisible();
 });

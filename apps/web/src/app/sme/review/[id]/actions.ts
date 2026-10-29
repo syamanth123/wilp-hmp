@@ -7,6 +7,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { WorkflowError } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { smeApprove, smeRevert, SmeReviewError } from './sme-review';
+import { GENERIC_ERROR, formError } from '@/lib/form-error';
 
 /**
  * SME approval-workflow server actions (Prompt 12-a). Thin auth + Zod +
@@ -38,7 +39,7 @@ function revalidate(requestId: string) {
 export async function smeApproveAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.SME);
   const parsed = approveSchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   try {
     await smeApprove(parsed.data.requestId, { id: me.id, roles: me.roles });
@@ -68,7 +69,7 @@ export async function smeRevertAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   try {
     await smeRevert(parsed.data.requestId, { id: me.id, roles: me.roles }, parsed.data.comments);

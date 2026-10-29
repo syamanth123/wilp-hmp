@@ -7,6 +7,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { updateSlotTimings, upsertSlotExamDates } from '@hmp/db/src/dibba-import';
 import { dibbaErrorMessage } from '../../../errors';
 import { EXAM_KINDS, classTimesFromForm, examDatesFromForm, firstIssueMessage } from './schemas';
+import { GENERIC_ERROR } from '@/lib/form-error';
 
 /** Class times + exam dates (Phase 4, plan D4/D5): auth, shape, db core, revalidate. */
 
@@ -23,7 +24,7 @@ export async function saveSlotTimingsAction(
 ): Promise<{ ok: true; changed: number[] } | { error: string }> {
   const me = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const termId = termIdSchema.safeParse(formData.get('termId'));
-  if (!termId.success) return { error: 'Invalid input' };
+  if (!termId.success) return { error: GENERIC_ERROR };
   const rows = classTimesFromForm(formData);
   if (!rows.success) return { error: firstIssueMessage(rows.error.issues, 'Invalid input') };
   try {
@@ -44,7 +45,7 @@ export async function saveExamDatesAction(
 ): Promise<{ ok: true; upserted: number; deleted: number } | { error: string }> {
   const me = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const termId = termIdSchema.safeParse(formData.get('termId'));
-  if (!termId.success) return { error: 'Invalid input' };
+  if (!termId.success) return { error: GENERIC_ERROR };
   const rows = examDatesFromForm(formData);
   if (!rows.success)
     return { error: firstIssueMessage(rows.error.issues, 'Invalid input', EXAM_KINDS.length) };

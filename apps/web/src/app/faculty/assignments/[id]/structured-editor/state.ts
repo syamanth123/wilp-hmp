@@ -1,4 +1,6 @@
 import type { BitsHandoutV1 } from '@hmp/db';
+// Relative (not @/): this file is also imported by an e2e spec.
+import { formatDate } from '../../../../../lib/format-date';
 
 /**
  * Request context surfaced from the page (server component) to the editor
@@ -37,7 +39,7 @@ export function blankHandoutForRequest(ctx: RequestContext): BitsHandoutV1 {
       courseNumbers: ctx.courseNumbers.length > 0 ? ctx.courseNumbers : ['TBD'],
       creditModel: { description: '3-1-1' },
       instructors: ctx.instructorName ? [ctx.instructorName] : [''],
-      date: new Date().toLocaleDateString('en-GB'),
+      date: formatDate(new Date()),
       courseDescription: '<p></p>',
       courseObjectives: [{ code: 'CO1', description: '' }],
       textBooks: [{ code: 'T1', citation: '' }],

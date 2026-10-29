@@ -6,6 +6,7 @@ import { Button, Label } from '@hmp/ui';
 import { TIPTAP_EXTENSIONS } from '@/lib/tiptap-extensions';
 import { saveDraftAction, submitForReviewAction } from './actions';
 import { AiDraftDialog } from './ai-draft-dialog';
+import { formatTime } from '@/lib/format-date';
 
 interface Props {
   requestId: string;
@@ -70,7 +71,7 @@ export function EditorPanel({ requestId, initialJson, isRework, aiEnabled = fals
       const r = await saveDraftAction(fd);
       if (r?.error) setError(r.error);
       else if (r?.ok) {
-        setSavedAt(`Saved v${r.versionNo} at ${new Date(r.savedAt!).toLocaleTimeString()}`);
+        setSavedAt(`Saved v${r.versionNo} at ${formatTime(r.savedAt!)}`);
         setNotes('');
         lastSavedSnapshot.current = snapshot;
         setIsDirty(false);

@@ -5,6 +5,7 @@ import { Button, Label } from '@hmp/ui';
 import type { RecommendationResult } from '@hmp/ai';
 import { RecommendationList } from '@/components/recommendation-list';
 import { allocateFacultyAction } from './actions';
+import { facultyTypeLabel } from '@/lib/labels';
 
 export interface FacultyChoice {
   id: string;
@@ -75,7 +76,9 @@ export function AllocationPanel({
 
   if (success) {
     return (
-      <p className="text-sm text-emerald-600">Faculty allocated. Status moved to ALLOCATED.</p>
+      <p className="text-sm text-emerald-600">
+        Faculty allocated and sent to the Programme Committee to confirm.
+      </p>
     );
   }
 
@@ -117,10 +120,10 @@ export function AllocationPanel({
               </span>
             </label>
             <div className="text-muted-foreground text-right text-xs">
-              <div>{f.facultyType ?? 'unspecified'}</div>
+              <div>{facultyTypeLabel(f.facultyType)}</div>
               <div>
-                load: {f.loadInSemester}
-                {f.capped ? ' (capped)' : ''}
+                {f.loadInSemester} {f.loadInSemester === 1 ? 'course' : 'courses'} this semester
+                {f.capped ? ' (at the limit)' : ''}
               </div>
             </div>
           </li>

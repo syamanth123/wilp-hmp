@@ -5,14 +5,12 @@ import { loadFacultySchedule } from '@hmp/db/src/dibba-schedule/load';
 import { NextEventsCard } from '@/components/next-events-card';
 import { WeekGrid } from './week-grid';
 import { CourseCard } from './course-card';
+import { dateFormatter } from '@/lib/format-date';
 
 export const dynamic = 'force-dynamic';
 
-const fmtDate = new Intl.DateTimeFormat('en-IN', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-});
+// One date style everywhere, in India time (lib/format-date.ts).
+const fmtDate = dateFormatter;
 
 /**
  * /faculty/schedule — "My Schedule" (Course Dibba Phase 5, spec §8). Read-only.

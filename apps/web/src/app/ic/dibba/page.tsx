@@ -19,6 +19,7 @@ import { CreateTermForm } from './create-term-form';
 import { UploadDibbaForm } from './upload-form';
 import { DiscardDraftButton } from './discard-button';
 import { fmtDate, fmtDateTime, fmtInt } from './format';
+import { termLabel } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -106,7 +107,7 @@ export default async function ICDibbaPage() {
                     <TableRow key={t.id} data-testid={`dibba-term-${t.id}`}>
                       <TableCell className="font-medium">{t.name}</TableCell>
                       <TableCell className="font-mono text-xs">
-                        {t.year} {t.term}
+                        {termLabel(t.term)} {t.year}
                       </TableCell>
                       <TableCell className="text-xs">
                         {fmtDate.format(t.startDate)} – {fmtDate.format(t.endDate)}

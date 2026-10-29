@@ -2,13 +2,11 @@ import { prisma, DibbaImportStatus } from '@hmp/db';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { loadActiveTerm } from '@hmp/db/src/dibba-schedule/load';
 import { loadTermOverview, type OverviewCourse } from '@hmp/db/src/dibba-schedule/overview';
+import { dateFormatter } from '@/lib/format-date';
 
 const fmtInt = new Intl.NumberFormat('en-IN');
-const fmtDate = new Intl.DateTimeFormat('en-IN', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-});
+// One date style everywhere, in India time (lib/format-date.ts).
+const fmtDate = dateFormatter;
 const COURSE_ROWS_SHOWN = 300;
 
 /** Next 14 hands a repeated query key over as an array; only the first value is honoured. */
@@ -208,7 +206,7 @@ export async function ScheduleOverview({
           tone="bad"
         />
         <Tile
-          label="Slot drift"
+          label="Slot mismatches"
           value={overview.slotDrift.length}
           testId="schedule-tile-drift"
           tone="bad"
@@ -304,7 +302,7 @@ export async function ScheduleOverview({
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Slot drift</CardTitle>
+            <CardTitle>Slot mismatches</CardTitle>
             <CardDescription>
               A course offering in HMP states a slot the Dibba does not use for that course.
             </CardDescription>
@@ -316,7 +314,7 @@ export async function ScheduleOverview({
                 data-testid="schedule-drift"
                 data-count="0"
               >
-                No drift between HMP offerings and the Dibba.
+                All course slots match the Dibba.
               </p>
             ) : (
               <ul

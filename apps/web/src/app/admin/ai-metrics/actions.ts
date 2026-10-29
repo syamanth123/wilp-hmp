@@ -30,8 +30,9 @@ export async function runReEmbedAction(): Promise<
     return result;
   } catch (err) {
     if (err instanceof AiUnconfiguredError) {
-      return { error: 'AI provider not configured. Set AI_PROVIDER + API key first.' };
+      return { error: "AI isn't set up on this server. Ask IT to enable it." };
     }
-    return { error: err instanceof Error ? err.message : 'Re-embed failed' };
+    console.error('re_embed_failed', err);
+    return { error: "Couldn't refresh the matching data. Try again." };
   }
 }

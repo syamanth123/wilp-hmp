@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { prisma, RoleName, HandoutStatus, type Prisma } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { transition, WorkflowError } from '@hmp/workflow';
+import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
 import { appendVersion, createInitialStructuredVersion } from '@/lib/handout-versioning';
 import {
   loadAndResolveAutoFetchSource,
@@ -18,6 +18,7 @@ import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
 import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
+import { GENERIC_ERROR, formError } from '@/lib/form-error';
 
 const tiptapDocSchema = z.object({
   type: z.literal('doc'),
@@ -61,12 +62,12 @@ async function loadMyAssignment(requestId: string, facultyId: string) {
 export async function acceptAssignmentAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
   if (!request) return { error: 'Assignment not found' };
   if (request.status !== HandoutStatus.ASSIGNED) {
-    return { error: `Cannot accept from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const assignment = request.assignments[0]!;
@@ -91,7 +92,7 @@ export async function acceptAssignmentAction(formData: FormData) {
 export async function startEditingAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
   if (!request) return { error: 'Assignment not found' };
@@ -137,8 +138,8 @@ export async function startEditingAction(formData: FormData) {
         resolved = await loadAndResolveAutoFetchSource(tx, cascadeContext);
         const sourceLabel =
           resolved.tier === 'empty'
-            ? 'Initial version (empty template).'
-            : `Initial version (${resolved.tier === 'prior-version' ? 'auto-fetched prior version' : 'auto-fetched import'}): ${resolved.sourceDetail}`;
+            ? 'First version, started from a blank handout.'
+            : `First version, started from ${resolved.sourceDetail.charAt(0).toLowerCase()}${resolved.sourceDetail.slice(1)}.`;
         await createInitialStructuredVersion(tx, ctx.handoutId, me.id, resolved.data, sourceLabel);
       },
     });
@@ -179,20 +180,20 @@ export async function saveDraftAction(formData: FormData) {
   try {
     contentJson = JSON.parse(String(formData.get('contentJson') ?? ''));
   } catch {
-    return { error: 'Invalid document JSON' };
+    return { error: GENERIC_ERROR };
   }
   const parsed = saveSchema.safeParse({
     requestId: formData.get('requestId'),
     contentJson,
     notes: formData.get('notes') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
   if (!request) return { error: 'Assignment not found' };
   if (!request.handout) return { error: 'Editing has not started yet' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot save from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const handoutId = request.handout.id;
@@ -224,20 +225,20 @@ export async function submitForReviewAction(formData: FormData) {
   try {
     contentJson = JSON.parse(String(formData.get('contentJson') ?? ''));
   } catch {
-    return { error: 'Invalid document JSON' };
+    return { error: GENERIC_ERROR };
   }
   const parsed = submitSchema.safeParse({
     requestId: formData.get('requestId'),
     contentJson,
     notes: formData.get('notes') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
   if (!request) return { error: 'Assignment not found' };
   if (!request.handout) return { error: 'Editing has not started yet' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot submit from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   // Prompt 12-b: SME review is mandatory (same as submitStructuredForReviewAction).
@@ -336,7 +337,7 @@ export async function runQualityCheckAction(formData: FormData) {
   const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
   if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
   if (!request) return { error: 'Assignment not found' };
   if (!request.handout) return { error: 'Editing has not started yet' };
@@ -364,8 +365,14 @@ export async function runQualityCheckAction(formData: FormData) {
     return { ok: true, score: report.score, cached: report.cached };
   } catch (err) {
     if (err instanceof AiUnconfiguredError) {
-      return { error: 'AI provider not configured. Ask admin to set AI_PROVIDER + API key.' };
+      return { error: "AI features aren't available right now." };
     }
-    return { error: err instanceof Error ? err.message : 'Quality check failed' };
+    console.error('quality_check_failed', err);
+    return {
+      error:
+        err instanceof Error && /handout_empty|version_not_found/.test(err.message)
+          ? 'Save your handout before running the quality check.'
+          : "The quality check couldn't run. Try again.",
+    };
   }
 }

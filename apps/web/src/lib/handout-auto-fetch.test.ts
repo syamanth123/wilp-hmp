@@ -8,6 +8,7 @@ import {
   type PriorVersionCandidate,
   type ImportCandidate,
 } from './handout-auto-fetch';
+import { formatDate } from './format-date';
 
 // ---- Test fixtures ----
 
@@ -218,7 +219,7 @@ describe('stripIdentifiersForCarryForward', () => {
     expect(stripped.metadata.formNumber).toBe('');
     expect(stripped.partA.courseNumbers).toEqual(['CSI ZC447', 'ES ZC447', 'IS ZC447', 'SS ZC447']);
     // Date is today in dd/mm/yyyy format
-    const today = new Date().toLocaleDateString('en-GB');
+    const today = formatDate(new Date());
     expect(stripped.partA.date).toBe(today);
   });
 

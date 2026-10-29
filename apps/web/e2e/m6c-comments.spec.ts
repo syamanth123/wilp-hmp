@@ -39,13 +39,13 @@ test('Faculty and PC can exchange comments on a request', async ({ page }) => {
   // Prompt 12-b: SME is mandatory at allocation. Pick the first seeded SME.
   await page.getByTestId('sme-picker').selectOption({ index: 1 });
   await page.getByRole('button', { name: /allocate/i }).click();
-  await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ALLOCATED"]').first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 
   await signIn(page, 'pc@hmp.local');
   await page.goto(`/pc/requests/${requestId}`);
   await page.getByRole('button', { name: /confirm allocation/i }).click();
-  await expect(page.getByText(/ASSIGNED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ASSIGNED"]').first()).toBeVisible({ timeout: 10_000 });
 
   // PC posts a comment. The textarea text alone would match `getByText` even
   // if the post action raced — assert the textarea CLEARS (the real success

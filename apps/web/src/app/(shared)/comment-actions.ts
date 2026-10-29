@@ -6,6 +6,7 @@ import { prisma, RoleName, HandoutStatus } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { notifyComment } from '@/lib/notifications';
+import { formError } from '@/lib/form-error';
 
 const schema = z.object({
   requestId: z.string().cuid(),
@@ -33,7 +34,7 @@ export async function addCommentAction(formData: FormData) {
     requestId: formData.get('requestId'),
     body: formData.get('body'),
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parsed.data.requestId },

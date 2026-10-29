@@ -7,12 +7,10 @@ import { RecentActivity } from '@/components/recent-activity';
 import { loadActiveTerm } from '@hmp/db/src/dibba-schedule/load';
 import { viewHref, viewWhere } from '@/lib/request-views';
 import { termProgress } from '@/lib/term-progress';
+import { dateFormatter } from '@/lib/format-date';
 
-const fmtTermEnd = new Intl.DateTimeFormat('en-IN', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-});
+// One date style everywhere, in India time (lib/format-date.ts).
+const fmtTermEnd = dateFormatter;
 
 function StatCard({
   label,
@@ -320,7 +318,7 @@ export default async function ICOverview() {
                     className="bits-btn bits-btn-primary text-xs"
                     style={{ fontSize: 12.5, padding: '6px 12px' }}
                   >
-                    Publish
+                    Review for publishing
                   </Link>
                 </div>
               ))

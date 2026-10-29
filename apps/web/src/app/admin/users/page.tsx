@@ -3,6 +3,7 @@ import { prisma, RoleName } from '@hmp/db';
 import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@hmp/ui';
 import { UserCreateForm } from './user-form';
 import { ToggleActiveButton } from './toggle-active-button';
+import { facultyTypeLabel, roleLabel } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,7 +53,7 @@ export default async function UsersPage({ searchParams }: { searchParams?: { sho
                 <TableHead>Email</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Roles</TableHead>
-                <TableHead>Faculty Type</TableHead>
+                <TableHead>Faculty type</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-32" />
               </TableRow>
@@ -65,11 +66,11 @@ export default async function UsersPage({ searchParams }: { searchParams?: { sho
                   <TableCell className="flex flex-wrap gap-1">
                     {u.roles.map((r) => (
                       <Badge key={r.roleId} variant="secondary">
-                        {r.role.name}
+                        {roleLabel(r.role.name)}
                       </Badge>
                     ))}
                   </TableCell>
-                  <TableCell>{u.facultyType ?? '—'}</TableCell>
+                  <TableCell>{u.facultyType ? facultyTypeLabel(u.facultyType) : '—'}</TableCell>
                   <TableCell>
                     {u.active ? (
                       <Badge variant="success">Active</Badge>

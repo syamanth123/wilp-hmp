@@ -19,10 +19,10 @@ export default async function BulkUploadPage() {
         <CardHeader>
           <CardTitle>Bulk create handout requests</CardTitle>
           <CardDescription>
-            Upload a CSV with columns <code>programme_code</code>, <code>course_code</code>, and{' '}
-            <code>semester</code>. Each row creates one request in REQUESTED status; the Head of
-            Group allocates faculty and SME afterwards. The whole file is validated before anything
-            is created — if any row is invalid the upload is rejected and nothing is written.
+            Create many handout requests at once from one spreadsheet. Each row (columns{' '}
+            <code>programme_code</code>, <code>course_code</code>, <code>semester</code>) creates
+            one request and sends it to the Head of Group. The whole file is checked first: if any
+            row has a problem, nothing is created and every problem is listed.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

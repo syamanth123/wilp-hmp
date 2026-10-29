@@ -41,7 +41,7 @@ export function CourseCreateForm({ defaultCode, defaultTitle }: Props = {}) {
             <Input
               id="code"
               name="code"
-              placeholder="SE-ZG600"
+              placeholder="SE ZG600"
               defaultValue={defaultCode}
               required
             />

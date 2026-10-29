@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { audit } from '@/lib/audit';
+import { formError } from '@/lib/form-error';
 
 const schema = z.object({
   hogReviewSla: z.coerce.number().int().min(1).max(720),
@@ -23,7 +24,16 @@ export async function updateWorkflowAction(formData: FormData) {
     hogFinalSla: formData.get('hogFinalSla'),
     offCampusMaxCourses: formData.get('offCampusMaxCourses'),
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (!parsed.success)
+    return {
+      error: formError(parsed.error, {
+        hogReviewSla: 'HOG review — time allowed (hours)',
+        pcReviewSla: 'PC review — time allowed (hours)',
+        facultySubmitSla: 'Faculty writing — time allowed (hours)',
+        hogFinalSla: 'HOG final approval — time allowed (hours)',
+        offCampusMaxCourses: 'Courses per off-campus faculty member',
+      }),
+    };
   const before = await prisma.workflowConfig.findUniqueOrThrow({ where: { key: 'default' } });
   const updated = await prisma.workflowConfig.update({
     where: { key: 'default' },

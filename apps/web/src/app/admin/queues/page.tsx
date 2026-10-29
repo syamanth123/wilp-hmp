@@ -24,6 +24,7 @@ import {
 } from '@hmp/queue';
 import { FailedJobActions, ClearCompletedButton } from './queue-actions';
 import { aiFeaturesEnabled } from '@/lib/features';
+import { formatDateTime } from '@/lib/format-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,7 +77,8 @@ function HeartbeatBanner({ view }: { view: QueueView }) {
   if (!stale) {
     return (
       <p className="text-xs text-emerald-600">
-        ✓ Worker heartbeat {Math.round((Date.now() - view.heartbeatMs!) / 1000)}s ago
+        ✓ Background processor running (checked{' '}
+        {Math.round((Date.now() - view.heartbeatMs!) / 1000)}s ago)
       </p>
     );
   }
@@ -110,7 +112,7 @@ function QueueCard({ view }: { view: QueueView }) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="capitalize">{view.name} queue</CardTitle>
+          <CardTitle>{view.name === 'ai' ? 'AI reports' : 'Emails and alerts'}</CardTitle>
           <ClearCompletedButton queue={view.name} />
         </div>
         <CardDescription>
@@ -119,24 +121,25 @@ function QueueCard({ view }: { view: QueueView }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {view.error ? (
-          <p className="text-destructive text-sm">Queue unavailable: {view.error}</p>
+          <p className="text-destructive text-sm">
+            Couldn&apos;t read the background jobs right now. Refresh the page in a minute.
+          </p>
         ) : (
           <>
             <div className="flex flex-wrap gap-2 text-sm">
-              <Badge variant="secondary">waiting {view.counts.waiting}</Badge>
-              <Badge variant="secondary">active {view.counts.active}</Badge>
-              <Badge variant="success">completed {view.counts.completed}</Badge>
+              <Badge variant="secondary">Waiting {view.counts.waiting}</Badge>
+              <Badge variant="secondary">Running {view.counts.active}</Badge>
+              <Badge variant="success">Done {view.counts.completed}</Badge>
               <Badge variant={view.counts.failed > 0 ? 'destructive' : 'outline'}>
-                failed {view.counts.failed}
+                Failed {view.counts.failed}
               </Badge>
             </div>
 
             {view.name === 'notifications' && (
               <p className="text-muted-foreground text-xs">
-                Per-recipient delivery status (SENT / FAILED) is tracked on the Notification rows,
-                not here — this view shows job-level processing only.{' '}
+                To see whether each person got a message, open{' '}
                 <Link href="/admin/notifications" className="underline underline-offset-2">
-                  View notification delivery →
+                  Notifications →
                 </Link>
               </p>
             )}
@@ -147,7 +150,7 @@ function QueueCard({ view }: { view: QueueView }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Job ID</TableHead>
+                    <TableHead>Reference</TableHead>
                     <TableHead>Error</TableHead>
                     <TableHead>Attempts</TableHead>
                     <TableHead>Failed</TableHead>
@@ -161,7 +164,7 @@ function QueueCard({ view }: { view: QueueView }) {
                       <TableCell className="max-w-sm text-xs">{j.reason || '—'}</TableCell>
                       <TableCell className="text-xs">{j.attempts}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">
-                        {j.failedAt ? new Date(j.failedAt).toLocaleString() : '—'}
+                        {j.failedAt ? formatDateTime(j.failedAt) : '—'}
                       </TableCell>
                       <TableCell>
                         <FailedJobActions queue={view.name} jobId={j.id} />
@@ -185,14 +188,13 @@ export default async function AdminQueuesPage() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Queues</CardTitle>
-          <CardDescription>Background job queues (BullMQ / Redis).</CardDescription>
+          <CardTitle>Background jobs</CardTitle>
+          <CardDescription>Emails waiting to be sent in the background.</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-sm">
-            Redis is not configured (<code>REDIS_URL</code> unset). Notifications and AI reports run
-            synchronously inline; there are no queues to inspect. Set <code>REDIS_URL</code> and run{' '}
-            <code>pnpm workers</code> to enable background processing.
+            Background processing is off on this server, so emails are sent straight away.
+            There&apos;s nothing to show here.
           </p>
         </CardContent>
       </Card>

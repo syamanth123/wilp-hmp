@@ -102,7 +102,7 @@ export default async function HOGRequestList({
                       <StatusBadge status={r.status} />
                       {rejectedSet.has(r.id) && (
                         <Badge variant="outline" className="border-amber-400 text-amber-700">
-                          PC-rejected · re-allocate
+                          Sent back by PC — allocate again
                         </Badge>
                       )}
                     </div>

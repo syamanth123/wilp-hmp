@@ -32,6 +32,7 @@ import {
   blankHandoutForRequest,
   type RequestContext,
 } from '@/app/faculty/assignments/[id]/structured-editor/state';
+import { formatDate } from '@/lib/format-date';
 
 export type AutoFetchTier = 'prior-version' | 'import' | 'empty';
 
@@ -93,7 +94,7 @@ export function stripIdentifiersForCarryForward(
   prior: BitsHandoutV1,
   request: RequestLite,
 ): BitsHandoutV1 {
-  const todayDdMmYyyy = new Date().toLocaleDateString('en-GB');
+  const todayDdMmYyyy = formatDate(new Date());
   return {
     ...prior,
     metadata: {

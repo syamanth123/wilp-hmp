@@ -15,11 +15,13 @@ import {
   Badge,
 } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
+import { formatDate } from '@/lib/format-date';
+import { termLabel } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
 function fmt(d: Date | null): string {
-  return d ? new Date(d).toLocaleDateString() : '—';
+  return d ? formatDate(d) : '—';
 }
 
 export default async function ICSemestersPage({
@@ -59,7 +61,7 @@ export default async function ICSemestersPage({
           <CardTitle>Semesters &amp; key dates</CardTitle>
           <CardDescription>
             Update <strong>exam date</strong> and <strong>EC1 deadline</strong> per semester. These
-            values drive the publish-phase reminders and downstream LMS sync.
+            dates drive the reminders and are sent to Taxila when a handout is published.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -71,7 +73,7 @@ export default async function ICSemestersPage({
               id="programme"
               name="programme"
               defaultValue={programmeFilter ?? ''}
-              className="rounded-md border bg-background px-2 py-1 text-sm"
+              className="bg-background rounded-md border px-2 py-1 text-sm"
             >
               <option value="">All programmes</option>
               {programmes.map((p) => (
@@ -82,14 +84,14 @@ export default async function ICSemestersPage({
             </select>
             <button
               type="submit"
-              className="rounded-md border bg-background px-3 py-1 text-sm hover:bg-accent"
+              className="bg-background hover:bg-accent rounded-md border px-3 py-1 text-sm"
             >
               Apply
             </button>
             {programmeFilter && (
               <Link
                 href="/ic/semesters"
-                className="rounded-md px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground rounded-md px-3 py-1 text-sm"
               >
                 Clear
               </Link>
@@ -111,7 +113,7 @@ export default async function ICSemestersPage({
             <TableBody>
               {semesters.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-muted-foreground text-center">
                     No semesters found.
                   </TableCell>
                 </TableRow>
@@ -125,10 +127,9 @@ export default async function ICSemestersPage({
                         <div className="text-muted-foreground">{s.programme.name}</div>
                       </TableCell>
                       <TableCell>
-                        {s.name}{' '}
-                        <span className="text-muted-foreground">({s.year})</span>
+                        {s.name} <span className="text-muted-foreground">({s.year})</span>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{s.term}</TableCell>
+                      <TableCell className="text-xs">{termLabel(s.term)}</TableCell>
                       <TableCell>{fmt(s.examDate)}</TableCell>
                       <TableCell>{fmt(s.ec1Deadline)}</TableCell>
                       <TableCell>

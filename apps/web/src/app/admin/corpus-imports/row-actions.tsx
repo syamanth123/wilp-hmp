@@ -49,7 +49,11 @@ export function RowActions({ id, approvedForReuse }: Props) {
   const approve = () => run('approve this handout', approveImportAction);
 
   const reject = () => {
-    if (!window.confirm('Reject this import? The row will be deleted; source file is not touched.'))
+    if (
+      !window.confirm(
+        'Reject this handout? It is removed from the library; the original Word file is kept.',
+      )
+    )
       return;
     run('reject this handout', rejectImportAction);
   };
@@ -57,7 +61,8 @@ export function RowActions({ id, approvedForReuse }: Props) {
   const reparse = () => run('read the file again', reParseImportAction);
 
   const remove = () => {
-    if (!window.confirm('Delete this import row? The source file is not touched.')) return;
+    if (!window.confirm('Remove this handout from the library? The original Word file is kept.'))
+      return;
     run('remove this handout', deleteImportAction);
   };
 
@@ -79,7 +84,7 @@ export function RowActions({ id, approvedForReuse }: Props) {
             disabled={pending}
             data-testid="corpus-row-approve"
           >
-            Approve
+            Approve for reuse
           </Button>
         )}
         {!approvedForReuse && (
@@ -94,10 +99,10 @@ export function RowActions({ id, approvedForReuse }: Props) {
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={reparse} disabled={pending}>
-          Re-parse
+          Read file again
         </Button>
         <Button variant="ghost" size="sm" onClick={remove} disabled={pending}>
-          Delete
+          Remove
         </Button>
       </div>
       {failure ? (

@@ -1,12 +1,10 @@
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import type { ScheduleCourse } from '@hmp/db/src/dibba-schedule';
+import { dateFormatter } from '@/lib/format-date';
 
 const fmtInt = new Intl.NumberFormat('en-IN');
-const fmtDate = new Intl.DateTimeFormat('en-IN', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-});
+// One date style everywhere, in India time (lib/format-date.ts).
+const fmtDate = dateFormatter;
 const KIND_LABEL: Record<string, string> = {
   MID_SEM: 'Mid-sem',
   COMPREHENSIVE: 'Comprehensive',

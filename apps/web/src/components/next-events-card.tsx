@@ -1,6 +1,7 @@
 import type { NextEvents } from '@hmp/db/src/dibba-schedule';
 
 const fmtDay = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
   weekday: 'short',
   day: '2-digit',
   month: 'short',

@@ -11,11 +11,12 @@ import {
   ACTIVE_USER_FILTER,
 } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { transition, WorkflowError, assertOffCampusCap } from '@hmp/workflow';
+import { transition, WorkflowError, assertOffCampusCap, movedOnMessage } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { audit } from '@/lib/audit';
 import { clearTodayRecommendations, recommendFaculty } from '@hmp/ai';
 import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
+import { formError } from '@/lib/form-error';
 
 const allocateSchema = z.object({
   requestId: z.string().cuid(),
@@ -56,7 +57,7 @@ export async function allocateFacultyAction(formData: FormData) {
     facultyIds,
     smeUserId,
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parsed.data.requestId },
@@ -64,7 +65,7 @@ export async function allocateFacultyAction(formData: FormData) {
   });
   if (!request) return { error: 'Request not found' };
   if (request.status !== HandoutStatus.REQUESTED) {
-    return { error: `Cannot allocate from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const cap =
@@ -172,7 +173,7 @@ export async function finalApproveAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   try {
     await transition({
@@ -213,8 +214,7 @@ export async function finalRejectAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success)
-    return { error: parsed.error.issues[0]?.message ?? 'Reject requires a reason' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   try {
     await transition({
@@ -280,8 +280,7 @@ export async function hogRequestReworkAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success)
-    return { error: parsed.error.issues[0]?.message ?? 'Rework requires a comment' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   try {
     await transition({

@@ -8,10 +8,10 @@ const TABS = [
   { href: '/admin/roles', label: 'Roles' },
   { href: '/admin/programmes', label: 'Programmes' },
   { href: '/admin/import', label: 'Import' },
-  { href: '/admin/corpus-imports', label: 'Corpus' },
+  { href: '/admin/corpus-imports', label: 'Past handouts' },
   { href: '/admin/workflow', label: 'Workflow' },
   { href: '/admin/notifications', label: 'Notifications' },
-  { href: '/admin/queues', label: 'Queues' },
+  { href: '/admin/queues', label: 'Background jobs' },
   // Shown only with AI_FEATURES_ENABLED=true (filtered below).
   { href: '/admin/ai-metrics', label: 'AI Metrics', ai: true },
   { href: '/admin/audit', label: 'Audit' },

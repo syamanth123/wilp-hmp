@@ -47,7 +47,7 @@ test('IC creates → HOG allocates → PC confirms → status ASSIGNED', async (
   // Prompt 12-b: SME is mandatory at allocation. Pick the first seeded SME.
   await page.getByTestId('sme-picker').selectOption({ index: 1 });
   await page.getByRole('button', { name: /allocate/i }).click();
-  await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ALLOCATED"]').first()).toBeVisible({ timeout: 10_000 });
 
   await signOut(page);
 
@@ -58,5 +58,5 @@ test('IC creates → HOG allocates → PC confirms → status ASSIGNED', async (
   // to disambiguate.
   await expect(page.getByRole('button', { name: /confirm allocation/i })).toBeVisible();
   await page.getByRole('button', { name: /confirm allocation/i }).click();
-  await expect(page.getByText(/ASSIGNED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ASSIGNED"]').first()).toBeVisible({ timeout: 10_000 });
 });

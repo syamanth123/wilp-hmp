@@ -6,6 +6,7 @@ import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { publishDibbaImport } from '@hmp/db/src/dibba-import';
 import { dibbaErrorMessage } from '../errors';
+import { GENERIC_ERROR } from '@/lib/form-error';
 
 const schema = z.object({ importId: z.string().cuid() });
 
@@ -19,7 +20,7 @@ export async function publishImportAction(
 ): Promise<{ ok: true; supersededCount: number } | { error: string }> {
   const me = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = schema.safeParse({ importId: formData.get('importId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
   try {
     const result = await publishDibbaImport(prisma, {
       importId: parsed.data.importId,

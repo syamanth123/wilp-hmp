@@ -6,6 +6,7 @@ import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { addCourseInstructor, removeCourseInstructor } from '@hmp/db/src/dibba-import';
 import { dibbaErrorMessage } from '../../../errors';
+import { GENERIC_ERROR, formError } from '@/lib/form-error';
 
 /** Manual instructor add / remove (Phase 4, plan D7). The sheet upload is a Route Handler. */
 
@@ -32,7 +33,7 @@ export async function addInstructorAction(
     email: formData.get('email'),
     isLead: formData.get('isLead') === 'on',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
   try {
     const r = await addCourseInstructor(prisma, { ...parsed.data, actorId: me.id });
     paths(parsed.data.termId);
@@ -49,7 +50,7 @@ export async function removeInstructorAction(
 ): Promise<{ ok: true } | { error: string }> {
   const me = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = removeSchema.safeParse({ id: formData.get('id'), termId: formData.get('termId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
   try {
     await removeCourseInstructor(prisma, { id: parsed.data.id, actorId: me.id });
     paths(parsed.data.termId);

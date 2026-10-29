@@ -16,6 +16,7 @@ import {
 import { StatusBadge } from '@/components/status-badge';
 import { RequestListToolbar } from '@/components/request-list-toolbar';
 import { filterQuery, listWhere, parseListFilter } from '@/lib/request-views';
+import { formatDate } from '@/lib/format-date';
 
 const PAGE_SIZE = 25;
 
@@ -85,7 +86,7 @@ export default async function ICRequestList({
                     <StatusBadge status={r.status} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">
-                    {new Date(r.createdAt).toLocaleDateString()}
+                    {formatDate(r.createdAt)}
                   </TableCell>
                   <TableCell>
                     <Link

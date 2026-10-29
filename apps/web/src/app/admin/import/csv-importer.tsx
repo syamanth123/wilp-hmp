@@ -2,14 +2,20 @@
 
 import { useState, useTransition } from 'react';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Label } from '@hmp/ui';
-import { commitImportAction, previewImportAction, type ImportKind, type PreviewResult } from './actions';
+import {
+  commitImportAction,
+  previewImportAction,
+  type ImportKind,
+  type PreviewResult,
+} from './actions';
 
 const KIND_OPTIONS: Array<{ value: ImportKind; label: string; columns: string }> = [
   { value: 'courses', label: 'Courses', columns: 'code,title,credits,description' },
   {
     value: 'programmes',
     label: 'Programmes + Semesters',
-    columns: 'programme_code,programme_name,semester_name,year,term,start_date,end_date,exam_date,ec1_deadline',
+    columns:
+      'programme_code,programme_name,semester_name,year,term,start_date,end_date,exam_date,ec1_deadline',
   },
   {
     value: 'offerings',
@@ -23,6 +29,41 @@ const KIND_OPTIONS: Array<{ value: ImportKind; label: string; columns: string }>
       'programme_code,semester_name,course_code,slot_type,slot,day_of_week,start_time,end_time,room',
   },
 ];
+
+/** The first rows of a preview as a small table (not raw data). */
+function SampleTable({ rows }: { rows: unknown[] }) {
+  const records = rows
+    .slice(0, 5)
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object');
+  if (records.length === 0) return null;
+  const columns = Object.keys(records[0]!);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left">
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c} className="border-b px-2 py-1 font-medium">
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((r, i) => (
+            <tr key={i}>
+              {columns.map((c) => (
+                <td key={c} className="border-b px-2 py-1">
+                  {r[c] == null ? '' : String(r[c])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function CsvImporter() {
   const [kind, setKind] = useState<ImportKind>('courses');
@@ -70,13 +111,16 @@ export function CsvImporter() {
     <Card>
       <CardHeader>
         <CardTitle>CSV importer</CardTitle>
-        <CardDescription>Preview validates every row. Commit upserts in a single batch.</CardDescription>
+        <CardDescription>
+          Preview checks every row. Import then adds new records and updates matching ones in one
+          step.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-2">
           <Label>Dataset</Label>
           <select
-            className="h-9 w-full max-w-sm rounded-md border bg-background px-2 text-sm"
+            className="bg-background h-9 w-full max-w-sm rounded-md border px-2 text-sm"
             value={kind}
             onChange={(e) => {
               setKind(e.target.value as ImportKind);
@@ -90,26 +134,30 @@ export function CsvImporter() {
               </option>
             ))}
           </select>
-          <p className="text-xs text-muted-foreground">Expected columns: {expected}</p>
+          <p className="text-muted-foreground text-xs">Expected columns: {expected}</p>
         </div>
         <div className="grid gap-2">
           <Label>CSV content</Label>
           <textarea
-            className="min-h-[180px] w-full rounded-md border bg-background p-2 font-mono text-xs"
+            className="bg-background min-h-[180px] w-full rounded-md border p-2 font-mono text-xs"
             value={csv}
             onChange={(e) => setCsv(e.target.value)}
             placeholder={expected}
           />
         </div>
         <div className="flex gap-2">
-          <Button onClick={handlePreview} disabled={pending || csv.trim().length === 0} variant="outline">
+          <Button
+            onClick={handlePreview}
+            disabled={pending || csv.trim().length === 0}
+            variant="outline"
+          >
             Preview
           </Button>
           <Button
             onClick={() => setShowConfirm(true)}
             disabled={pending || !preview?.ok || preview.count === 0}
           >
-            Commit {preview?.ok ? `(${preview.count})` : ''}
+            Import {preview?.ok ? `${preview.count} rows` : ''}
           </Button>
         </div>
         {showConfirm && preview?.ok && (
@@ -131,7 +179,9 @@ export function CsvImporter() {
                 Confirm import
               </h3>
               <p className="mb-4 text-sm" style={{ color: 'var(--ink-2)' }}>
-                You are about to import <strong>{preview.count}</strong> row{preview.count === 1 ? '' : 's'} as <strong>{kindLabel}</strong>. This will upsert (insert or overwrite) matching records in the database.
+                You are about to import <strong>{preview.count}</strong> row
+                {preview.count === 1 ? '' : 's'} as <strong>{kindLabel}</strong>. New records will
+                be added and matching records will be updated.
               </p>
               <p className="mb-4 text-xs" style={{ color: 'var(--muted)' }}>
                 This action cannot be undone. Make sure your CSV is correct before continuing.
@@ -147,29 +197,27 @@ export function CsvImporter() {
             </div>
           </div>
         )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-destructive text-sm">{error}</p>}
         {committed && (
-          <p className="text-sm text-emerald-600">Imported {committed.imported} row(s).</p>
+          <p className="text-sm text-emerald-600">Imported {committed.imported} rows.</p>
         )}
         {preview && (
-          <div className="rounded-md border bg-muted/30 p-3 text-xs">
+          <div className="bg-muted/30 rounded-md border p-3 text-xs">
             <div className="mb-2 font-medium">
-              {preview.ok ? `Valid — ${preview.count} row(s)` : `Errors — ${preview.errors.length}`}
+              {preview.ok
+                ? `All ${preview.count} rows look fine. The first few are shown below.`
+                : `${preview.errors.length} rows have problems. Fix them in the file and preview again.`}
             </div>
             {preview.errors.length > 0 && (
-              <ul className="mb-2 list-disc space-y-1 pl-4 text-destructive">
+              <ul className="text-destructive mb-2 list-disc space-y-1 pl-4">
                 {preview.errors.slice(0, 10).map((e, i) => (
                   <li key={i}>
-                    line {e.line}: {e.message}
+                    Row {e.line}: {e.message}
                   </li>
                 ))}
               </ul>
             )}
-            {preview.sample.length > 0 && (
-              <pre className="overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(preview.sample, null, 2)}
-              </pre>
-            )}
+            {preview.sample.length > 0 && <SampleTable rows={preview.sample} />}
           </div>
         )}
       </CardContent>

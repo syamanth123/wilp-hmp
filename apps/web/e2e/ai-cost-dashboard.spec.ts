@@ -68,8 +68,8 @@ test('admin sees AI cost cards reflecting seeded usage', async ({ page }) => {
 
   // The by-operation breakdown lists the seeded operations.
   await expect(page.getByText('Cost by operation', { exact: false })).toBeVisible();
-  await expect(page.getByText('DRAFT_GENERATION')).toBeVisible();
-  await expect(page.getByText('QUALITY_REPORT')).toBeVisible();
+  await expect(page.getByText('Draft generation', { exact: true })).toBeVisible();
+  await expect(page.getByText('Quality check', { exact: true })).toBeVisible();
 });
 
 test('AI metrics page renders with no cost data (empty-safe)', async ({ page }) => {
