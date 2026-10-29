@@ -36,7 +36,7 @@ export async function createUserAction(formData: FormData) {
   }
   const { email, name, password, role, facultyType } = parsed.data;
   const exists = await prisma.user.findUnique({ where: { email } });
-  if (exists) return { error: 'User with that email already exists' };
+  if (exists) return { error: "There's already an account with that email." };
 
   const passwordHash = await bcrypt.hash(password, 10);
   const roleRecord = await prisma.role.findUniqueOrThrow({ where: { name: role } });

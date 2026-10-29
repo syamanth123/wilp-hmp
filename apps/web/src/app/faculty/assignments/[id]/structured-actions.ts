@@ -111,8 +111,9 @@ export async function saveStructuredDraftAction(formData: FormData) {
   const notes = String(formData.get('notes') ?? '').slice(0, 1000);
 
   const request = await loadMyAssignment(requestIdParse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -144,8 +145,9 @@ export async function submitStructuredForReviewAction(formData: FormData) {
   const notes = String(formData.get('notes') ?? '').slice(0, 1000);
 
   const request = await loadMyAssignment(requestIdParse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -283,13 +285,14 @@ export async function resetToEmptyTemplateAction(formData: FormData) {
       assignments: { where: { facultyId: me.id, active: true }, take: 1 },
     },
   });
-  if (!request || request.assignments.length === 0) return { error: 'Assignment not found' };
-  if (!request.handout?.currentVersion) return { error: 'Editing has not started yet' };
+  if (!request || request.assignments.length === 0)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout?.currentVersion) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
   if (request.handout.currentVersion.versionNo !== 1) {
-    return { error: 'Reset is only available on the initial version (before first save)' };
+    return { error: 'You can only start again from a blank handout before your first save.' };
   }
 
   const data = blankHandoutForRequest({
@@ -350,9 +353,11 @@ export async function convertToStructuredAction(formData: FormData) {
       assignments: { where: { facultyId: me.id, active: true }, take: 1 },
     },
   });
-  if (!request) return { error: 'Assignment not found' };
-  if (request.assignments.length === 0) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (request.assignments.length === 0)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -414,8 +419,9 @@ export async function generateStructuredAiDraftAction(formData: FormData) {
   if (!parse.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -469,15 +475,16 @@ export async function applyStructuredAiDraftAction(formData: FormData) {
   if (!parse.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
 
   const draft = await prisma.aIDraftLog.findUnique({ where: { id: parse.data.draftId } });
   if (!draft || draft.handoutId !== request.handout.id) {
-    return { error: 'Draft not found' };
+    return { error: 'This AI draft no longer exists. Create a new one.' };
   }
   const payload = draft.payload as { data?: unknown } | null;
   if (!payload?.data) {

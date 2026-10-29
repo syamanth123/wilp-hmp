@@ -20,6 +20,13 @@ export default async function RolesPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
+          {roles.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={3} className="text-muted-foreground">
+                No roles set up yet.
+              </TableCell>
+            </TableRow>
+          )}
           {roles.map((r) => (
             <TableRow key={r.id}>
               <TableCell className="font-medium">{roleLabel(r.name)}</TableCell>

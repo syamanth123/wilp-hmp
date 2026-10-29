@@ -30,7 +30,8 @@ export async function createRequestAction(formData: FormData) {
   const offering = await prisma.courseOffering.findUnique({
     where: { id: parsed.data.courseOfferingId },
   });
-  if (!offering) return { error: 'Course offering not found' };
+  if (!offering)
+    return { error: 'That course offering no longer exists. Refresh the page and choose again.' };
 
   let created: { id: string; refNo: string };
   try {

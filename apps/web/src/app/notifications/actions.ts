@@ -10,7 +10,7 @@ const idSchema = z.object({ id: z.string().cuid() });
 
 export async function markReadAction(formData: FormData) {
   const me = await getSessionUser();
-  if (!me) return { error: 'Not authenticated' };
+  if (!me) return { error: 'Your session has ended. Sign in again.' };
   const parsed = idSchema.safeParse({ id: formData.get('id') });
   if (!parsed.success) return { error: GENERIC_ERROR };
 
@@ -24,7 +24,7 @@ export async function markReadAction(formData: FormData) {
 
 export async function markAllReadAction() {
   const me = await getSessionUser();
-  if (!me) return { error: 'Not authenticated' };
+  if (!me) return { error: 'Your session has ended. Sign in again.' };
   await prisma.notification.updateMany({
     where: {
       userId: me.id,

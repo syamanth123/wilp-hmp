@@ -1,5 +1,5 @@
 import { prisma, DibbaImportStatus } from '@hmp/db';
-import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { loadActiveTerm } from '@hmp/db/src/dibba-schedule/load';
 import { loadTermOverview, type OverviewCourse } from '@hmp/db/src/dibba-schedule/overview';
 import { dateFormatter } from '@/lib/format-date';
@@ -17,6 +17,8 @@ export interface ScheduleOverviewSearchParams {
   programme?: Param;
   slot?: Param;
   faculty?: Param;
+  /** "missing" = only courses not in the HMP catalogue. */
+  catalogue?: Param;
 }
 
 const first = (v: Param): string => (Array.isArray(v) ? (v[0] ?? '') : (v ?? ''));
@@ -88,11 +90,13 @@ export async function ScheduleOverview({
   const slotRaw = first(searchParams.slot);
   const slot = /^[0-8]$/.test(slotRaw) ? Number(slotRaw) : null;
   const faculty = first(searchParams.faculty);
+  const onlyMissing = first(searchParams.catalogue) === 'missing';
   const filtered = overview.courses.filter(
     (c) =>
       (!programme || c.programmes.includes(programme)) &&
       (slot === null || c.slotNos.includes(slot)) &&
-      (!faculty || c.instructors.some((i) => i.userId === faculty)),
+      (!faculty || c.instructors.some((i) => i.userId === faculty)) &&
+      (!onlyMissing || !c.inCatalogue),
   );
   const facultyName = faculty ? overview.faculty.find((f) => f.userId === faculty)?.name : null;
 
@@ -171,11 +175,21 @@ export async function ScheduleOverview({
               ))}
             </select>
           </label>
+          <label className="flex h-9 items-center gap-2">
+            <input
+              type="checkbox"
+              name="catalogue"
+              value="missing"
+              defaultChecked={onlyMissing}
+              data-testid="schedule-filter-missing"
+            />
+            <span className="text-xs">Only courses not in the catalogue</span>
+          </label>
           <button
             type="submit"
             className="bg-primary text-primary-foreground h-9 rounded-md px-3 text-sm"
           >
-            Apply
+            Apply filters
           </button>
         </form>
       </div>
@@ -235,18 +249,30 @@ export async function ScheduleOverview({
               No clashes.
             </p>
           ) : (
-            <ul
-              className="space-y-1 text-sm"
+            <table
+              className="w-full text-sm"
               data-testid="schedule-clashes"
               data-count={overview.clashes.length}
             >
-              {overview.clashes.map((c) => (
-                <li key={`${c.userId}|${c.slotNo}`}>
-                  <span className="font-medium">{c.name}</span> · SL{c.slotNo} {c.day} {c.session}:{' '}
-                  <span className="font-mono">{c.codes.join(', ')}</span>
-                </li>
-              ))}
-            </ul>
+              <thead>
+                <tr className="text-muted-foreground border-b text-left text-xs">
+                  <th className="py-1.5 pr-3 font-medium">Faculty</th>
+                  <th className="py-1.5 pr-3 font-medium">Slot</th>
+                  <th className="py-1.5 pr-3 font-medium">Courses</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.clashes.map((c) => (
+                  <tr key={`${c.userId}|${c.slotNo}`} className="border-b last:border-0">
+                    <td className="py-1.5 pr-3 font-medium">{c.name}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-3">
+                      SL{c.slotNo} {c.day} {c.session}
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono text-xs">{c.codes.join(', ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </CardContent>
       </Card>
@@ -285,18 +311,30 @@ export async function ScheduleOverview({
                 Nobody over the limit.
               </p>
             ) : (
-              <ul
-                className="space-y-1 text-sm"
+              <table
+                className="w-full text-sm"
                 data-testid="schedule-offcampus"
                 data-count={overview.offCampusLoad.length}
               >
-                {overview.offCampusLoad.map((f) => (
-                  <li key={f.userId}>
-                    <span className="font-medium">{f.name}</span> · {f.courseCount} courses (limit{' '}
-                    {f.limit}): <span className="font-mono">{f.codes.join(', ')}</span>
-                  </li>
-                ))}
-              </ul>
+                <thead>
+                  <tr className="text-muted-foreground border-b text-left text-xs">
+                    <th className="py-1.5 pr-3 font-medium">Faculty</th>
+                    <th className="py-1.5 pr-3 font-medium">Courses (limit)</th>
+                    <th className="py-1.5 pr-3 font-medium">Course codes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.offCampusLoad.map((f) => (
+                    <tr key={f.userId} className="border-b last:border-0">
+                      <td className="py-1.5 pr-3 font-medium">{f.name}</td>
+                      <td className="py-1.5 pr-3">
+                        {f.courseCount} ({f.limit})
+                      </td>
+                      <td className="py-1.5 pr-3 font-mono text-xs">{f.codes.join(', ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </CardContent>
         </Card>
@@ -383,7 +421,8 @@ export async function ScheduleOverview({
               {slot !== null && !Number.isNaN(slot)
                 ? ` · ${slot === 0 ? 'no slot' : `SL${slot}`}`
                 : ''}
-              {facultyName ? ` · ${facultyName}` : ''})
+              {facultyName ? ` · ${facultyName}` : ''}
+              {onlyMissing ? ' · not in the catalogue' : ''})
             </span>
           </CardTitle>
           <CardDescription>
@@ -410,10 +449,14 @@ export async function ScheduleOverview({
                     <td className="whitespace-nowrap py-1.5 pr-3 font-mono">
                       {c.code}
                       {!c.inCatalogue && (
-                        <>
-                          {' '}
-                          <Badge variant="outline">not in catalogue</Badge>
-                        </>
+                        <span
+                          className="ml-1 text-amber-600"
+                          title="Not in the HMP course catalogue"
+                          aria-label="Not in the HMP course catalogue"
+                          data-testid="schedule-not-in-catalogue"
+                        >
+                          ⚠
+                        </span>
                       )}
                     </td>
                     <td className="py-1.5 pr-3">{c.title}</td>

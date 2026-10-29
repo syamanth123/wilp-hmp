@@ -152,7 +152,7 @@ export default async function SmeOverview() {
                     href={`/sme/review/${r.id}`}
                     className={buttonVariants({ variant: 'outline', size: 'sm' })}
                   >
-                    Open
+                    Open handout
                   </Link>
                 </li>
               ))}

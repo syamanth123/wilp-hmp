@@ -47,7 +47,7 @@ export async function createProgrammeAction(formData: FormData) {
       }),
     };
   const exists = await prisma.programme.findUnique({ where: { code: parsed.data.code } });
-  if (exists) return { error: 'Programme code already exists' };
+  if (exists) return { error: 'A programme with that code already exists. Use a different code.' };
   const created = await prisma.programme.create({ data: parsed.data });
   await audit({
     actorId: actor.id,
@@ -94,7 +94,7 @@ export async function createCourseAction(formData: FormData) {
     };
   }
   const exists = await prisma.course.findUnique({ where: { bitsCourseNumber: canonical } });
-  if (exists) return { error: 'Course code already exists' };
+  if (exists) return { error: 'A course with that code already exists. Use a different code.' };
   const created = await prisma.course.create({
     data: {
       bitsCourseNumber: canonical,

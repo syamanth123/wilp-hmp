@@ -58,8 +58,9 @@ export async function generateAiDraftAction(formData: FormData) {
   if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -107,8 +108,9 @@ export async function applyAiDraftAction(formData: FormData) {
   if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -117,7 +119,7 @@ export async function applyAiDraftAction(formData: FormData) {
     where: { id: parsed.data.draftId },
   });
   if (!draft || draft.handoutId !== request.handout.id) {
-    return { error: 'Draft not found' };
+    return { error: 'This AI draft no longer exists. Create a new one.' };
   }
   const payload = draft.payload as { tiptapJson?: unknown } | null;
   if (!payload?.tiptapJson) return { error: 'This AI draft is empty. Create a new one.' };

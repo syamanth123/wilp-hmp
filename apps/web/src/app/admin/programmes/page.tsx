@@ -51,6 +51,13 @@ export default async function ProgrammesPage({ searchParams }: PageProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {programmes.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-muted-foreground">
+                    No programmes yet. Add one with the form above.
+                  </TableCell>
+                </TableRow>
+              )}
               {programmes.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="font-mono">{p.code}</TableCell>
@@ -93,6 +100,13 @@ export default async function ProgrammesPage({ searchParams }: PageProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {courses.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-muted-foreground">
+                    No courses yet. Add one with the form above.
+                  </TableCell>
+                </TableRow>
+              )}
               {courses.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-mono">{c.code}</TableCell>

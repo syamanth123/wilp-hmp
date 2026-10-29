@@ -143,6 +143,7 @@ export async function loadFacultySchedule(
         admitBatch: true,
         studentCount: true,
         isBacklogRow: true,
+        isNewAdmission: true,
         classTimeHint: true,
       },
       orderBy: [

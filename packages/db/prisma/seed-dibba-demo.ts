@@ -23,7 +23,7 @@ import { loadTermOverview } from '../src/dibba-schedule/overview';
  * the LOCAL database:
  *
  *   1. the 2025 Course Dibba (.doc via LibreOffice, else the committed .docx
- *      fixture) → one PUBLISHED import for the dev term "2025-26 Sem 1";
+ *      fixture) → one PUBLISHED import for the dev term "2026-27 Sem 1 (demo, 2025-26 Dibba)";
  *   2. the 2024 workbook's Sheet3 → local FACULTY users for every email
  *      (password "password"), then the faculty-sheet import;
  *   3. sample class times and exam dates; the term's dates are moved to span
@@ -49,7 +49,9 @@ const FIXTURE_DOCX = join(
   'dibba',
   'course-dibba-2025-s1.docx',
 );
-const TERM_NAME = '2025-26 Sem 1';
+const TERM_NAME = '2026-27 Sem 1 (demo, 2025-26 Dibba)';
+/** Name used by older dev seeds; still accepted. */
+const OLD_TERM_NAME = '2025-26 Sem 1';
 const IMPORT_LABEL = 'Demo: As on 02.07.2025';
 
 const addDays = (d: Date, n: number): Date => {
@@ -88,7 +90,9 @@ async function main() {
   });
 
   // 1. Term: the seeded dev term, dated around today.
-  const term = await prisma.academicTerm.findUniqueOrThrow({ where: { name: TERM_NAME } });
+  const term =
+    (await prisma.academicTerm.findUnique({ where: { name: TERM_NAME } })) ??
+    (await prisma.academicTerm.findUniqueOrThrow({ where: { name: OLD_TERM_NAME } }));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const startDate = addDays(today, -60);

@@ -158,10 +158,10 @@ export default async function ICTermInstructorsPage({ params }: { params: { term
                           variant={r.source === InstructorSource.MANUAL ? 'secondary' : 'outline'}
                         >
                           {r.source === InstructorSource.MANUAL
-                            ? 'Manual'
+                            ? 'Added by hand'
                             : r.source === InstructorSource.DIBBA_SHEET
-                              ? 'Sheet'
-                              : 'Assignment'}
+                              ? 'From faculty sheet'
+                              : 'Handout assignment'}
                         </Badge>
                         <RemoveInstructorButton
                           id={r.id}

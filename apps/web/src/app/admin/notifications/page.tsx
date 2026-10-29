@@ -93,6 +93,13 @@ export default async function NotificationsConfigPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {templates.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-muted-foreground">
+                    No message templates yet.
+                  </TableCell>
+                </TableRow>
+              )}
               {templates.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell className="text-xs">{eventName(t.key)}</TableCell>

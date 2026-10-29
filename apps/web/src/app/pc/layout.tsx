@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { AppShell } from '@/components/app-shell';
+import { RoleTabs } from '@/components/role-tabs';
 
 const TABS = [
   { href: '/pc', label: 'Overview' },
@@ -14,17 +14,7 @@ export default function PCLayout({ children }: { children: React.ReactNode }) {
   return (
     <AppShell area="/pc">
       <div className="space-y-4">
-        <nav className="flex flex-wrap gap-2 border-b pb-2 text-sm">
-          {TABS.map((t) => (
-            <Link
-              key={t.href}
-              href={t.href}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5"
-            >
-              {t.label}
-            </Link>
-          ))}
-        </nav>
+        <RoleTabs tabs={TABS} />
         <div>{children}</div>
       </div>
     </AppShell>

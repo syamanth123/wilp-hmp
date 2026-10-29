@@ -29,7 +29,7 @@ export default async function FacultySchedulePage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">My Schedule</h1>
+          <h1 className="text-2xl font-semibold">My schedule</h1>
           <p className="text-muted-foreground text-sm" data-testid="faculty-schedule-term">
             {term && schedule.published
               ? `${term.name} · ${fmtDate.format(term.startDate)} – ${fmtDate.format(term.endDate)} · schedule "${schedule.published.label}"${

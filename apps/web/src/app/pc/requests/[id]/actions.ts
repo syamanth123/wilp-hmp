@@ -38,7 +38,7 @@ export async function confirmAssignmentAction(formData: FormData) {
   if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await prisma.handoutRequest.findUnique({ where: { id: parsed.data.requestId } });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.ALLOCATED) {
     return { error: movedOnMessage(request.status) };
   }
@@ -85,7 +85,7 @@ export async function pcRejectAllocationAction(formData: FormData) {
   if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await prisma.handoutRequest.findUnique({ where: { id: parsed.data.requestId } });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.ALLOCATED) {
     return { error: movedOnMessage(request.status) };
   }

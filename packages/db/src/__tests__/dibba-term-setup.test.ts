@@ -357,7 +357,6 @@ describe('importFacultySheet', () => {
     'matches active users by case-insensitive email, never creates users, replaces sheet rows, keeps manual rows',
     async () => {
       const termId = await mkTerm();
-      const usersBefore = await prisma.user.count();
       // A manual row that the sheet also lists: must survive as MANUAL.
       await addCourseInstructor(prisma, {
         termId,
@@ -392,7 +391,10 @@ describe('importFacultySheet', () => {
       expect(r.unmatched.map((u) => u.email)).toEqual(
         [INACTIVE_EMAIL, `nobody.${RUN}@test.local`].sort(),
       );
-      expect(await prisma.user.count()).toBe(usersBefore);
+      // Never creates users: the unknown email still has no account. (Not a total
+      // user count — other packages' tests add and remove users in the same CI
+      // database at the same time, which made a count flaky.)
+      expect(await prisma.user.count({ where: { email: `nobody.${RUN}@test.local` } })).toBe(0);
       const stored = await prisma.courseInstructor.findMany({
         where: { termId },
         orderBy: [{ courseCode: 'asc' }, { source: 'asc' }],

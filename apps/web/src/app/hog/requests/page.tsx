@@ -69,7 +69,7 @@ export default async function HOGRequestList({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle>Handout requests</CardTitle>
+        <CardTitle>Requests</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <RequestListToolbar role="HOG" filter={filter} total={total} />
@@ -112,7 +112,7 @@ export default async function HOGRequestList({
                       className="text-primary text-sm underline-offset-4 hover:underline"
                       href={`/hog/requests/${r.id}`}
                     >
-                      Open
+                      Open request
                     </Link>
                   </TableCell>
                 </TableRow>

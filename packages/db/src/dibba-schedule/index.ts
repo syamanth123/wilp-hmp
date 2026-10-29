@@ -41,6 +41,8 @@ export interface EntryLike {
   admitBatch: string | null;
   studentCount: number | null;
   isBacklogRow: boolean;
+  /** "NEW ADM" rows: the incoming batch, which has no admit-batch label yet. */
+  isNewAdmission?: boolean;
   classTimeHint: string | null;
 }
 
@@ -73,6 +75,7 @@ export interface ScheduleProgrammeRow {
   admitBatch: string | null;
   studentCount: number | null;
   isBacklogRow: boolean;
+  isNewAdmission: boolean;
 }
 
 export interface ScheduleSlot {
@@ -367,6 +370,7 @@ export function buildSchedule(input: BuildScheduleInput): FacultySchedule {
       admitBatch: e.admitBatch,
       studentCount: e.studentCount,
       isBacklogRow: e.isBacklogRow,
+      isNewAdmission: e.isNewAdmission ?? false,
     });
     slot.students += e.studentCount ?? 0;
   }

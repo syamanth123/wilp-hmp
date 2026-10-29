@@ -45,7 +45,7 @@ export async function deleteFailedJobAction(formData: FormData) {
   if (parsed.data.queue === 'ai' && !aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   try {
     const job = await queueByName(parsed.data.queue).getJob(parsed.data.jobId);
-    if (!job) return { error: 'Job not found.' };
+    if (!job) return { error: 'This job no longer exists — refresh the page.' };
     await job.remove();
   } catch (err) {
     console.error('queue_delete_failed', err);

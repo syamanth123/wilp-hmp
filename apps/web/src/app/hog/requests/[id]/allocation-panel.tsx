@@ -99,10 +99,15 @@ export function AllocationPanel({
       <div>
         <Label>Faculty roster</Label>
         <p className="text-muted-foreground text-xs">
-          Off-campus / adjunct / guest faculty are capped at {cap} active courses per semester.
+          Off-campus, adjunct and guest faculty can have at most {cap} courses per semester.
         </p>
       </div>
       <ul className="divide-y rounded-md border">
+        {faculties.length === 0 && (
+          <li className="text-muted-foreground p-3 text-sm">
+            No active faculty accounts yet. Ask the administrator to add them.
+          </li>
+        )}
         {faculties.map((f) => (
           <li key={f.id} className="flex items-center justify-between gap-3 p-3 text-sm">
             <label
@@ -141,7 +146,11 @@ export function AllocationPanel({
           className="bg-background rounded-md border px-2 py-1.5 text-sm"
           data-testid="sme-picker"
         >
-          <option value="">— Select an SME —</option>
+          <option value="">
+            {smes.length === 0
+              ? 'No subject experts yet — ask the administrator'
+              : 'Choose a subject expert'}
+          </option>
           {smes.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name} ({s.email})

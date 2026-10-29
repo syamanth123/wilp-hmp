@@ -50,7 +50,7 @@ export default async function ICRequestList({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle>Handout requests</CardTitle>
+        <CardTitle>Requests</CardTitle>
         <Link href="/ic/requests/new" className={buttonVariants({ size: 'sm' })}>
           New request
         </Link>
@@ -93,7 +93,7 @@ export default async function ICRequestList({
                       className="text-primary text-sm underline-offset-4 hover:underline"
                       href={`/ic/requests/${r.id}`}
                     >
-                      View
+                      Open request
                     </Link>
                   </TableCell>
                 </TableRow>

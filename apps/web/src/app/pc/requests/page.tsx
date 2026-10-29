@@ -48,7 +48,7 @@ export default async function PCRequestList({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle>Handout requests</CardTitle>
+        <CardTitle>Requests</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <RequestListToolbar role="PC" filter={filter} total={total} />
@@ -84,7 +84,7 @@ export default async function PCRequestList({
                       className="text-primary text-sm underline-offset-4 hover:underline"
                       href={`/pc/requests/${r.id}`}
                     >
-                      Open
+                      Open request
                     </Link>
                   </TableCell>
                 </TableRow>

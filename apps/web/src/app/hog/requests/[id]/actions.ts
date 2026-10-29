@@ -27,7 +27,7 @@ const allocateSchema = z.object({
   // routes to SME_REVIEW unconditionally. (12-a introduced this as optional to
   // keep the additive PR green; 12-b flips it once the picker UI is in place.)
   smeUserId: z
-    .string({ required_error: 'Select a Subject Matter Expert' })
+    .string({ required_error: 'Choose a subject expert.' })
     .cuid('Select a Subject Matter Expert'),
 });
 
@@ -63,7 +63,7 @@ export async function allocateFacultyAction(formData: FormData) {
     where: { id: parsed.data.requestId },
     include: { offering: true },
   });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.REQUESTED) {
     return { error: movedOnMessage(request.status) };
   }
@@ -77,7 +77,9 @@ export async function allocateFacultyAction(formData: FormData) {
     select: { id: true, facultyType: true, name: true },
   });
   if (faculties.length !== parsed.data.facultyIds.length) {
-    return { error: 'One or more selected faculty are inactive or unknown' };
+    return {
+      error: "One of the chosen faculty can't be allocated. Refresh the page and choose again.",
+    };
   }
 
   // Prompt 12-b: validate the (mandatory) SME — must be active + hold the SME
@@ -92,7 +94,9 @@ export async function allocateFacultyAction(formData: FormData) {
     select: { id: true },
   });
   if (!sme) {
-    return { error: 'Selected SME is inactive or does not hold the SME role' };
+    return {
+      error: "The chosen subject expert can't review handouts any more. Choose another one.",
+    };
   }
 
   try {
@@ -253,7 +257,7 @@ export async function regenerateRecommendationAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
   if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   const requestId = String(formData.get('requestId') ?? '');
-  if (!requestId) return { error: 'Missing requestId' };
+  if (!requestId) return { error: 'Something went wrong — refresh the page and try again.' };
   let count = 0;
   try {
     await clearTodayRecommendations(requestId);

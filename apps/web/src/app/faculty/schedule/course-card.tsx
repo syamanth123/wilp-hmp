@@ -22,11 +22,9 @@ export function CourseCard({ course }: { course: ScheduleCourse }) {
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <span className="font-mono">{course.codes.join(' / ')}</span>
           {course.clash && <Badge variant="destructive">Clash</Badge>}
-          {course.sources.includes('assignment') && (
-            <Badge variant="outline">Handout assignment</Badge>
-          )}
+          {course.sources.includes('assignment') && <Badge variant="outline">Your handout</Badge>}
           {course.sources.includes('instructor') && (
-            <Badge variant="secondary">Instructor list</Badge>
+            <Badge variant="secondary">From faculty sheet</Badge>
           )}
         </CardTitle>
         <CardDescription>
@@ -96,7 +94,7 @@ export function CourseCard({ course }: { course: ScheduleCourse }) {
                       <span className="text-muted-foreground">{r.programmeTitle}</span>
                     </td>
                     <td className="py-1 pr-2">
-                      {r.admitBatch ?? '—'}
+                      {r.admitBatch ?? (r.isNewAdmission ? 'New batch' : '—')}
                       {r.isBacklogRow ? ' (backlog)' : ''}
                     </td>
                     <td className="py-1 pr-2 text-right">

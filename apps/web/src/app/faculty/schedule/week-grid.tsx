@@ -58,7 +58,7 @@ export function WeekGrid({ grid }: { grid: GridSlot[] }) {
                           <span className="text-muted-foreground">
                             {cell.startTime
                               ? `${cell.startTime}–${cell.endTime ?? ''}`
-                              : 'time not set'}
+                              : 'Time not set'}
                           </span>
                         </div>
                         {cell.codes.length > 0 ? (
@@ -68,7 +68,7 @@ export function WeekGrid({ grid }: { grid: GridSlot[] }) {
                             ))}
                           </ul>
                         ) : (
-                          <p className="text-muted-foreground mt-1 text-xs">—</p>
+                          <p className="text-muted-foreground mt-1 text-xs">No class</p>
                         )}
                         {cell.clash && (
                           <p className="mt-1 text-xs font-medium text-red-700">
@@ -77,7 +77,7 @@ export function WeekGrid({ grid }: { grid: GridSlot[] }) {
                         )}
                       </div>
                     ) : (
-                      <div className="min-h-16 p-2 text-xs">not a slot</div>
+                      <div className="min-h-16 p-2 text-xs">No class</div>
                     )}
                   </td>
                 );

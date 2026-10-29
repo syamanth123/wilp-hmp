@@ -49,12 +49,12 @@ export async function publishAction(formData: FormData) {
       handout: { include: { currentVersion: true } },
     },
   });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.APPROVED) {
     return { error: movedOnMessage(request.status) };
   }
   if (!request.handout?.currentVersion) {
-    return { error: 'No current version to publish' };
+    return { error: "There's no saved handout to publish yet." };
   }
 
   const handoutId = request.handout.id;
@@ -182,8 +182,8 @@ export async function confirmManualPublishAction(formData: FormData) {
     where: { id: parsed.data.requestId },
     include: { handout: { select: { id: true } } },
   });
-  if (!request) return { error: 'Request not found' };
-  if (!request.handout) return { error: 'No handout to publish' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
+  if (!request.handout) return { error: "There's no handout to publish yet." };
   if (request.status !== HandoutStatus.APPROVED) {
     return { error: movedOnMessage(request.status) };
   }
@@ -195,7 +195,7 @@ export async function confirmManualPublishAction(formData: FormData) {
     select: { s3Key: true },
   });
   if (!exportLog) {
-    return { error: 'No export package exists for this request. Publish (export) it first.' };
+    return { error: 'Click Publish first to create the Taxila file.' };
   }
   const alreadyConfirmed = await prisma.lmsPublishLog.findFirst({
     where: { handoutId, status: 'MANUALLY_CONFIRMED' },
@@ -264,7 +264,7 @@ export async function archiveAction(formData: FormData) {
     where: { id: parsed.data.requestId },
     select: { status: true },
   });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.PUBLISHED) {
     return { error: movedOnMessage(request.status) };
   }

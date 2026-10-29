@@ -11,7 +11,7 @@ export async function runSweepAction(): Promise<
   try {
     requireRole(await getSessionUser(), RoleName.ADMIN);
   } catch {
-    return { error: 'Forbidden' };
+    return { error: "You don't have permission to do this." };
   }
 
   const rows = await scanActiveRequestsWithSla();

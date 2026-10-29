@@ -95,7 +95,7 @@ export default async function FacultyAssignmentsList({
                         className="text-primary text-sm underline-offset-4 hover:underline"
                         href={`/faculty/assignments/${r.id}`}
                       >
-                        Open
+                        Open handout
                       </Link>
                     </TableCell>
                   </TableRow>

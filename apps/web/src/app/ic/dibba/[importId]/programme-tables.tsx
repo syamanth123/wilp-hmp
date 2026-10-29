@@ -51,6 +51,9 @@ export function ProgrammeTables({
   }
   return (
     <div className="space-y-2" data-testid="dibba-programme-tables">
+      {groups.size === 0 && (
+        <p className="text-muted-foreground text-sm">No course rows were read from this file.</p>
+      )}
       {[...groups.entries()].map(([code, g]) => {
         const batches = new Set(g.rows.map((r) => r.admitBatch ?? '—')).size;
         return (
@@ -78,12 +81,17 @@ export function ProgrammeTables({
                   {g.rows.map((r) => (
                     <TableRow key={r.id}>
                       <TableCell className="whitespace-nowrap text-xs">
-                        {r.admitBatch ?? <span className="text-muted-foreground">—</span>}
-                        {r.isNewAdmission && (
-                          <span className="text-muted-foreground ml-1">new</span>
+                        {r.admitBatch ??
+                          (r.isNewAdmission ? (
+                            'New batch'
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          ))}
+                        {r.admitBatch && r.isNewAdmission && (
+                          <span className="text-muted-foreground ml-1">(new batch)</span>
                         )}
                         {r.isBacklogRow && (
-                          <span className="text-muted-foreground ml-1">backlog</span>
+                          <span className="text-muted-foreground ml-1">(backlog)</span>
                         )}
                       </TableCell>
                       <TableCell className="text-xs">

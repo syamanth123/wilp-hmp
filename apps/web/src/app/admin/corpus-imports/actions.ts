@@ -89,7 +89,7 @@ export async function reParseImportAction(formData: FormData) {
   if (!parsed.success) return { error: GENERIC_ERROR };
 
   const existing = await prisma.handoutImport.findUnique({ where: { id: parsed.data.id } });
-  if (!existing) return { error: 'Import not found' };
+  if (!existing) return { error: 'This upload no longer exists. Refresh the page.' };
 
   if (!existsSync(existing.sourceFile)) {
     return { error: `The original Word file has been moved or deleted: ${existing.sourceFile}` };

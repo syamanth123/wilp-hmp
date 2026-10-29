@@ -250,6 +250,16 @@ export default async function PCOverview() {
               </tr>
             </thead>
             <tbody>
+              {programmes.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={3}
+                    style={{ padding: '14px 16px', color: 'var(--muted)', fontSize: 13 }}
+                  >
+                    No programmes yet. The administrator adds them.
+                  </td>
+                </tr>
+              )}
               {programmes.map((p) => {
                 const sc = statusColor(p.active);
                 return (

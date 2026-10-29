@@ -46,7 +46,7 @@ export async function updateSemesterDatesAction(formData: FormData) {
     where: { id: parsed.data.semesterId },
     select: { id: true, examDate: true, ec1Deadline: true },
   });
-  if (!existing) return { error: 'Semester not found' };
+  if (!existing) return { error: 'This semester no longer exists. Refresh the page.' };
 
   await prisma.semester.update({
     where: { id: parsed.data.semesterId },

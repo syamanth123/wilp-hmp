@@ -271,14 +271,26 @@ async function main() {
   // clobbered. Production terms are created through the IC screen (Phase 3) —
   // this block never runs there (assertDevOnly above; seed.production.ts is
   // untouched).
+  // Demo name says what it is: the 2026-27 Sem 1 demo, built from the
+  // 2025-26 Dibba. A term from an older seed ("2025-26 Sem 1") is renamed.
+  const DEMO_TERM_NAME = '2026-27 Sem 1 (demo, 2025-26 Dibba)';
+  const existingDemoTerm = await prisma.academicTerm.findFirst({
+    where: {
+      OR: [{ name: DEMO_TERM_NAME }, { name: '2025-26 Sem 1' }, { year: 2025, term: 'FIRST' }],
+    },
+    select: { id: true, name: true },
+  });
+  if (existingDemoTerm && existingDemoTerm.name === '2025-26 Sem 1') {
+    await prisma.academicTerm.update({
+      where: { id: existingDemoTerm.id },
+      data: { name: DEMO_TERM_NAME },
+    });
+  }
   const demoTerm =
-    (await prisma.academicTerm.findFirst({
-      where: { OR: [{ name: '2025-26 Sem 1' }, { year: 2025, term: 'FIRST' }] },
-      select: { id: true },
-    })) ??
+    existingDemoTerm ??
     (await prisma.academicTerm.create({
       data: {
-        name: '2025-26 Sem 1',
+        name: DEMO_TERM_NAME,
         year: 2025,
         term: 'FIRST',
         ...SEM_I_2025_26,

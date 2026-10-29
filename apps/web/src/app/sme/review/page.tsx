@@ -75,10 +75,10 @@ export default async function SmeReviewQueue({
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>SME approval queue</CardTitle>
+          <CardTitle>Review queue</CardTitle>
           <CardDescription>
-            Handouts submitted for your Subject Matter Expert review. Approve to forward to the
-            Programme Committee, or request changes to send back to faculty.
+            Handouts sent to you as the subject expert. Approve one to forward it to the Programme
+            Committee, or ask for changes to send it back to the faculty member.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -65,7 +65,8 @@ export async function acceptAssignmentAction(formData: FormData) {
   if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
   if (request.status !== HandoutStatus.ASSIGNED) {
     return { error: movedOnMessage(request.status) };
   }
@@ -95,9 +96,10 @@ export async function startEditingAction(formData: FormData) {
   if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
   if (!request.assignments[0]!.acceptedAt) {
-    return { error: 'Accept the assignment first' };
+    return { error: 'Click Accept assignment first.' };
   }
 
   // Auto-fetch context (Prompt 11e): re-load with the joins the cascade
@@ -114,7 +116,8 @@ export async function startEditingAction(formData: FormData) {
       },
     },
   });
-  if (!fullRequest) return { error: 'Assignment not found' };
+  if (!fullRequest)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
 
   const cascadeContext: RequestLite = {
     id: fullRequest.id,
@@ -190,8 +193,9 @@ export async function saveDraftAction(formData: FormData) {
   if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -235,8 +239,9 @@ export async function submitForReviewAction(formData: FormData) {
   if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
     return { error: movedOnMessage(request.status) };
   }
@@ -339,14 +344,16 @@ export async function runQualityCheckAction(formData: FormData) {
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
   if (!parsed.success) return { error: GENERIC_ERROR };
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
 
   const handout = await prisma.handout.findUnique({
     where: { id: request.handout.id },
     select: { currentVersionId: true },
   });
-  if (!handout?.currentVersionId) return { error: 'No version to check yet' };
+  if (!handout?.currentVersionId)
+    return { error: 'Save your handout before running the quality check.' };
 
   try {
     const report = await runQualityReport(

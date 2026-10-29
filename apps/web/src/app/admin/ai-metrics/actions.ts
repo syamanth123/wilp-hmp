@@ -15,7 +15,7 @@ export async function runReEmbedAction(): Promise<
   try {
     me = requireRole(await getSessionUser(), RoleName.ADMIN);
   } catch {
-    return { error: 'Forbidden' };
+    return { error: "You don't have permission to do this." };
   }
 
   try {
