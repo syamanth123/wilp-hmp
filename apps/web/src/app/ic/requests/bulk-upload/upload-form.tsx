@@ -105,9 +105,8 @@ export function BulkUploadForm() {
           </p>
           <ol className="space-y-1 text-sm">
             {result.errors.map((e, i) => (
-              <li key={i} className="rounded-md border p-2">
-                <span className="font-mono text-xs">line {e.line}</span>{' '}
-                <span className="text-muted-foreground text-xs">[{e.code}]</span>
+              <li key={i} className="rounded-md border p-2" data-code={e.code}>
+                <span className="text-xs font-medium">Row {e.line}</span>
                 {e.field ? (
                   <span className="text-muted-foreground text-xs"> · {e.field}</span>
                 ) : null}

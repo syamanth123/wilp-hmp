@@ -5,6 +5,7 @@ const TABS = [
   { href: '/pc', label: 'Overview' },
   { href: '/pc/requests', label: 'Requests' },
   { href: '/pc/schedule', label: 'Schedule' },
+  { href: '/pc/bulk', label: 'Bulk tools' },
 ];
 
 export const dynamic = 'force-dynamic';

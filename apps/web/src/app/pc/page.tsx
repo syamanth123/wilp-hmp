@@ -178,8 +178,8 @@ export default async function PCOverview() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/pc/bulk-review" className={buttonVariants({ variant: 'outline' })}>
-            Bulk review
+          <Link href="/pc/bulk" className={buttonVariants({ variant: 'outline' })}>
+            Bulk tools
           </Link>
           <Link href="/pc/requests" className={buttonVariants({ variant: 'outline' })}>
             All requests

@@ -107,6 +107,19 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
   const resolved: ResolvedRow[] = [];
   const seenRef = new Map<string, number>();
 
+  // An empty or header-only file used to "succeed" with 0 requests allocated.
+  if (parsed.rows.length === 0) {
+    const errors: BulkAllocError[] = [
+      {
+        line: 1,
+        code: 'invalid_csv_format',
+        message:
+          'The file has no rows. Add one row per request below the header line, then upload it again.',
+      },
+    ];
+    return { status: 'rejected', errors, rejectedCsv: buildRejectedCsv(csv, errors) };
+  }
+
   for (let i = 0; i < parsed.rows.length; i++) {
     const row = parsed.rows[i]!;
     const line = i + 2;

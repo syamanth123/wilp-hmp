@@ -167,14 +167,8 @@ export default async function HOGOverview() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href="/hog/requests/bulk-allocate"
-            className={buttonVariants({ variant: 'outline' })}
-          >
-            Bulk allocate
-          </Link>
-          <Link href="/hog/bulk-review" className={buttonVariants({ variant: 'outline' })}>
-            Bulk review
+          <Link href="/hog/bulk" className={buttonVariants({ variant: 'outline' })}>
+            Bulk tools
           </Link>
           <Link href="/hog/requests" className={buttonVariants({ variant: 'outline' })}>
             All requests

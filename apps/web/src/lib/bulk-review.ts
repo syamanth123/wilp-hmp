@@ -95,6 +95,19 @@ export async function bulkReview(
     return { status: 'rejected', errors, rejectedCsv: buildRejectedCsv(csv, errors) };
   }
 
+  // An empty or header-only file used to "succeed" with 0 actions applied.
+  if (parsed.rows.length === 0) {
+    const errors: BulkReviewError[] = [
+      {
+        line: 1,
+        code: 'invalid_csv_format',
+        message:
+          'The file has no rows. Add one row per request below the header line, then upload it again.',
+      },
+    ];
+    return { status: 'rejected', errors, rejectedCsv: buildRejectedCsv(csv, errors) };
+  }
+
   // ── Pass 1: per-row validation (no writes) ──────────────────────────────────
   const errors: BulkReviewError[] = [];
   const resolved: ResolvedRow[] = [];

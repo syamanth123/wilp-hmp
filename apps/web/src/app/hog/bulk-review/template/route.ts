@@ -1,13 +1,8 @@
 import { csvTemplateResponse } from '@/lib/csv-template-response';
+import { HOG_BULK_REVIEW_TEMPLATE } from '@/lib/bulk-templates';
 
 // CSV template for HOG bulk review (Prompt 15). '#'-prefixed lines are skipped.
-const TEMPLATE_CSV = `request_reference,action,comment
-# action is one of: hog_final_approve | hog_reject | hog_rework.
-# comment is required for hog_reject and hog_rework.
-# HMP-2026-0042,hog_final_approve,
-# HMP-2026-0043,hog_reject,Does not meet the programme's depth bar
-`;
 
 export function GET(req: Request): Promise<Response> {
-  return csvTemplateResponse(req, TEMPLATE_CSV, 'hog-bulk-review-template.csv');
+  return csvTemplateResponse(req, HOG_BULK_REVIEW_TEMPLATE, 'hog-bulk-review-template.csv');
 }
