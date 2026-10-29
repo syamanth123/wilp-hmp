@@ -99,7 +99,11 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
       <Card>
         <CardHeader>
           <CardTitle>Handout</CardTitle>
-          <CardDescription>The version submitted for your review.</CardDescription>
+          <CardDescription>
+            {inReview
+              ? 'The version submitted for your review.'
+              : 'The latest saved version (not yet sent to you for review).'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <HandoutViewer

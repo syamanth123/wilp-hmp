@@ -38,6 +38,17 @@ export function AllocationPanel({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [smeUserId, setSmeUserId] = useState('');
+  // The roster can hold hundreds of faculty: search it, and keep ticked
+  // faculty visible whatever the search says.
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = faculties.filter(
+    (f) =>
+      !q ||
+      selected.has(f.id) ||
+      f.name.toLowerCase().includes(q) ||
+      f.email.toLowerCase().includes(q),
+  );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -101,14 +112,26 @@ export function AllocationPanel({
         <p className="text-muted-foreground text-xs">
           Off-campus, adjunct and guest faculty can have at most {cap} courses per semester.
         </p>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${faculties.length} faculty by name or email`}
+          aria-label="Search faculty"
+          className="bg-background mt-2 h-9 w-full rounded-md border px-3 text-sm"
+          data-testid="faculty-search"
+        />
       </div>
-      <ul className="divide-y rounded-md border">
+      <ul className="max-h-96 divide-y overflow-y-auto rounded-md border">
+        {faculties.length > 0 && shown.length === 0 && (
+          <li className="text-muted-foreground p-3 text-sm">No faculty match that search.</li>
+        )}
         {faculties.length === 0 && (
           <li className="text-muted-foreground p-3 text-sm">
             No active faculty accounts yet. Ask the administrator to add them.
           </li>
         )}
-        {faculties.map((f) => (
+        {shown.map((f) => (
           <li key={f.id} className="flex items-center justify-between gap-3 p-3 text-sm">
             <label
               className={`flex flex-1 items-center gap-3 ${f.capped ? 'opacity-50' : 'cursor-pointer'}`}

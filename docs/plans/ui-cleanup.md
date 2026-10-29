@@ -270,3 +270,34 @@ no schema change).
 4. Plain language + status labels + dates (§3).
 5. Role-by-role polish (§4), screenshots, one-page "what changed" for the manager.
 6. ci-local on the final commit, push the branch (no merge), demo on port 3000 from the branch build.
+
+## 6. As built (after approval)
+
+Decisions from the approval: the two security fixes went first as separate commits that apply
+cleanly to `main` (login page: `SHOW_DEMO_LOGINS`, default off, not tied to `NODE_ENV`; SME
+access: only the assigned SME, admin unchanged). Then B1–B21, the AI switch, Bulk tools, plain
+language and the role pass. Differences from the text above:
+
+- SME review is labelled **"With subject expert for review"** (the approval's wording), and the
+  other status labels say who has the handout next ("Requested – waiting for HOG", "Allocated –
+  waiting for PC", "Submitted – waiting for PC", "With HOG for final approval", "Being written",
+  "Changes requested", "Approved – ready to publish"). One source: `packages/workflow/src/labels.ts`.
+- Dashboard cards link to `?view=` slices of each role's list; both count with the same query
+  (`apps/web/src/lib/request-views.ts`). An e2e compares every card with its list per role.
+- Bad `?status=` / `?view=` values are ignored and the list says so; a status outside the role's
+  list is ignored too (no widening of scope).
+- "N new" comments = unread comment notifications (no new table).
+- Faculty deadline widget, recent-activity links, term timeline, SME "Submitted" date, empty
+  password + Generate, corpus row errors, download error page, dead Queues link, access-denied
+  and error pages, template role checks: as proposed.
+- Also done in the role pass: active tab highlight, recent-activity and timeline rows that the app
+  logs twice are shown once, a searchable scrolling faculty roster on the HOG allocation page
+  (the roster was 247 rows long), system notices hidden from the audit views by default.
+
+## 7. More logic bugs found while building — reported, not fixed
+
+| #   | Bug                                                                                                                                                           | Effect                                                                                                                                        | Suggested fix                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| B22 | The faculty **submission checklist** reads the handout text from the old editor's field (`contentJson`), which handouts written in the new editor never fill. | For every new-editor handout, "Learning objectives", "Syllabus", "Evaluation scheme" and "References" never tick (the demo shows "1 of 5").   | Read the text from the saved structured handout (`data`) or the rendered HTML.                   |
+| B23 | **Admin → Background jobs hangs** (60 s, then the browser gives up) when `REDIS_URL` is set but Redis isn't running.                                          | The page never loads on a machine without Redis (e.g. the demo laptop). The pilot runs Redis, so it loads there.                              | Time-box the queue reads (a few seconds) and show "Couldn't read the background jobs right now". |
+| B24 | **Bulk-upload row numbers** count only non-comment lines.                                                                                                     | If the template's `#` example lines are kept, "Row 2" in an error is really line 5 or 6 of the file. Documented in the template help for now. | Have the CSV parser return each row's real line number.                                          |

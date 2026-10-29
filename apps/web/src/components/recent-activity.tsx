@@ -69,10 +69,12 @@ export async function RecentActivity({
   role: ViewerRole;
   limit?: number;
 }) {
-  const rows = await prisma.auditLog.findMany({
+  const rawRows = await prisma.auditLog.findMany({
     where: { actorId: userId },
     orderBy: { createdAt: 'desc' },
-    take: limit,
+    // Fetch extra: one action can write two log rows (the workflow step and
+    // the action's own record), which are merged below.
+    take: limit * 2,
     select: {
       id: true,
       action: true,
@@ -83,6 +85,19 @@ export async function RecentActivity({
       request: { select: { refNo: true } },
     },
   });
+
+  // Merge rows that say the same thing about the same request within a minute.
+  const rows = rawRows
+    .filter((r, i, all) => {
+      const prev = all[i - 1];
+      return !(
+        prev &&
+        prev.requestId === r.requestId &&
+        actionSentence(prev.action) === actionSentence(r.action) &&
+        Math.abs(prev.createdAt.getTime() - r.createdAt.getTime()) < 60_000
+      );
+    })
+    .slice(0, limit);
 
   return (
     <div className="glass-panel overflow-hidden rounded-[10px]">

@@ -103,7 +103,7 @@ const EVENT_SENTENCE: Record<string, string> = {
 
 /** Everything else the audit log records. */
 const ACTION_SENTENCE: Record<string, string> = {
-  'request.create': 'Raised a request',
+  'request.create': 'Raised the request',
   'request.create.bulk': 'Raised requests in bulk',
   'request.allocate.bulk': 'Allocated faculty in bulk',
   'pc_review.bulk': 'Reviewed handouts in bulk',
@@ -147,7 +147,7 @@ const ACTION_SENTENCE: Record<string, string> = {
   'dibba.instructor.remove': 'Removed a faculty member from a course',
   'reconciliation.success': 'Checked the Taxila publication',
   'reconciliation.failed': 'Taxila publication check failed',
-  'ratelimit.unavailable': 'Rate limiting was unavailable',
+  'ratelimit.unavailable': 'Sign-in protection was briefly unavailable',
   'ai.draft.generated': 'Created an AI draft',
   'ai.draft.generated.structured': 'Created an AI draft',
   'ai.draft.applied': 'Used an AI draft',
@@ -168,7 +168,7 @@ export function actionSentence(action: string): string {
 }
 
 /** "HandoutRequest" etc. in plain words, for the audit log's "Item" column. */
-const ENTITY_LABEL: Record<string, string> = {
+export const ENTITY_LABEL: Record<string, string> = {
   HandoutRequest: 'Handout request',
   Handout: 'Handout',
   HandoutVersion: 'Handout version',
@@ -183,5 +183,17 @@ const ENTITY_LABEL: Record<string, string> = {
   DibbaImport: 'Course Dibba',
   DibbaTerm: 'Term',
   FacultyAssignment: 'Faculty assignment',
+  AIDraftLog: 'AI draft',
+  AIQualityReport: 'AI quality report',
+  AcademicTerm: 'Term',
+  AiUsageLog: 'AI usage',
+  CourseInstructor: 'Course faculty',
+  Embedding: 'AI matching data',
+  ErpSnapshot: 'Academic data import',
+  RateLimit: 'Sign-in protection',
+  Reconciliation: 'Taxila check',
 };
 export const entityLabel = (e: string | null | undefined) => pick(ENTITY_LABEL, e);
+
+/** Audit entries written by the system, not by a person (hidden by default). */
+export const SYSTEM_ACTIONS = ['ratelimit.unavailable'];

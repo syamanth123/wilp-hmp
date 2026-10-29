@@ -3,6 +3,7 @@ import { prisma } from '@hmp/db';
 import { statusLabel } from '@/components/status-badge';
 import { aiFeaturesEnabled } from '@/lib/features';
 import { actionSentence, entityLabel } from '@/lib/labels';
+import { SYSTEM_ACTIONS } from '@/lib/labels';
 
 function StatCard({
   label,
@@ -231,6 +232,8 @@ export default async function AdminOverview() {
     prisma.handoutRequest.count(),
     prisma.auditLog.count(),
     prisma.auditLog.findMany({
+      // People's actions only; system notices stay in the audit log.
+      where: { action: { notIn: SYSTEM_ACTIONS } },
       orderBy: { createdAt: 'desc' },
       take: 6,
       select: {
@@ -326,10 +329,7 @@ export default async function AdminOverview() {
                   <LogIcon />
                 </div>
                 <div className="row-body">
-                  <div
-                    className="row-title"
-                    style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
-                  >
+                  <div className="row-title" style={{ fontSize: 13 }}>
                     {actionSentence(r.action)}
                   </div>
                   <div className="row-meta">
@@ -395,13 +395,13 @@ export default async function AdminOverview() {
               <span className="qa-icon">
                 <UploadIcon />
               </span>
-              ERP import
+              Import academic data
             </Link>
             <Link href="/admin/workflow" className="quick-action">
               <span className="qa-icon">
                 <CheckIcon />
               </span>
-              Workflow config
+              Time limits & workflow
             </Link>
             {aiEnabled && (
               <Link href="/admin/ai-metrics" className="quick-action">
