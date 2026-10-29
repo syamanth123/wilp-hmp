@@ -29,8 +29,9 @@ const inputStyle: React.CSSProperties = {
 };
 
 export function LoginForm({ next, error: initialError }: { next?: string; error?: string }) {
-  const [email, setEmail] = useState('admin@hmp.local');
-  const [password, setPassword] = useState('password');
+  // Nothing is pre-filled: a pre-filled admin login would let anyone in.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | undefined>(initialError);
   const [pending, startTransition] = useTransition();
@@ -40,7 +41,9 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
   return (
     <>
       {/* Local CSS for placeholders + focus (inline `style` can't reach pseudo-elements) */}
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         .hmp-login-input::placeholder { color: rgba(255,255,255,0.42); }
         .hmp-login-input:focus {
           border-color: #6366f1 !important;
@@ -83,7 +86,9 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
         }
         .hmp-login-forgot { color: #9ab6ff; text-decoration: none; transition: color 0.15s; }
         .hmp-login-forgot:hover { color: #c4d2ff; }
-      ` }} />
+      `,
+        }}
+      />
 
       <form
         onSubmit={(e) => {
@@ -98,7 +103,9 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
       >
         {/* Email */}
         <div style={{ marginBottom: 14 }}>
-          <label htmlFor="login-email" style={labelStyle}>Email</label>
+          <label htmlFor="login-email" style={labelStyle}>
+            Email
+          </label>
           <input
             id="login-email"
             className="hmp-login-input"
@@ -106,7 +113,7 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            placeholder="admin@hmp.local"
+            placeholder="Your email address"
             autoComplete="username"
             style={inputStyle}
           />
@@ -114,7 +121,9 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
 
         {/* Password */}
         <div style={{ marginBottom: 14 }}>
-          <label htmlFor="login-password" style={labelStyle}>Password</label>
+          <label htmlFor="login-password" style={labelStyle}>
+            Password
+          </label>
           <input
             id="login-password"
             className="hmp-login-input"
@@ -129,14 +138,25 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
         </div>
 
         {/* Remember + Forgot */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          margin: '4px 0 20px',
-          fontSize: 12.5,
-        }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, color: 'rgba(255,255,255,0.78)', cursor: 'pointer', userSelect: 'none' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            margin: '4px 0 20px',
+            fontSize: 12.5,
+          }}
+        >
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
+              color: 'rgba(255,255,255,0.78)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
             <input
               className="hmp-login-checkbox"
               type="checkbox"
@@ -152,15 +172,18 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
 
         {/* Error */}
         {error && (
-          <p role="alert" style={{
-            fontSize: 13,
-            color: '#fda4a4',
-            background: 'rgba(196,59,59,0.12)',
-            border: '1px solid rgba(196,59,59,0.4)',
-            padding: '10px 14px',
-            borderRadius: 10,
-            marginBottom: 14,
-          }}>
+          <p
+            role="alert"
+            style={{
+              fontSize: 13,
+              color: '#fda4a4',
+              background: 'rgba(196,59,59,0.12)',
+              border: '1px solid rgba(196,59,59,0.4)',
+              padding: '10px 14px',
+              borderRadius: 10,
+              marginBottom: 14,
+            }}
+          >
             {error}
           </p>
         )}
@@ -191,15 +214,26 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
             cursor: pending ? 'not-allowed' : 'pointer',
             opacity: pending ? 0.65 : 1,
             transform: hover && !pending ? 'translateY(-2px)' : 'translateY(0)',
-            boxShadow: hover && !pending
-              ? '0 18px 60px rgba(79,70,229,0.5)'
-              : '0 12px 40px rgba(79,70,229,0.35)',
+            boxShadow:
+              hover && !pending
+                ? '0 18px 60px rgba(79,70,229,0.5)'
+                : '0 12px 40px rgba(79,70,229,0.35)',
             transition: 'transform 0.2s, box-shadow 0.2s, opacity 0.15s',
           }}
         >
           {pending ? 'Signing in…' : 'Sign in'}
           {!pending && (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
               <line x1="5" y1="12" x2="19" y2="12" />
               <polyline points="13 6 19 12 13 18" />
             </svg>
