@@ -294,7 +294,11 @@ language and the role pass. Differences from the text above:
   logs twice are shown once, a searchable scrolling faculty roster on the HOG allocation page
   (the roster was 247 rows long), system notices hidden from the audit views by default.
 
-## 7. More logic bugs found while building — reported, not fixed
+## 7. More logic bugs found while building — reported first
+
+B22 and B23 were fixed afterwards on request (the checklist reads the structured handout and
+ignores importer placeholders; Background jobs gives up after 2 seconds and says "Background jobs
+are not running on this server"). B24 is left for later; the template help explains it.
 
 | #   | Bug                                                                                                                                                           | Effect                                                                                                                                        | Suggested fix                                                                                    |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |

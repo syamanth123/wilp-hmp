@@ -25,10 +25,12 @@ import {
 import { FailedJobActions, ClearCompletedButton } from './queue-actions';
 import { aiFeaturesEnabled } from '@/lib/features';
 import { formatDateTime } from '@/lib/format-date';
+import { within } from '@/lib/within';
 
 export const dynamic = 'force-dynamic';
 
 const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 min
+const QUEUE_READ_LIMIT_MS = 2000;
 
 interface QueueView {
   name: 'notifications' | 'ai';
@@ -203,10 +205,34 @@ export default async function AdminQueuesPage() {
 
   // The AI queue is shown only with AI_FEATURES_ENABLED=true.
   const aiEnabled = aiFeaturesEnabled();
-  const [notifications, ai] = await Promise.all([
-    loadQueue('notifications', getNotificationsQueue()),
-    aiEnabled ? loadQueue('ai', getAiQueue()) : Promise.resolve(null),
-  ]);
+  // Redis that is configured but not running makes queue reads wait forever
+  // for a connection; stop waiting after 2 seconds and say so.
+  const loaded = await within(
+    () =>
+      Promise.all([
+        loadQueue('notifications', getNotificationsQueue()),
+        aiEnabled ? loadQueue('ai', getAiQueue()) : Promise.resolve(null),
+      ]),
+    QUEUE_READ_LIMIT_MS,
+  );
+  if (!loaded.ok || loaded.value[0].error) {
+    return (
+      <Card data-testid="background-jobs-unavailable">
+        <CardHeader>
+          <CardTitle>Background jobs</CardTitle>
+          <CardDescription>Emails waiting to be sent in the background.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm font-medium">Background jobs are not running on this server.</p>
+          <p className="text-muted-foreground mt-1 text-sm">
+            The background service didn&apos;t answer, so nothing can be shown here. Ask IT to check
+            that it is running.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  const [notifications, ai] = loaded.value;
 
   return (
     <div className="space-y-4">
