@@ -6,14 +6,17 @@ import { Button, Label } from '@hmp/ui';
 import { TIPTAP_EXTENSIONS } from '@/lib/tiptap-extensions';
 import { saveDraftAction, submitForReviewAction } from './actions';
 import { AiDraftDialog } from './ai-draft-dialog';
+import { formatTime } from '@/lib/format-date';
 
 interface Props {
   requestId: string;
   initialJson: unknown;
   isRework: boolean;
+  /** AI_FEATURES_ENABLED, read on the server. Off: no "Generate with AI". */
+  aiEnabled?: boolean;
 }
 
-export function EditorPanel({ requestId, initialJson, isRework }: Props) {
+export function EditorPanel({ requestId, initialJson, isRework, aiEnabled = false }: Props) {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -68,7 +71,7 @@ export function EditorPanel({ requestId, initialJson, isRework }: Props) {
       const r = await saveDraftAction(fd);
       if (r?.error) setError(r.error);
       else if (r?.ok) {
-        setSavedAt(`Saved v${r.versionNo} at ${new Date(r.savedAt!).toLocaleTimeString()}`);
+        setSavedAt(`Saved v${r.versionNo} at ${formatTime(r.savedAt!)}`);
         setNotes('');
         lastSavedSnapshot.current = snapshot;
         setIsDirty(false);
@@ -124,14 +127,16 @@ export function EditorPanel({ requestId, initialJson, isRework }: Props) {
         <Button onClick={submit} disabled={pending || !editor}>
           {pending ? 'Submitting…' : isRework ? 'Resubmit for review' : 'Submit for review'}
         </Button>
-        <Button
-          variant="outline"
-          onClick={() => setAiOpen(true)}
-          disabled={pending || !editor}
-          aria-label="Generate handout draft with AI"
-        >
-          Generate with AI
-        </Button>
+        {aiEnabled && (
+          <Button
+            variant="outline"
+            onClick={() => setAiOpen(true)}
+            disabled={pending || !editor}
+            aria-label="Generate handout draft with AI"
+          >
+            Generate with AI
+          </Button>
+        )}
         {isDirty && (
           <span
             className="badge-gold"
@@ -147,7 +152,9 @@ export function EditorPanel({ requestId, initialJson, isRework }: Props) {
           </span>
         )}
       </div>
-      <AiDraftDialog requestId={requestId} open={aiOpen} onClose={() => setAiOpen(false)} />
+      {aiEnabled && (
+        <AiDraftDialog requestId={requestId} open={aiOpen} onClose={() => setAiOpen(false)} />
+      )}
     </div>
   );
 }

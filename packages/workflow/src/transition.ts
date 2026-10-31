@@ -1,7 +1,9 @@
-import { prisma, Prisma, HandoutStatus, type RoleName } from '@hmp/db';
+import type { Prisma, HandoutStatus} from '@hmp/db';
+import { prisma, type RoleName } from '@hmp/db';
 import { nextStatus } from './machine';
 import { assertRoleAllowed, WorkflowError } from './guards';
 import type { WorkflowEvent } from './types';
+import { movedOnMessage } from './labels';
 
 export interface TransitionActor {
   id: string;
@@ -59,15 +61,12 @@ export async function transition(input: TransitionInput): Promise<TransitionResu
     include: { handout: true },
   });
   if (!request) {
-    throw new WorkflowError('not_found', `HandoutRequest ${requestId} not found`);
+    throw new WorkflowError('not_found', 'This request no longer exists.');
   }
 
   const to = nextStatus(request.status, event);
   if (!to) {
-    throw new WorkflowError(
-      'invalid_transition',
-      `Cannot ${event} from status ${request.status}`,
-    );
+    throw new WorkflowError('invalid_transition', movedOnMessage(request.status));
   }
 
   const from = request.status;

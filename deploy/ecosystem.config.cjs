@@ -48,6 +48,10 @@ module.exports = {
       time: true, // timestamp each log line (ops readability)
       env: {
         NODE_ENV: 'production',
+        // Course Dibba schedule dates (class times, exam dates, "next class") are
+        // stored as local midnight and compared in the process zone; writer and
+        // reader must agree, so the zone is pinned rather than left to the host.
+        TZ: 'Asia/Kolkata',
         // Surfaced by GET /api/health as `version`. deploy.sh exports this
         // before `pm2 reload --update-env`; 'unknown' if started by hand.
         GIT_SHA: process.env.GIT_SHA || 'unknown',

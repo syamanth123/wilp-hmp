@@ -49,7 +49,9 @@ export function RunImportForm({ defaultPath }: Props) {
     <div className="space-y-3" data-testid="corpus-import-form">
       <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
         <label className="grid gap-1">
-          <span className="text-muted-foreground text-xs">Corpus directory (server path)</span>
+          <span className="text-muted-foreground text-xs">
+            Folder on the server that holds the Word files
+          </span>
           <input
             type="text"
             value={corpusPath}
@@ -60,7 +62,9 @@ export function RunImportForm({ defaultPath }: Props) {
           />
         </label>
         <label className="grid gap-1">
-          <span className="text-muted-foreground text-xs">Limit (optional)</span>
+          <span className="text-muted-foreground text-xs">
+            Import only the first N files (optional)
+          </span>
           <input
             type="text"
             value={limit}
@@ -94,10 +98,10 @@ export function RunImportForm({ defaultPath }: Props) {
             value={summary.failed}
             tone={summary.failed > 0 ? 'warning' : undefined}
           />
-          <Cell label="Unchanged (idempotent)" value={summary.unchanged} />
+          <Cell label="Already imported (unchanged)" value={summary.unchanged} />
           <Cell label="Skipped (size >3MB)" value={summary.skippedSize} />
           <Cell label="Skipped (format .doc/.pdf)" value={summary.skippedFormat} />
-          <Cell label="Skipped (Module template)" value={summary.skippedModule} />
+          <Cell label="Skipped (module-format handout)" value={summary.skippedModule} />
           <Cell label="Duration" value={`${(summary.durationMs / 1000).toFixed(1)}s`} />
         </div>
       )}

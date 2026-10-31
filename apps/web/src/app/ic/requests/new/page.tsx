@@ -28,15 +28,15 @@ export default async function NewRequestPage() {
       <CardHeader>
         <CardTitle>New handout request</CardTitle>
         <CardDescription>
-          Pick the course offering. The request will be created in DRAFT and immediately moved to
-          REQUESTED.
+          Pick the course offering. The request goes straight to the Head of Group to allocate
+          faculty.
         </CardDescription>
       </CardHeader>
       <CardContent>
         {options.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No course offerings yet. Ask an admin to import offerings under{' '}
-            <code>/admin/import</code>.
+            No course offerings yet. Ask the administrator to load this term&apos;s course
+            offerings.
           </p>
         ) : (
           <RequestForm offerings={options} />

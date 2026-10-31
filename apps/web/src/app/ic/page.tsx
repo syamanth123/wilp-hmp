@@ -4,20 +4,30 @@ import { buttonVariants } from '@hmp/ui';
 import { getSessionUser } from '@hmp/auth';
 import { SlaWidgets } from '@/components/sla-widgets';
 import { RecentActivity } from '@/components/recent-activity';
+import { loadActiveTerm } from '@hmp/db/src/dibba-schedule/load';
+import { viewHref, viewWhere } from '@/lib/request-views';
+import { termProgress } from '@/lib/term-progress';
+import { dateFormatter } from '@/lib/format-date';
+
+// One date style everywhere, in India time (lib/format-date.ts).
+const fmtTermEnd = dateFormatter;
 
 function StatCard({
   label,
   value,
   sub,
   icon,
+  href,
 }: {
   label: string;
   value: number | string;
   sub: string;
   icon: React.ReactNode;
+  /** The list this number counts. Card and list use the same query. */
+  href?: string;
 }) {
-  return (
-    <div className="glass-stat rounded-[10px] p-[18px_20px]">
+  const body = (
+    <div className="glass-stat h-full rounded-[10px] p-[18px_20px]">
       <div className="stat-accent">{icon}</div>
       <div
         style={{
@@ -40,10 +50,17 @@ function StatCard({
           color: 'var(--bits-navy)',
         }}
       >
-        {value}
+        <span data-testid="stat-value">{value}</span>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sub}</div>
     </div>
+  );
+  return href ? (
+    <Link href={href} data-testid="stat-card" className="block no-underline hover:opacity-90">
+      {body}
+    </Link>
+  ) : (
+    body
   );
 }
 
@@ -141,42 +158,15 @@ function FileIcon() {
   );
 }
 
-const TERM_STEPS = [
-  { n: 1, name: 'Request raised', meta: 'IC initiates requests', done: true },
-  { n: 2, name: 'Faculty allocated', meta: 'HOG assigns faculty', done: true },
-  { n: 3, name: 'Draft submitted', meta: 'Faculty submits', done: false },
-  { n: 4, name: 'HOG approved', meta: 'Final review done', done: false },
-  { n: 5, name: 'Published to LMS', meta: 'Students can access', done: false },
-];
-
-const STATUS_GROUPS = [
-  {
-    label: 'Open',
-    statuses: [HandoutStatus.REQUESTED, HandoutStatus.ALLOCATED, HandoutStatus.ASSIGNED],
-  },
-  {
-    label: 'In progress',
-    statuses: [
-      HandoutStatus.IN_PROGRESS,
-      HandoutStatus.SUBMITTED,
-      HandoutStatus.UNDER_REVIEW,
-      HandoutStatus.REWORK_REQUESTED,
-    ],
-  },
-  { label: 'Approved', statuses: [HandoutStatus.APPROVED] },
-  { label: 'Published', statuses: [HandoutStatus.PUBLISHED] },
-];
-
 export default async function ICOverview() {
   const me = await getSessionUser();
 
-  const [grouped, publishQueue, returned] = await Promise.all([
-    Promise.all(
-      STATUS_GROUPS.map(async (g) => ({
-        ...g,
-        count: await prisma.handoutRequest.count({ where: { status: { in: g.statuses } } }),
-      })),
-    ),
+  // Each card counts exactly what its list shows (lib/request-views.ts).
+  const [notSubmitted, approvedCount, returned, byStatus, publishQueue] = await Promise.all([
+    prisma.handoutRequest.count({ where: viewWhere('IC', '', 'not-submitted') }),
+    prisma.handoutRequest.count({ where: viewWhere('IC', '', 'ready-to-publish') }),
+    prisma.handoutRequest.count({ where: viewWhere('IC', '', 'returned') }),
+    prisma.handoutRequest.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.handoutRequest.findMany({
       where: { status: HandoutStatus.APPROVED },
       take: 5,
@@ -193,15 +183,23 @@ export default async function ICOverview() {
         },
       },
     }),
-    prisma.handoutRequest.count({ where: { status: HandoutStatus.REWORK_REQUESTED } }),
   ]);
 
-  const approvedCount = grouped.find((g) => g.label === 'Approved')?.count ?? 0;
-  const openCount = grouped.find((g) => g.label === 'Open')?.count ?? 0;
+  const termSteps = termProgress(
+    Object.fromEntries(byStatus.map((r) => [r.status, r._count._all])) as Partial<
+      Record<HandoutStatus, number>
+    >,
+  );
 
-  // Days to term close (static for now)
-  const termClose = new Date('2026-05-28');
-  const daysLeft = Math.max(0, Math.ceil((termClose.getTime() - Date.now()) / 86400000));
+  // Days to term close: the active published Course Dibba term (Phase 5).
+  const activeTerm = await loadActiveTerm(prisma);
+  const termClose = activeTerm?.endDate ?? null;
+  const daysLeft = termClose
+    ? Math.max(0, Math.ceil((termClose.getTime() - Date.now()) / 86400000))
+    : 0;
+  const termSub = termClose
+    ? `${activeTerm!.name} ends ${fmtTermEnd.format(termClose)}`
+    : 'No published term yet';
 
   return (
     <div>
@@ -220,7 +218,7 @@ export default async function ICOverview() {
             Instruction Cell
           </h1>
           <p style={{ color: 'var(--muted)', marginTop: 4, fontSize: 14 }}>
-            Track submissions, dispatch approved handouts and coordinate term operations.
+            Track submissions, publish approved handouts and coordinate the term.
           </p>
         </div>
         <div className="flex gap-2">
@@ -236,29 +234,27 @@ export default async function ICOverview() {
       {/* Stat cards */}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
-          label="Submissions pending"
-          value={openCount}
-          sub="Across all programmes"
+          label="Not yet submitted"
+          value={notSubmitted}
+          sub="Faculty still writing, all programmes"
           icon={<ClockIcon />}
+          href={viewHref('IC', 'not-submitted')}
         />
         <StatCard
           label="Ready to publish"
           value={approvedCount}
-          sub="Awaiting IC dispatch"
+          sub="Waiting for you to publish"
           icon={<CheckIcon />}
+          href={viewHref('IC', 'ready-to-publish')}
         />
         <StatCard
           label="Returned to faculty"
           value={returned}
           sub="With review comments"
           icon={<EditIcon />}
+          href={viewHref('IC', 'returned')}
         />
-        <StatCard
-          label="Days to term close"
-          value={daysLeft}
-          sub="Deadline: May 28, 2026"
-          icon={<BellIcon />}
-        />
+        <StatCard label="Days to term close" value={daysLeft} sub={termSub} icon={<BellIcon />} />
       </div>
 
       <SlaWidgets role="IC" />
@@ -322,7 +318,7 @@ export default async function ICOverview() {
                     className="bits-btn bits-btn-primary text-xs"
                     style={{ fontSize: 12.5, padding: '6px 12px' }}
                   >
-                    Publish
+                    Review for publishing
                   </Link>
                 </div>
               ))
@@ -337,8 +333,8 @@ export default async function ICOverview() {
           </div>
           <div className="panel-body">
             <div className="flex flex-col gap-3">
-              {TERM_STEPS.map((step, i) => {
-                const current = !step.done && (i === 0 || TERM_STEPS[i - 1]?.done);
+              {termSteps.map((step, i) => {
+                const current = !step.done && (i === 0 || termSteps[i - 1]?.done);
                 return (
                   <div key={step.n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <div
@@ -377,6 +373,7 @@ export default async function ICOverview() {
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
                         {step.meta}
+                        {!step.done && step.waiting > 0 ? ` · ${step.waiting} still waiting` : ''}
                       </div>
                     </div>
                   </div>
@@ -389,7 +386,7 @@ export default async function ICOverview() {
 
       {me && (
         <div className="mt-5">
-          <RecentActivity userId={me.id} />
+          <RecentActivity userId={me.id} role="IC" />
         </div>
       )}
     </div>

@@ -15,6 +15,10 @@ import {
 import { prisma } from '@hmp/db';
 import { getAiClient } from '@hmp/ai';
 import { ReEmbedPanel } from './re-embed-panel';
+import { notFound } from 'next/navigation';
+import { aiFeaturesEnabled } from '@/lib/features';
+import { formatDateTime } from '@/lib/format-date';
+import { actionSentence } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +49,17 @@ function usd(n: number, dp = 4): string {
   return `$${n.toFixed(dp)}`;
 }
 
+const OPERATION_LABEL: Record<string, string> = {
+  DRAFT_GENERATION: 'Draft generation',
+  STRUCTURED_DRAFT: 'Draft generation (new editor)',
+  QUALITY_REPORT: 'Quality check',
+  FACULTY_RECOMMENDATION: 'Faculty suggestions',
+  EMBEDDING: 'Matching data refresh',
+};
+
 export default async function AiMetricsPage() {
+  // AI switched off (AI_FEATURES_ENABLED): the page doesn't exist.
+  if (!aiFeaturesEnabled()) notFound();
   const client = getAiClient();
   const provider = (process.env.AI_PROVIDER ?? 'openai').toLowerCase();
   const openaiSet = Boolean(process.env.OPENAI_API_KEY);
@@ -208,10 +222,8 @@ export default async function AiMetricsPage() {
         <CardHeader>
           <CardTitle>Provider status</CardTitle>
           <CardDescription>
-            Configure via <code className="font-mono text-xs">AI_PROVIDER</code> +{' '}
-            <code className="font-mono text-xs">OPENAI_API_KEY</code> /{' '}
-            <code className="font-mono text-xs">ANTHROPIC_API_KEY</code>. Without keys the system
-            falls back to heuristic-only recommendations and disabled quality checks.
+            AI is set up by IT. Without it, faculty suggestions use simple rules and the quality
+            check is off.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
@@ -225,26 +237,26 @@ export default async function AiMetricsPage() {
               )}
             </div>
             <div className="text-muted-foreground mt-1 text-xs">
-              chat: {client.chatModel} · embed: {client.embedModel}
+              Writing model: {client.chatModel} · Matching model: {client.embedModel}
             </div>
           </div>
           <div>
-            <div className="text-muted-foreground">OPENAI_API_KEY</div>
+            <div className="text-muted-foreground">OpenAI key</div>
             <Badge variant={openaiSet ? 'success' : 'secondary'}>
-              {openaiSet ? 'set' : 'missing'}
+              {openaiSet ? 'Configured' : 'Not configured'}
             </Badge>
           </div>
           <div>
-            <div className="text-muted-foreground">ANTHROPIC_API_KEY</div>
+            <div className="text-muted-foreground">Anthropic key</div>
             <Badge variant={anthropicSet ? 'success' : 'secondary'}>
-              {anthropicSet ? 'set' : 'missing'}
+              {anthropicSet ? 'Configured' : 'Not configured'}
             </Badge>
           </div>
           {lastError && (
             <div className="sm:col-span-3">
-              <div className="text-muted-foreground">Last AI audit entry</div>
-              <div className="font-mono text-xs">
-                {lastError.action} · {new Date(lastError.createdAt).toLocaleString()}
+              <div className="text-muted-foreground">Last AI activity</div>
+              <div className="text-xs">
+                {actionSentence(lastError.action)} · {formatDateTime(lastError.createdAt)}
               </div>
             </div>
           )}
@@ -255,9 +267,8 @@ export default async function AiMetricsPage() {
         <CardHeader>
           <CardTitle>AI cost — {monthLabel}</CardTitle>
           <CardDescription>
-            Month-to-date spend vs the soft monthly budget (
-            <code className="font-mono text-xs">AI_MONTHLY_BUDGET_USD</code>, default $200). Soft
-            cap: AI stays enabled when over budget; an admin is notified once per month.
+            Spend so far this month against the monthly budget set by IT (default $200). AI keeps
+            working over budget; an administrator is told once a month.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
@@ -307,7 +318,9 @@ export default async function AiMetricsPage() {
                     .sort((a, b) => Number(b._sum.costUsd ?? 0) - Number(a._sum.costUsd ?? 0))
                     .map((o) => (
                       <TableRow key={o.operation}>
-                        <TableCell className="font-mono text-xs">{o.operation}</TableCell>
+                        <TableCell className="text-xs">
+                          {OPERATION_LABEL[o.operation] ?? o.operation}
+                        </TableCell>
                         <TableCell>{o._count._all}</TableCell>
                         <TableCell>{usd(Number(o._sum.costUsd ?? 0))}</TableCell>
                       </TableRow>
@@ -410,7 +423,7 @@ export default async function AiMetricsPage() {
                         {g.handoutId ? (
                           (handoutRef.get(g.handoutId) ?? g.handoutId)
                         ) : (
-                          <span className="text-muted-foreground">— (not handout-scoped)</span>
+                          <span className="text-muted-foreground">— (not linked to a handout)</span>
                         )}
                       </TableCell>
                       <TableCell>{g._count._all}</TableCell>
@@ -432,7 +445,7 @@ export default async function AiMetricsPage() {
             draft(s) generated
             {avgScore !== null && ` · avg score ${(avgScore * 100).toFixed(0)}/100`}
             {' · '}
-            <span className="font-mono">lifetime drafts: {draftsLifetime}</span>
+            <span>Drafts created (all time): {draftsLifetime}</span>
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -465,28 +478,28 @@ export default async function AiMetricsPage() {
             </TableBody>
           </Table>
           <p className="text-muted-foreground mt-2 text-xs">
-            Counts above are per artifact produced. Per-call token cost is tracked separately in the
-            AI cost cards above (one ledger row per real provider call; cache/stub hits are free).
+            Counts show what was produced. Cost is in the AI cost cards above; reused results cost
+            nothing.
           </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Embedding corpus</CardTitle>
+          <CardTitle>AI matching data</CardTitle>
           <CardDescription>
-            Embeddings are computed on-demand and cached in the <code>Embedding</code> table.
-            Re-embed when course descriptions or faculty histories change materially.
+            Used to suggest faculty for courses. Refresh it when course descriptions or faculty
+            teaching histories change a lot.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {embedByOwner.size === 0 ? (
-            <p className="text-muted-foreground text-sm">No embeddings stored yet.</p>
+            <p className="text-muted-foreground text-sm">No matching data yet.</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Owner type</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Rows</TableHead>
                   <TableHead>Models</TableHead>
                 </TableRow>
@@ -494,7 +507,9 @@ export default async function AiMetricsPage() {
               <TableBody>
                 {Array.from(embedByOwner.entries()).map(([owner, row]) => (
                   <TableRow key={owner}>
-                    <TableCell>{owner}</TableCell>
+                    <TableCell>
+                      {owner === 'COURSE' ? 'Course' : owner === 'FACULTY' ? 'Faculty' : owner}
+                    </TableCell>
                     <TableCell>{row.count}</TableCell>
                     <TableCell className="flex flex-wrap gap-1">
                       {Array.from(row.models).map((m) => (

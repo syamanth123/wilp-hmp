@@ -33,7 +33,7 @@ test('Workflow events surface in the in-portal notification bell', async ({ page
 test('Admin can run the SLA reminder sweep on demand', async ({ page }) => {
   await signIn(page, 'admin@hmp.local');
   await page.goto('/admin/notifications');
-  await page.getByRole('button', { name: /run reminder sweep now/i }).click();
+  await page.getByRole('button', { name: /send reminders now/i }).click();
   await expect(page.getByText(/Scanned \d+ active requests/i)).toBeVisible({ timeout: 15_000 });
 });
 

@@ -15,31 +15,22 @@ import {
   buttonVariants,
 } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
+import { RequestListToolbar } from '@/components/request-list-toolbar';
+import { filterQuery, listWhere, parseListFilter } from '@/lib/request-views';
 
 const PAGE_SIZE = 25;
-
-// HOG-owned lifecycle slice — surface every state HOG can act on or observe.
-const HOG_STATUSES: HandoutStatus[] = [
-  HandoutStatus.REQUESTED,
-  HandoutStatus.ALLOCATED,
-  HandoutStatus.ASSIGNED,
-  HandoutStatus.IN_PROGRESS,
-  HandoutStatus.SUBMITTED,
-  HandoutStatus.UNDER_REVIEW,
-  HandoutStatus.REWORK_REQUESTED,
-  HandoutStatus.APPROVED,
-  HandoutStatus.PUBLISHED,
-];
 
 export default async function HOGRequestList({
   searchParams,
 }: {
-  searchParams?: { status?: string; page?: string };
+  searchParams?: { status?: string; view?: string; page?: string };
 }) {
-  const status = (searchParams?.status as HandoutStatus | undefined) ?? undefined;
+  // Unknown or out-of-scope filters in the address are ignored (see
+  // lib/request-views.ts); the dashboard card that links here counts the same query.
+  const filter = parseListFilter('HOG', searchParams);
   const page = Math.max(1, parseInt(searchParams?.page ?? '1', 10) || 1);
 
-  const where = status ? { status } : { status: { in: HOG_STATUSES } };
+  const where = listWhere('HOG', '', filter);
   const [total, requests] = await Promise.all([
     prisma.handoutRequest.count({ where }),
     prisma.handoutRequest.findMany({
@@ -78,26 +69,12 @@ export default async function HOGRequestList({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle>Handout requests</CardTitle>
-        <form className="flex gap-2 text-sm" action="/hog/requests">
-          <select
-            name="status"
-            defaultValue={status ?? ''}
-            className="bg-background h-9 rounded-md border px-2 text-sm"
-          >
-            <option value="">All HOG statuses</option>
-            {HOG_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <button className={buttonVariants({ variant: 'outline', size: 'sm' })}>Filter</button>
-        </form>
+        <CardTitle>Requests</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <RequestListToolbar role="HOG" filter={filter} total={total} />
         {requests.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No requests in scope.</p>
+          <p className="text-muted-foreground text-sm">No requests to show.</p>
         ) : (
           <Table>
             <TableHeader>
@@ -111,7 +88,7 @@ export default async function HOGRequestList({
             </TableHeader>
             <TableBody>
               {requests.map((r) => (
-                <TableRow key={r.id}>
+                <TableRow key={r.id} data-testid="request-row">
                   <TableCell className="font-mono text-xs">{r.refNo}</TableCell>
                   <TableCell>
                     <div className="font-medium">{r.offering.course.title}</div>
@@ -125,7 +102,7 @@ export default async function HOGRequestList({
                       <StatusBadge status={r.status} />
                       {rejectedSet.has(r.id) && (
                         <Badge variant="outline" className="border-amber-400 text-amber-700">
-                          PC-rejected · re-allocate
+                          Sent back by PC — allocate again
                         </Badge>
                       )}
                     </div>
@@ -135,7 +112,7 @@ export default async function HOGRequestList({
                       className="text-primary text-sm underline-offset-4 hover:underline"
                       href={`/hog/requests/${r.id}`}
                     >
-                      Open
+                      Open request
                     </Link>
                   </TableCell>
                 </TableRow>
@@ -151,7 +128,7 @@ export default async function HOGRequestList({
             <div className="flex gap-2">
               {page > 1 && (
                 <Link
-                  href={`/hog/requests?${new URLSearchParams({ ...(status ? { status } : {}), page: String(page - 1) })}`}
+                  href={`C:/Program Files/Git/hog/requests${filterQuery(filter, page - 1)}`}
                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 >
                   Prev
@@ -159,7 +136,7 @@ export default async function HOGRequestList({
               )}
               {page < totalPages && (
                 <Link
-                  href={`/hog/requests?${new URLSearchParams({ ...(status ? { status } : {}), page: String(page + 1) })}`}
+                  href={`C:/Program Files/Git/hog/requests${filterQuery(filter, page + 1)}`}
                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 >
                   Next

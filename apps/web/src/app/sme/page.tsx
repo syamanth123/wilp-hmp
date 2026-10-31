@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { prisma, RoleName, HandoutStatus, ApprovalStage, ApprovalDecision } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, buttonVariants } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
+import { viewHref, viewWhere } from '@/lib/request-views';
+import { formatDate } from '@/lib/format-date';
 
 // Workflow landing pages MUST be force-dynamic (RSC caching vs revalidate).
 export const dynamic = 'force-dynamic';
@@ -22,11 +24,10 @@ export default async function SmeOverview() {
 
   const [awaitingCount, assignedCount, approvedCount, recentPending] = await Promise.all([
     // Actionable: handouts in SME_REVIEW assigned to me.
-    prisma.handoutRequest.count({
-      where: { status: HandoutStatus.SME_REVIEW, smeAssignment: { smeUserId: me.id } },
-    }),
+    // Each linked card counts exactly what its list shows (lib/request-views.ts).
+    prisma.handoutRequest.count({ where: viewWhere('SME', me.id, 'awaiting') }),
     // Portfolio: every handout I'm the designated SME for, any status.
-    prisma.smeAssignment.count({ where: { smeUserId: me.id } }),
+    prisma.handoutRequest.count({ where: viewWhere('SME', me.id, 'assigned') }),
     // Recent approvals authored by me (Approval rows, not assignment state).
     prisma.approval.count({
       where: {
@@ -60,8 +61,8 @@ export default async function SmeOverview() {
         <div>
           <h1 className="text-2xl font-semibold">Welcome, {me.name}</h1>
           <p className="text-muted-foreground text-sm">
-            Subject Matter Expert dashboard. Approve faculty submissions or send them back with
-            comments before they reach the Programme Committee.
+            Approve faculty handouts, or send them back with comments, before they go to the
+            Programme Committee.
           </p>
         </div>
         <Link
@@ -73,25 +74,37 @@ export default async function SmeOverview() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card>
+        <Card data-testid="stat-card">
           <CardHeader className="pb-2">
-            <CardDescription>Awaiting your review</CardDescription>
-            <CardTitle className="text-3xl">{awaitingCount}</CardTitle>
+            <CardDescription>Waiting for your review</CardDescription>
+            <CardTitle className="text-3xl" data-testid="stat-value">
+              {awaitingCount}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <Link href="/sme/review" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-              Review
+            <Link
+              href={viewHref('SME', 'awaiting')}
+              data-testid="stat-link"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              Review handouts
             </Link>
           </CardContent>
         </Card>
-        <Card>
+        <Card data-testid="stat-card">
           <CardHeader className="pb-2">
-            <CardDescription>Assigned to you</CardDescription>
-            <CardTitle className="text-3xl">{assignedCount}</CardTitle>
+            <CardDescription>Assigned to you (all time)</CardDescription>
+            <CardTitle className="text-3xl" data-testid="stat-value">
+              {assignedCount}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <Link href="/sme/review" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-              Open queue
+            <Link
+              href={viewHref('SME', 'assigned')}
+              data-testid="stat-link"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              See all assigned
             </Link>
           </CardContent>
         </Card>
@@ -132,15 +145,14 @@ export default async function SmeOverview() {
                       <span className="text-muted-foreground">{r.offering.course.title}</span>
                     </div>
                     <div className="text-muted-foreground mt-1 text-xs">
-                      Faculty: {r.assignments[0]?.faculty.name ?? '—'} ·{' '}
-                      {new Date(r.updatedAt).toLocaleDateString()}
+                      Faculty: {r.assignments[0]?.faculty.name ?? '—'} · {formatDate(r.updatedAt)}
                     </div>
                   </div>
                   <Link
                     href={`/sme/review/${r.id}`}
                     className={buttonVariants({ variant: 'outline', size: 'sm' })}
                   >
-                    Open
+                    Open handout
                   </Link>
                 </li>
               ))}

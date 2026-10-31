@@ -11,7 +11,7 @@ import {
   LmsPublishMode,
 } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { transition, WorkflowError } from '@hmp/workflow';
+import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
 import { publishToLms, TaxilaPublishError, type PublishInput } from '@hmp/integrations';
 import { audit } from '@/lib/audit';
 import {
@@ -20,6 +20,7 @@ import {
   notifyManuallyPublished,
 } from '@/lib/notifications';
 import { tagAttachmentsArchived } from '@/lib/attachments';
+import { GENERIC_ERROR } from '@/lib/form-error';
 
 const schema = z.object({
   requestId: z.string().cuid(),
@@ -37,7 +38,7 @@ function revalidate(requestId: string) {
 export async function publishAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = schema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parsed.data.requestId },
@@ -48,12 +49,12 @@ export async function publishAction(formData: FormData) {
       handout: { include: { currentVersion: true } },
     },
   });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.APPROVED) {
-    return { error: `Cannot publish from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
   if (!request.handout?.currentVersion) {
-    return { error: 'No current version to publish' };
+    return { error: "There's no saved handout to publish yet." };
   }
 
   const handoutId = request.handout.id;
@@ -89,7 +90,9 @@ export async function publishAction(formData: FormData) {
         },
       });
       revalidate(parsed.data.requestId);
-      return { error: `Publish failed: ${err.message}` };
+      return {
+        error: 'Publishing to Taxila failed. Try again, or contact IT if it keeps failing.',
+      };
     }
     throw err;
   }
@@ -173,16 +176,16 @@ export async function publishAction(formData: FormData) {
 export async function confirmManualPublishAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = schema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parsed.data.requestId },
     include: { handout: { select: { id: true } } },
   });
-  if (!request) return { error: 'Request not found' };
-  if (!request.handout) return { error: 'No handout to publish' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
+  if (!request.handout) return { error: "There's no handout to publish yet." };
   if (request.status !== HandoutStatus.APPROVED) {
-    return { error: `Cannot confirm publication from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const handoutId = request.handout.id;
@@ -192,7 +195,7 @@ export async function confirmManualPublishAction(formData: FormData) {
     select: { s3Key: true },
   });
   if (!exportLog) {
-    return { error: 'No export package exists for this request. Publish (export) it first.' };
+    return { error: 'Click Publish first to create the Taxila file.' };
   }
   const alreadyConfirmed = await prisma.lmsPublishLog.findFirst({
     where: { handoutId, status: 'MANUALLY_CONFIRMED' },
@@ -255,15 +258,15 @@ export async function confirmManualPublishAction(formData: FormData) {
 export async function archiveAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = schema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parsed.data.requestId },
     select: { status: true },
   });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.PUBLISHED) {
-    return { error: `Cannot archive from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   try {

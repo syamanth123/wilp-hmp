@@ -32,24 +32,20 @@ test.describe('IC archive', () => {
     // connection to /api/notifications/stream, so 'networkidle' never fires
     // within Playwright's timeout. The next `expect.toBeVisible` auto-polls
     // and handles waiting for content.
-    await expect(page.getByText(/^Published$/).first()).toBeVisible();
-    await expect(
-      page.getByRole('heading', { name: 'Archive', exact: true }),
-    ).toBeVisible();
+    await expect(page.locator('[data-status="PUBLISHED"]').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible();
 
     // Action.
-    await page
-      .getByLabel(/I understand this moves the handout to ARCHIVED/i)
-      .check();
+    await page.getByLabel(/I understand this handout will be archived/i).check();
     await page.getByRole('button', { name: /archive this handout/i }).click();
 
     // Persistent post-action signal: the Archive card disappears entirely
     // when status === ARCHIVED (it's server-gated by status === PUBLISHED).
     // Card heading vanishing is a positive proof the transition committed
     // AND the page re-fetched.
-    await expect(
-      page.getByRole('heading', { name: 'Archive', exact: true }),
-    ).toBeHidden({ timeout: 30_000 });
-    await expect(page.getByText(/^Archived$/).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Archive', exact: true })).toBeHidden({
+      timeout: 30_000,
+    });
+    await expect(page.locator('[data-status="ARCHIVED"]').first()).toBeVisible();
   });
 });

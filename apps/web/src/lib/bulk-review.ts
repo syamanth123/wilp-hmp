@@ -1,6 +1,7 @@
 import { prisma, type RoleName, type HandoutStatus, type Prisma } from '@hmp/db';
 import { parseCsv, parseQueueActionsCsv } from '@hmp/integrations';
 import { notifyTransition, type WorkflowEventType } from '@/lib/notifications';
+import { statusLabel } from '@hmp/workflow';
 
 /**
  * Shared engine for the Prompt 15 bulk review-action uploads (PC / SME / HOG).
@@ -95,6 +96,19 @@ export async function bulkReview(
     return { status: 'rejected', errors, rejectedCsv: buildRejectedCsv(csv, errors) };
   }
 
+  // An empty or header-only file used to "succeed" with 0 actions applied.
+  if (parsed.rows.length === 0) {
+    const errors: BulkReviewError[] = [
+      {
+        line: 1,
+        code: 'invalid_csv_format',
+        message:
+          'The file has no rows. Add one row per request below the header line, then upload it again.',
+      },
+    ];
+    return { status: 'rejected', errors, rejectedCsv: buildRejectedCsv(csv, errors) };
+  }
+
   // ── Pass 1: per-row validation (no writes) ──────────────────────────────────
   const errors: BulkReviewError[] = [];
   const resolved: ResolvedRow[] = [];
@@ -144,7 +158,7 @@ export async function bulkReview(
         line,
         field: 'request_reference',
         code: 'request_not_in_queue',
-        message: `Request ${row.request_reference} is not in your queue — status is ${request.status}, expected ${config.queueStatus}`,
+        message: `Request ${row.request_reference} isn't waiting for you (it is "${statusLabel(request.status)}").`,
       });
       continue;
     }
@@ -193,7 +207,7 @@ export async function bulkReview(
     } catch (err) {
       failed.push({
         refNo: r.refNo,
-        reason: err instanceof Error ? err.message : 'transition failed',
+        reason: err instanceof Error ? err.message : "Couldn't apply this row. Try again.",
       });
       continue;
     }

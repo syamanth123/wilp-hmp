@@ -6,6 +6,7 @@ import { prisma, RoleName, HandoutStatus } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { notifyComment } from '@/lib/notifications';
+import { formError } from '@/lib/form-error';
 
 const schema = z.object({
   requestId: z.string().cuid(),
@@ -26,21 +27,22 @@ const ALLOWED_ROLES: ReadonlySet<RoleName> = new Set([
 
 export async function addCommentAction(formData: FormData) {
   const me = await getSessionUser();
-  if (!me) return { error: 'Not authenticated' };
-  if (!me.roles.some((r) => ALLOWED_ROLES.has(r))) return { error: 'Forbidden' };
+  if (!me) return { error: 'Your session has ended. Sign in again.' };
+  if (!me.roles.some((r) => ALLOWED_ROLES.has(r)))
+    return { error: "You don't have permission to do this." };
 
   const parsed = schema.safeParse({
     requestId: formData.get('requestId'),
     body: formData.get('body'),
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parsed.data.requestId },
     include: { handout: { select: { id: true } } },
   });
-  if (!request) return { error: 'Request not found' };
-  if (!request.handout) return { error: 'No handout yet — comments unlock after allocation.' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
+  if (!request.handout) return { error: 'Comments open once faculty have been allocated.' };
 
   // Lock the thread once the workflow is closed.
   if (
@@ -64,7 +66,7 @@ export async function addCommentAction(formData: FormData) {
       where: { requestId: request.id, facultyId: me.id, active: true },
       select: { id: true },
     });
-    if (!assigned) return { error: 'Forbidden' };
+    if (!assigned) return { error: "You don't have permission to do this." };
   }
   // SME-only users (no privileged role, not assigned faculty) must be the
   // designated SME for this specific request (Prompt 12-b: the SME is an
@@ -78,7 +80,7 @@ export async function addCommentAction(formData: FormData) {
       where: { requestId: request.id },
       select: { smeUserId: true },
     });
-    if (assignment?.smeUserId !== me.id) return { error: 'Forbidden' };
+    if (assignment?.smeUserId !== me.id) return { error: "You don't have permission to do this." };
   }
 
   const comment = await prisma.comment.create({

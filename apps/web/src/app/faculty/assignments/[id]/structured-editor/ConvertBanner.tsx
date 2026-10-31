@@ -38,12 +38,11 @@ export function ConvertBanner({ requestId }: Props) {
       className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm"
       data-testid="bits-convert-banner"
     >
-      <p className="font-medium">This handout was created in the legacy editor.</p>
+      <p className="font-medium">This handout uses the old editor.</p>
       <p className="text-muted-foreground mt-1">
-        Continue editing below in the legacy editor, or convert to the structured editor. Conversion
-        pre-populates Part A from the request (course title, numbers, you as the instructor); other
-        sections start blank — keep this tab open in another window and copy over what you've
-        written.
+        Keep editing below, or switch to the new page-style editor. Switching fills in the course
+        details from the request (title, numbers, you as instructor); the other sections start
+        blank, so keep this page open in another tab and copy over what you&apos;ve written.
       </p>
       <div className="mt-2 flex items-center gap-2">
         <Button
@@ -53,7 +52,7 @@ export function ConvertBanner({ requestId }: Props) {
           disabled={pending}
           data-testid="bits-convert-button"
         >
-          {pending ? 'Converting…' : 'Convert to structured editor'}
+          {pending ? 'Converting…' : 'Switch to the new editor'}
         </Button>
         {err && <span className="text-destructive text-xs">{err}</span>}
       </div>

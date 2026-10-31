@@ -63,8 +63,8 @@ export function BulkUploadForm() {
       {result?.status === 'success' && (
         <div className="space-y-2" data-testid="bulk-success">
           <p className="text-sm text-emerald-600">
-            Created {result.created} handout request{result.created === 1 ? '' : 's'} (status
-            REQUESTED).
+            Created {result.created} handout request{result.created === 1 ? '' : 's'} and sent
+            {result.created === 1 ? ' it' : ' them'} to the Head of Group.
           </p>
           <RefNoList refNos={result.refNos} />
         </div>
@@ -79,11 +79,11 @@ export function BulkUploadForm() {
           <div className="rounded-md border p-3" style={{ borderColor: 'var(--warn)' }}>
             <p className="text-sm font-medium">
               {result.strandedAtDraft.length} request
-              {result.strandedAtDraft.length === 1 ? '' : 's'} created but still at DRAFT
+              {result.strandedAtDraft.length === 1 ? '' : 's'} created but not sent to the Head of
+              Group
             </p>
             <p className="text-muted-foreground text-xs">
-              These were inserted but their move to REQUESTED failed. Open each from the requests
-              list to retry.
+              Open each one from the requests list and try again.
             </p>
             <ul className="mt-1 text-xs">
               {result.strandedAtDraft.map((s) => (
@@ -105,9 +105,8 @@ export function BulkUploadForm() {
           </p>
           <ol className="space-y-1 text-sm">
             {result.errors.map((e, i) => (
-              <li key={i} className="rounded-md border p-2">
-                <span className="font-mono text-xs">line {e.line}</span>{' '}
-                <span className="text-muted-foreground text-xs">[{e.code}]</span>
+              <li key={i} className="rounded-md border p-2" data-code={e.code}>
+                <span className="text-xs font-medium">Row {e.line}</span>
                 {e.field ? (
                   <span className="text-muted-foreground text-xs"> · {e.field}</span>
                 ) : null}

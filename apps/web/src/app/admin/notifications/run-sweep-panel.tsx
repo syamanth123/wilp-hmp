@@ -30,13 +30,13 @@ export function RunSweepPanel() {
           })
         }
       >
-        {pending ? 'Sweeping…' : 'Run reminder sweep now'}
+        {pending ? 'Sending…' : 'Send reminders now'}
       </Button>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {summary && (
-        <p className="text-sm text-muted-foreground">
-          Scanned {summary.scanned} active requests · {summary.dueSoon} due soon ·{' '}
-          {summary.overdue} overdue · {summary.notified} reminder(s) sent.
+        <p className="text-muted-foreground text-sm">
+          Scanned {summary.scanned} active requests · {summary.dueSoon} due soon · {summary.overdue}{' '}
+          overdue · {summary.notified} reminder(s) sent.
         </p>
       )}
     </div>

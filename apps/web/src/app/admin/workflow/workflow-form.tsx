@@ -28,17 +28,41 @@ export function WorkflowConfigForm({ config }: { config: Config }) {
       }}
       className="grid grid-cols-1 gap-4 md:grid-cols-3"
     >
-      <Field name="hogReviewSla" label="HOG review SLA (hrs)" defaultValue={config.hogReviewSla} />
-      <Field name="pcReviewSla" label="PC review SLA (hrs)" defaultValue={config.pcReviewSla} />
-      <Field name="facultySubmitSla" label="Faculty submit SLA (hrs)" defaultValue={config.facultySubmitSla} />
-      <Field name="hogFinalSla" label="HOG final approval SLA (hrs)" defaultValue={config.hogFinalSla} />
-      <Field name="offCampusMaxCourses" label="Off-campus max courses / sem" defaultValue={config.offCampusMaxCourses} />
+      <Field
+        name="hogReviewSla"
+        label="HOG review — time allowed (hours)"
+        defaultValue={config.hogReviewSla}
+      />
+      <Field
+        name="pcReviewSla"
+        label="PC review — time allowed (hours)"
+        defaultValue={config.pcReviewSla}
+      />
+      <Field
+        name="facultySubmitSla"
+        label="Faculty writing — time allowed (hours)"
+        defaultValue={config.facultySubmitSla}
+      />
+      <Field
+        name="hogFinalSla"
+        label="HOG final approval — time allowed (hours)"
+        defaultValue={config.hogFinalSla}
+      />
+      <Field
+        name="offCampusMaxCourses"
+        label="Off-campus max courses / sem"
+        defaultValue={config.offCampusMaxCourses}
+      />
       <div className="md:col-span-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Save'}
         </Button>
         {msg ? (
-          <span className={'ml-3 text-sm ' + (msg.type === 'error' ? 'text-destructive' : 'text-emerald-600')}>
+          <span
+            className={
+              'ml-3 text-sm ' + (msg.type === 'error' ? 'text-destructive' : 'text-emerald-600')
+            }
+          >
             {msg.text}
           </span>
         ) : null}
@@ -47,7 +71,15 @@ export function WorkflowConfigForm({ config }: { config: Config }) {
   );
 }
 
-function Field({ name, label, defaultValue }: { name: string; label: string; defaultValue: number }) {
+function Field({
+  name,
+  label,
+  defaultValue,
+}: {
+  name: string;
+  label: string;
+  defaultValue: number;
+}) {
   return (
     <div>
       <Label htmlFor={name}>{label}</Label>

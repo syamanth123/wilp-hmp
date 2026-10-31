@@ -29,13 +29,13 @@ export function ReEmbedPanel() {
           })
         }
       >
-        {pending ? 'Re-embedding…' : 'Re-embed all (courses + faculty)'}
+        {pending ? 'Refreshing…' : 'Refresh AI matching data'}
       </Button>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {summary && (
-        <p className="text-sm text-muted-foreground">
-          Embedded {summary.courses} course(s) · {summary.faculty} faculty · skipped{' '}
-          {summary.skipped}.
+        <p className="text-muted-foreground text-sm">
+          Updated {summary.courses} courses and {summary.faculty} faculty; skipped {summary.skipped}
+          .
         </p>
       )}
     </div>

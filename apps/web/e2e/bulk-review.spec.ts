@@ -196,7 +196,7 @@ test('SME acting on a request assigned to another SME → rejected, nothing appl
   await upload(page, `request_reference,action,comment\n${g.notYoursRef},sme_approve,`);
   const rejected = page.getByTestId('bulk-rejected');
   await expect(rejected).toBeVisible({ timeout: 15_000 });
-  await expect(rejected).toContainText(/not_your_sme_assignment/);
+  await expect(rejected.locator('[data-code="not_your_sme_assignment"]')).toHaveCount(1);
   expect(
     (
       await prisma.handoutRequest.findUnique({

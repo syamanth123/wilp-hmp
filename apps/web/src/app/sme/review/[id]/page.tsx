@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { prisma, HandoutStatus, RoleName, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { StatusBadge } from '@/components/status-badge';
+import { StatusBadge, statusLabel } from '@/components/status-badge';
 import { HandoutViewer } from '@/components/handout-viewer';
 import { CommentThread } from '@/components/comment-thread';
 import { AttachmentsPanel } from '@/components/attachments-panel';
@@ -90,7 +90,7 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
             <p className="text-muted-foreground text-sm" data-testid="sme-review-readonly">
               {!isAssignedSme
                 ? 'This handout is not assigned to you for SME review.'
-                : `No decision available from status ${request.status}.`}
+                : `There is nothing for you to decide on this handout right now (it is "${statusLabel(request.status)}").`}
             </p>
           </CardContent>
         </Card>
@@ -99,7 +99,11 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
       <Card>
         <CardHeader>
           <CardTitle>Handout</CardTitle>
-          <CardDescription>The version submitted for your review.</CardDescription>
+          <CardDescription>
+            {inReview
+              ? 'The version submitted for your review.'
+              : 'The latest saved version (not yet sent to you for review).'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <HandoutViewer

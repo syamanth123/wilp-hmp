@@ -1,6 +1,6 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { Button } from '@hmp/ui';
 import {
   reParseImportAction,
@@ -23,85 +23,93 @@ interface Props {
  * Reject: deletes the row (alias for Delete, semantically named for the
  *   approval workflow).
  */
+type ActionResult = { error?: string } | Record<string, unknown>;
+
 export function RowActions({ id, approvedForReuse }: Props) {
   const [pending, startTransition] = useTransition();
+  // A failed action used to go only to the browser console, so the button
+  // looked dead. Now the reason is shown next to the row.
+  const [failure, setFailure] = useState<string | null>(null);
 
-  const approve = () => {
+  const run = (verb: string, action: (fd: FormData) => Promise<ActionResult>) => {
     const fd = new FormData();
     fd.set('id', id);
+    setFailure(null);
     startTransition(async () => {
-      const r = await approveImportAction(fd);
-      if ('error' in r && r.error) console.error('approve_failed', r.error);
+      try {
+        const r = await action(fd);
+        const err = 'error' in r && typeof r.error === 'string' ? r.error : null;
+        if (err) setFailure(`Couldn't ${verb}: ${err}`);
+      } catch {
+        setFailure(`Couldn't ${verb}. Please try again.`);
+      }
     });
   };
+
+  const approve = () => run('approve this handout', approveImportAction);
 
   const reject = () => {
-    if (!window.confirm('Reject this import? The row will be deleted; source file is not touched.'))
+    if (
+      !window.confirm(
+        'Reject this handout? It is removed from the library; the original Word file is kept.',
+      )
+    )
       return;
-    const fd = new FormData();
-    fd.set('id', id);
-    startTransition(async () => {
-      const r = await rejectImportAction(fd);
-      if ('error' in r && r.error) console.error('reject_failed', r.error);
-    });
+    run('reject this handout', rejectImportAction);
   };
 
-  const reparse = () => {
-    const fd = new FormData();
-    fd.set('id', id);
-    startTransition(async () => {
-      const r = await reParseImportAction(fd);
-      if ('error' in r && r.error) console.error('reparse_failed', r.error);
-    });
-  };
+  const reparse = () => run('read the file again', reParseImportAction);
 
   const remove = () => {
-    if (!window.confirm('Delete this import row? The source file is not touched.')) return;
-    const fd = new FormData();
-    fd.set('id', id);
-    startTransition(async () => {
-      const r = await deleteImportAction(fd);
-      if ('error' in r && r.error) console.error('delete_failed', r.error);
-    });
+    if (!window.confirm('Remove this handout from the library? The original Word file is kept.'))
+      return;
+    run('remove this handout', deleteImportAction);
   };
 
   return (
-    <div className="flex gap-1">
-      {approvedForReuse ? (
-        <span
-          className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
-          data-testid="corpus-row-approved-badge"
-        >
-          ✓ Approved
-        </span>
-      ) : (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={approve}
-          disabled={pending}
-          data-testid="corpus-row-approve"
-        >
-          Approve
+    <div>
+      <div className="flex gap-1">
+        {approvedForReuse ? (
+          <span
+            className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
+            data-testid="corpus-row-approved-badge"
+          >
+            ✓ Approved
+          </span>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={approve}
+            disabled={pending}
+            data-testid="corpus-row-approve"
+          >
+            Approve for reuse
+          </Button>
+        )}
+        {!approvedForReuse && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={reject}
+            disabled={pending}
+            data-testid="corpus-row-reject"
+          >
+            Reject
+          </Button>
+        )}
+        <Button variant="outline" size="sm" onClick={reparse} disabled={pending}>
+          Read file again
         </Button>
-      )}
-      {!approvedForReuse && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={reject}
-          disabled={pending}
-          data-testid="corpus-row-reject"
-        >
-          Reject
+        <Button variant="ghost" size="sm" onClick={remove} disabled={pending}>
+          Remove
         </Button>
-      )}
-      <Button variant="outline" size="sm" onClick={reparse} disabled={pending}>
-        Re-parse
-      </Button>
-      <Button variant="ghost" size="sm" onClick={remove} disabled={pending}>
-        Delete
-      </Button>
+      </div>
+      {failure ? (
+        <p className="text-destructive mt-1 text-xs" role="alert" data-testid="corpus-row-error">
+          {failure}
+        </p>
+      ) : null}
     </div>
   );
 }

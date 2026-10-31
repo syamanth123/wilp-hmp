@@ -4,9 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma, RoleName, ApprovalStage, ApprovalDecision, HandoutStatus } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { transition, WorkflowError } from '@hmp/workflow';
+import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { rejectAllocationEffect } from '@/lib/pc-allocation-review';
+import { formError } from '@/lib/form-error';
 
 const baseSchema = z.object({
   requestId: z.string().cuid(),
@@ -34,12 +35,12 @@ export async function confirmAssignmentAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await prisma.handoutRequest.findUnique({ where: { id: parsed.data.requestId } });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.ALLOCATED) {
-    return { error: `Cannot confirm assignment from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   try {
@@ -81,13 +82,12 @@ export async function pcRejectAllocationAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success)
-    return { error: parsed.error.issues[0]?.message ?? 'A reject reason is required' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await prisma.handoutRequest.findUnique({ where: { id: parsed.data.requestId } });
-  if (!request) return { error: 'Request not found' };
+  if (!request) return { error: 'This request no longer exists. Refresh the page.' };
   if (request.status !== HandoutStatus.ALLOCATED) {
-    return { error: `Cannot reject allocation from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   try {
@@ -120,7 +120,7 @@ export async function pcReviewApproveAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   try {
     await transition({
@@ -161,8 +161,7 @@ export async function pcReviewReworkAction(formData: FormData) {
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
   });
-  if (!parsed.success)
-    return { error: parsed.error.issues[0]?.message ?? 'Rework requires a comment' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   try {
     await transition({

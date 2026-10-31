@@ -85,6 +85,10 @@ shellcheck --version  # expect: any version
 ```
 
 - [ ] All six commands return the expected output.
+- [ ] **Record the `soffice --version` output** in the sign-off table. It is the converter behind
+      PDF export AND the Instruction Cell's Course Dibba `.doc` upload (`/ic/dibba`); the parser
+      was verified identical on LibreOffice 24.2 and 26.8, but a recorded version is what makes a
+      future "the Dibba parsed differently on the server" report diagnosable.
 
 ### 2d. Directory setup + repo clone
 
@@ -136,7 +140,9 @@ Leave **empty** (instance role handles S3):
 - [ ] `S3_ACCESS_KEY=""`, `S3_SECRET_KEY=""`
 - [ ] `S3_ENDPOINT` — **must stay unset** (MinIO/dev only; setting it breaks real AWS)
 
-Feature-gated (only if used): `AI_PROVIDER` + key + `AI_MONTHLY_BUDGET_USD`, `TAXILA_API_URL` + `TAXILA_API_TOKEN`, `CRON_SECRET`.
+Feature-gated (only if used): `AI_FEATURES_ENABLED=true` + `AI_PROVIDER` + key + `AI_MONTHLY_BUDGET_USD` (AI stays hidden and refused while `AI_FEATURES_ENABLED` is unset or "false", the launch default), `TAXILA_API_URL` + `TAXILA_API_TOKEN`, `CRON_SECRET`.
+
+Must stay off on the server: `SHOW_DEMO_LOGINS` (unset or "false"). "true" lists the demo accounts and their password on the login page.
 
 ### 3c. Verify env sanity
 

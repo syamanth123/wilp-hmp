@@ -16,11 +16,11 @@ import { Prisma, HandoutStatus, BitsHandoutSchemaV1, type BitsHandoutV1 } from '
  *      editor's state module.
  *
  * Source detail strings:
- *   - prior-version: `Prior version: <prior.semesterName> handout for <prior.bitsCourseNumber>`
+ *   - prior-version: `The <prior.semesterName> handout for <prior.bitsCourseNumber>`
  *     The prior code is shown explicitly so cross-listing matches are visible
  *     (e.g. a CSI ZC447 faculty inheriting from ES ZC447 sees "for ES ZC447").
- *   - import: `Imported corpus handout: <originalSemester>` (when 11f lands)
- *   - empty: `Empty template`
+ *   - import: `An approved past handout for <course>`
+ *   - empty: `A blank handout`
  *
  * The pure resolver `resolveAutoFetchSource()` takes pre-loaded candidates and
  * decides the tier — testable without a database. The DB wrapper
@@ -32,6 +32,7 @@ import {
   blankHandoutForRequest,
   type RequestContext,
 } from '@/app/faculty/assignments/[id]/structured-editor/state';
+import { formatDate } from '@/lib/format-date';
 
 export type AutoFetchTier = 'prior-version' | 'import' | 'empty';
 
@@ -80,7 +81,7 @@ export type ResolvedSource =
   | {
       tier: 'empty';
       data: BitsHandoutV1;
-      sourceDetail: 'Empty template';
+      sourceDetail: 'A blank handout';
     };
 
 /**
@@ -93,7 +94,7 @@ export function stripIdentifiersForCarryForward(
   prior: BitsHandoutV1,
   request: RequestLite,
 ): BitsHandoutV1 {
-  const todayDdMmYyyy = new Date().toLocaleDateString('en-GB');
+  const todayDdMmYyyy = formatDate(new Date());
   return {
     ...prior,
     metadata: {
@@ -125,7 +126,7 @@ export function resolveAutoFetchSource(
     return {
       tier: 'prior-version',
       data: stripIdentifiersForCarryForward(top.data, request),
-      sourceDetail: `Prior version: ${top.semesterName} handout for ${top.courseBitsNumber}`,
+      sourceDetail: `The ${top.semesterName} handout for ${top.courseBitsNumber}`,
       versionId: top.versionId,
     };
   }
@@ -137,11 +138,13 @@ export function resolveAutoFetchSource(
     // "Module format" substring (set by findImportForCourse based on the
     // import's parseWarnings).
     const isModule = /module format/i.test(importCandidate.originalSemesterName);
-    const suffix = isModule ? ' (Module format — review CO/LO sections)' : '';
+    const suffix = isModule
+      ? ' (older format — please fill in Course Objectives and Learning Outcomes)'
+      : '';
     return {
       tier: 'import',
       data: stripIdentifiersForCarryForward(importCandidate.data, request),
-      sourceDetail: `Imported corpus handout: ${importCandidate.originalCourseBitsNumber}${suffix}`,
+      sourceDetail: `An approved past handout for ${importCandidate.originalCourseBitsNumber}${suffix}`,
       importId: importCandidate.importId,
     };
   }
@@ -154,7 +157,7 @@ export function resolveAutoFetchSource(
   return {
     tier: 'empty',
     data: blankHandoutForRequest(ctx),
-    sourceDetail: 'Empty template',
+    sourceDetail: 'A blank handout',
   };
 }
 

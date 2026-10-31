@@ -33,7 +33,14 @@ export function LoginForm({ next, error: initialError }: { next?: string; error?
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
-  const [error, setError] = useState<string | undefined>(initialError);
+  // ?error= comes from the sign-in redirect as a code, e.g. "CredentialsSignin".
+  const [error, setError] = useState<string | undefined>(
+    initialError
+      ? initialError === 'CredentialsSignin'
+        ? 'Incorrect email or password.'
+        : 'Sign-in failed. Please try again.'
+      : undefined,
+  );
   const [pending, startTransition] = useTransition();
   const [hover, setHover] = useState(false);
   const router = useRouter();

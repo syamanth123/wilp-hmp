@@ -1,7 +1,13 @@
-import { prisma, ApprovalDecision } from '@hmp/db';
+import type { ApprovalDecision } from '@hmp/db';
+import { prisma } from '@hmp/db';
 import { Badge } from '@hmp/ui';
+import { decisionLabel, stageLabel } from '@/lib/labels';
+import { formatDateTime } from '@/lib/format-date';
 
-const DECISION_VARIANT: Record<ApprovalDecision, 'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'outline'> = {
+const DECISION_VARIANT: Record<
+  ApprovalDecision,
+  'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'outline'
+> = {
   PENDING: 'secondary',
   APPROVED: 'success',
   REWORK: 'warning',
@@ -16,7 +22,7 @@ export async function ApprovalsList({ requestId }: { requestId: string }) {
   });
 
   if (approvals.length === 0) {
-    return <p className="text-sm text-muted-foreground">No approvals yet.</p>;
+    return <p className="text-muted-foreground text-sm">No approvals yet.</p>;
   }
 
   return (
@@ -25,14 +31,14 @@ export async function ApprovalsList({ requestId }: { requestId: string }) {
         <li key={a.id} className="flex items-start justify-between gap-3 border-b pb-2">
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-medium">{a.stage.replace(/_/g, ' ')}</span>
-              <Badge variant={DECISION_VARIANT[a.decision]}>{a.decision}</Badge>
+              <span className="font-medium">{stageLabel(a.stage)}</span>
+              <Badge variant={DECISION_VARIANT[a.decision]}>{decisionLabel(a.decision)}</Badge>
             </div>
-            {a.comments && <p className="mt-1 text-muted-foreground">{a.comments}</p>}
+            {a.comments && <p className="text-muted-foreground mt-1">{a.comments}</p>}
           </div>
-          <div className="whitespace-nowrap text-right text-xs text-muted-foreground">
+          <div className="text-muted-foreground whitespace-nowrap text-right text-xs">
             <div>{a.reviewer.name}</div>
-            <div>{new Date(a.createdAt).toLocaleString()}</div>
+            <div>{formatDateTime(a.createdAt)}</div>
           </div>
         </li>
       ))}

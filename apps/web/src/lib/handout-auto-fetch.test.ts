@@ -8,6 +8,7 @@ import {
   type PriorVersionCandidate,
   type ImportCandidate,
 } from './handout-auto-fetch';
+import { formatDate } from './format-date';
 
 // ---- Test fixtures ----
 
@@ -117,10 +118,10 @@ function priorCandidate(
 // ---- Tier-resolution tests ----
 
 describe('resolveAutoFetchSource — tier picking', () => {
-  it('empty candidates → tier "empty" with "Empty template" detail', () => {
+  it('empty candidates → tier "empty" with "A blank handout" detail', () => {
     const result = resolveAutoFetchSource(seZG501Request, [], null);
     expect(result.tier).toBe('empty');
-    expect(result.sourceDetail).toBe('Empty template');
+    expect(result.sourceDetail).toBe('A blank handout');
     // The empty data should still be Zod-valid (blankHandoutForRequest does that),
     // and Part A should reflect the current request context, not blanks.
     expect(result.data.partA.courseTitle).toBe('Software Quality Assurance and Testing');
@@ -131,7 +132,7 @@ describe('resolveAutoFetchSource — tier picking', () => {
     const candidates = [priorCandidate('SE ZG501', 'Sem-I 2024-25', 200)];
     const result = resolveAutoFetchSource(seZG501Request, candidates, null);
     expect(result.tier).toBe('prior-version');
-    expect(result.sourceDetail).toBe('Prior version: Sem-I 2024-25 handout for SE ZG501');
+    expect(result.sourceDetail).toBe('The Sem-I 2024-25 handout for SE ZG501');
     if (result.tier === 'prior-version') {
       expect(result.versionId).toBe('v-SE ZG501-Sem-I 2024-25');
     }
@@ -143,7 +144,7 @@ describe('resolveAutoFetchSource — tier picking', () => {
     const candidates = [priorCandidate('ES ZC447', 'Sem-I 2024-25', 300)];
     const result = resolveAutoFetchSource(csiZC447Request, candidates, null);
     expect(result.tier).toBe('prior-version');
-    expect(result.sourceDetail).toBe('Prior version: Sem-I 2024-25 handout for ES ZC447');
+    expect(result.sourceDetail).toBe('The Sem-I 2024-25 handout for ES ZC447');
     if (result.tier === 'prior-version') {
       expect(result.versionId).toBe('v-ES ZC447-Sem-I 2024-25');
     }
@@ -183,7 +184,7 @@ describe('resolveAutoFetchSource — tier picking', () => {
     expect(result.tier).toBe('import');
     // 11f-b2: banner detail uses the originating course code, not the
     // semester (HandoutImport doesn't carry a semester column).
-    expect(result.sourceDetail).toBe('Imported corpus handout: SE ZG501');
+    expect(result.sourceDetail).toBe('An approved past handout for SE ZG501');
     if (result.tier === 'import') {
       expect(result.importId).toBe('imp-2');
     }
@@ -201,7 +202,7 @@ describe('resolveAutoFetchSource — tier picking', () => {
     const result = resolveAutoFetchSource(seZG501Request, [], importCandidate);
     expect(result.tier).toBe('import');
     expect(result.sourceDetail).toBe(
-      'Imported corpus handout: EE ZG511 (Module format — review CO/LO sections)',
+      'An approved past handout for EE ZG511 (older format — please fill in Course Objectives and Learning Outcomes)',
     );
   });
 });
@@ -218,7 +219,7 @@ describe('stripIdentifiersForCarryForward', () => {
     expect(stripped.metadata.formNumber).toBe('');
     expect(stripped.partA.courseNumbers).toEqual(['CSI ZC447', 'ES ZC447', 'IS ZC447', 'SS ZC447']);
     // Date is today in dd/mm/yyyy format
-    const today = new Date().toLocaleDateString('en-GB');
+    const today = formatDate(new Date());
     expect(stripped.partA.date).toBe(today);
   });
 
@@ -361,7 +362,7 @@ describe('loadAndResolveAutoFetchSource — query shape', () => {
     ]);
     const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
     expect(result.tier).toBe('prior-version');
-    expect(result.sourceDetail).toBe('Prior version: Sem-I 2024-25 handout for SE ZG501');
+    expect(result.sourceDetail).toBe('The Sem-I 2024-25 handout for SE ZG501');
   });
 });
 
@@ -388,7 +389,7 @@ describe('Tier 2 — findImportForCourse query against HandoutImport (11f-b2)', 
     });
     const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
     expect(result.tier).toBe('import');
-    expect(result.sourceDetail).toBe('Imported corpus handout: SE ZG501');
+    expect(result.sourceDetail).toBe('An approved past handout for SE ZG501');
   });
 
   it('Tier 1 (prior version) WINS when both prior AND approved import exist for same course', async () => {
@@ -418,7 +419,7 @@ describe('Tier 2 — findImportForCourse query against HandoutImport (11f-b2)', 
     });
     const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
     expect(result.tier).toBe('prior-version');
-    expect(result.sourceDetail).toContain('Prior version');
+    expect(result.sourceDetail).toContain('The Sem-I');
   });
 
   it('Module-format import adds "(Module format — review CO/LO sections)" suffix to banner', async () => {
@@ -436,7 +437,7 @@ describe('Tier 2 — findImportForCourse query against HandoutImport (11f-b2)', 
     const result = await loadAndResolveAutoFetchSource(tx, seZG501Request);
     expect(result.tier).toBe('import');
     expect(result.sourceDetail).toBe(
-      'Imported corpus handout: EE ZG511 (Module format — review CO/LO sections)',
+      'An approved past handout for EE ZG511 (older format — please fill in Course Objectives and Learning Outcomes)',
     );
   });
 

@@ -8,6 +8,8 @@ import {
 } from '@hmp/db';
 import { sendMail } from '@hmp/integrations';
 import { enqueueNotification, type NotifyJob } from '@hmp/queue';
+// Package subpath (not '@/'): this file is also loaded by the worker under tsx.
+import { statusLabel } from '@hmp/workflow/src/labels';
 
 /**
  * The single boundary that decides queue-vs-synchronous for notifications.
@@ -591,14 +593,15 @@ export async function notifySlaReminder(input: {
   }
   if (filtered.length === 0) return 0;
 
+  const step = statusLabel(input.request.status);
   const subject =
     input.classification === 'overdue'
-      ? `Overdue: ${input.request.refNo} (${input.request.status})`
-      : `Due soon: ${input.request.refNo} (${input.request.status})`;
+      ? `Overdue: ${input.request.refNo} ("${step}")`
+      : `Due soon: ${input.request.refNo} ("${step}")`;
   const body =
     input.classification === 'overdue'
-      ? `${input.request.refNo} has been in ${input.request.status} for ${Math.round(input.ageHours)}h (SLA ${input.slaHours}h). Please take action.`
-      : `${input.request.refNo} is approaching its SLA (${Math.round(input.ageHours)}h of ${input.slaHours}h in ${input.request.status}).`;
+      ? `${input.request.refNo} has been "${step}" for ${Math.round(input.ageHours)} hours; the limit is ${input.slaHours} hours. Please take action.`
+      : `${input.request.refNo} has been "${step}" for ${Math.round(input.ageHours)} of the ${input.slaHours} hours allowed.`;
 
   await Promise.allSettled(
     filtered.map((r) =>

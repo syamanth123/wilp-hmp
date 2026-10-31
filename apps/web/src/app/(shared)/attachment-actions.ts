@@ -25,7 +25,7 @@ export async function deleteAttachmentAction(
   }
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const id = String(formData.get('attachmentId') ?? '');
-  if (!id) return { error: 'Missing attachment id' };
+  if (!id) return { error: 'Something went wrong — refresh the page and try again.' };
 
   const att = await prisma.attachment.findUnique({
     where: { id },
@@ -38,8 +38,9 @@ export async function deleteAttachmentAction(
       request: { select: { status: true } },
     },
   });
-  if (!att) return { error: 'Attachment not found' };
-  if (att.uploaderId !== me.id) return { error: 'Only the uploader can delete this attachment' };
+  if (!att) return { error: 'This file no longer exists. Refresh the page.' };
+  if (att.uploaderId !== me.id)
+    return { error: 'Only the person who added this file can remove it.' };
   if (LOCKED_STATUSES.includes(att.request.status)) {
     return { error: `Cannot delete attachments once the handout is ${att.request.status}` };
   }

@@ -16,6 +16,9 @@ if (process.env.NODE_ENV !== 'production') {
 
 export * from '@prisma/client';
 export * from './notification-templates';
+// Pure data (no Node-only deps) — safe to expose from the barrel, unlike corpus-import.
+export * from './dibba-slots';
+export * from './dibba-warnings';
 export {
   BitsHandoutSchemaV1,
   BitsHandoutSchema,
@@ -24,7 +27,7 @@ export {
   type BitsHandout,
 } from './handout-schema';
 export { normalizeBitsCourseNumber, bitsCourseNumberSchema, getDiscipline } from './course-code';
-export { renderBitsHandout, type RenderOptions } from './handout-renderer';
+export { renderBitsHandout, BITS_HANDOUT_CSS, type RenderOptions } from './handout-renderer';
 export { resolveHandoutHtml } from './handout-display';
 export {
   BITS_RICH_TEXT_ALLOWED_TAGS,

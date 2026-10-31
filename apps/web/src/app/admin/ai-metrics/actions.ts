@@ -4,15 +4,18 @@ import { RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { ensureCorpusEmbeddings, AiUnconfiguredError } from '@hmp/ai';
 import { audit } from '@/lib/audit';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 
 export async function runReEmbedAction(): Promise<
   { courses: number; faculty: number; skipped: number } | { error: string }
 > {
+  // AI switched off: refuse before anything else.
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   let me;
   try {
     me = requireRole(await getSessionUser(), RoleName.ADMIN);
   } catch {
-    return { error: 'Forbidden' };
+    return { error: "You don't have permission to do this." };
   }
 
   try {
@@ -27,8 +30,9 @@ export async function runReEmbedAction(): Promise<
     return result;
   } catch (err) {
     if (err instanceof AiUnconfiguredError) {
-      return { error: 'AI provider not configured. Set AI_PROVIDER + API key first.' };
+      return { error: "AI isn't set up on this server. Ask IT to enable it." };
     }
-    return { error: err instanceof Error ? err.message : 'Re-embed failed' };
+    console.error('re_embed_failed', err);
+    return { error: "Couldn't refresh the matching data. Try again." };
   }
 }

@@ -3,9 +3,14 @@
 import { useState, useTransition } from 'react';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '@hmp/ui';
 import { createUserAction } from './actions';
+import { generatePassword } from '@/lib/generate-password';
+import { roleLabel } from '@/lib/labels';
 
 export function UserCreateForm({ roles }: { roles: string[] }) {
   const [error, setError] = useState<string | undefined>();
+  // Starts empty: never a shared default like "password".
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [ok, setOk] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -22,7 +27,11 @@ export function UserCreateForm({ roles }: { roles: string[] }) {
             startTransition(async () => {
               const res = await createUserAction(formData);
               if (res?.error) setError(res.error);
-              else setOk(true);
+              else {
+                setOk(true);
+                setPassword('');
+                setShowPassword(false);
+              }
             });
           }}
           className="grid grid-cols-1 gap-3 md:grid-cols-5"
@@ -37,29 +46,57 @@ export function UserCreateForm({ roles }: { roles: string[] }) {
           </div>
           <div>
             <Label htmlFor="password">Password</Label>
-            <Input id="password" name="password" type="password" minLength={6} required defaultValue="password" />
+            <div className="flex gap-2">
+              <Input
+                id="password"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                minLength={6}
+                required
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="generate-password"
+                onClick={() => {
+                  setPassword(generatePassword());
+                  setShowPassword(true);
+                }}
+              >
+                Generate
+              </Button>
+            </div>
+            {showPassword && password ? (
+              <p className="text-muted-foreground mt-1 text-xs">
+                Copy this password and send it to the user before you create the account.
+              </p>
+            ) : null}
           </div>
           <div>
             <Label htmlFor="role">Role</Label>
             <select
               id="role"
               name="role"
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              className="border-input flex h-9 w-full rounded-md border bg-transparent px-3 text-sm"
               required
             >
               {roles.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {roleLabel(r)}
                 </option>
               ))}
             </select>
           </div>
           <div>
-            <Label htmlFor="facultyType">Faculty Type</Label>
+            <Label htmlFor="facultyType">Faculty type</Label>
             <select
               id="facultyType"
               name="facultyType"
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              className="border-input flex h-9 w-full rounded-md border bg-transparent px-3 text-sm"
             >
               <option value="">—</option>
               <option value="ON_CAMPUS">On-Campus</option>
@@ -72,7 +109,7 @@ export function UserCreateForm({ roles }: { roles: string[] }) {
             <Button type="submit" disabled={pending}>
               {pending ? 'Creating…' : 'Create user'}
             </Button>
-            {error ? <span className="ml-3 text-sm text-destructive">{error}</span> : null}
+            {error ? <span className="text-destructive ml-3 text-sm">{error}</span> : null}
             {ok ? <span className="ml-3 text-sm text-emerald-600">User created</span> : null}
           </div>
         </form>

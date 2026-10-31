@@ -29,6 +29,8 @@ import { EditorPanel } from './editor-panel';
 import { QualityPanel } from './quality-panel';
 import { StructuredEditor } from './structured-editor/StructuredEditor';
 import { ConvertBanner } from './structured-editor/ConvertBanner';
+import { aiFeaturesEnabled } from '@/lib/features';
+import { formatDate } from '@/lib/format-date';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
 // for the rationale (Next.js production-build RSC caching vs revalidatePath).
@@ -39,6 +41,8 @@ const EDITABLE = new Set<HandoutStatus>([
   HandoutStatus.REWORK_REQUESTED,
 ]);
 const READ_ONLY = new Set<HandoutStatus>([
+  // With the subject expert: faculty can read what they sent, not edit it.
+  HandoutStatus.SME_REVIEW,
   HandoutStatus.SUBMITTED,
   HandoutStatus.UNDER_REVIEW,
   HandoutStatus.APPROVED,
@@ -70,6 +74,7 @@ export default async function FacultyAssignmentDetail({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  const aiEnabled = aiFeaturesEnabled();
   const loaded = await loadHandoutForFaculty(params.id, me.id);
   if (!loaded) {
     // Either request doesn't exist or this faculty is not assigned.
@@ -116,8 +121,8 @@ export default async function FacultyAssignmentDetail({
             <p className="text-muted-foreground mt-1 text-xs">
               {request.offering.semester.programme.code} · {request.offering.semester.name} ·{' '}
               {assignment.acceptedAt
-                ? `accepted ${new Date(assignment.acceptedAt).toLocaleDateString()}`
-                : 'pending acceptance'}
+                ? `accepted ${formatDate(assignment.acceptedAt)}`
+                : 'not accepted yet'}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -175,8 +180,8 @@ export default async function FacultyAssignmentDetail({
       )}
 
       {EDITABLE.has(status) && handout && currentVersion && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
+        <div className={aiEnabled ? 'grid gap-4 lg:grid-cols-3' : 'grid gap-4'}>
+          <Card className={aiEnabled ? 'lg:col-span-2' : undefined}>
             <CardHeader>
               <CardTitle>
                 {status === HandoutStatus.REWORK_REQUESTED
@@ -203,6 +208,7 @@ export default async function FacultyAssignmentDetail({
                       initialData={parsed.data}
                       isRework={status === HandoutStatus.REWORK_REQUESTED}
                       autoFetch={parseAutoFetchSearchParams(searchParams)}
+                      aiEnabled={aiEnabled}
                     />
                   );
                 }
@@ -210,6 +216,7 @@ export default async function FacultyAssignmentDetail({
                   <>
                     <ConvertBanner requestId={request.id} />
                     <EditorPanel
+                      aiEnabled={aiEnabled}
                       requestId={request.id}
                       initialJson={currentVersion.contentJson ?? null}
                       isRework={status === HandoutStatus.REWORK_REQUESTED}
@@ -219,17 +226,19 @@ export default async function FacultyAssignmentDetail({
               })()}
             </CardContent>
           </Card>
-          <Card className="lg:sticky lg:top-20 lg:col-span-1 lg:self-start">
-            <CardHeader>
-              <CardTitle>AI quality check</CardTitle>
-              <CardDescription>
-                Bloom's taxonomy + syllabus coverage on the latest saved version.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <QualityPanel requestId={request.id} />
-            </CardContent>
-          </Card>
+          {aiEnabled && (
+            <Card className="lg:sticky lg:top-20 lg:col-span-1 lg:self-start">
+              <CardHeader>
+                <CardTitle>AI quality check</CardTitle>
+                <CardDescription>
+                  Bloom's taxonomy + syllabus coverage on the latest saved version.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <QualityPanel requestId={request.id} />
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -237,7 +246,11 @@ export default async function FacultyAssignmentDetail({
         <Card>
           <CardHeader>
             <CardTitle>Current handout (v{currentVersion?.versionNo ?? '—'})</CardTitle>
-            <CardDescription>Read-only — under review or already approved.</CardDescription>
+            <CardDescription>
+              {status === HandoutStatus.SME_REVIEW
+                ? 'Read-only while the subject expert reviews it. You can edit again if changes are requested.'
+                : 'Read-only — under review or already approved.'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <HandoutViewer
@@ -278,7 +291,7 @@ export default async function FacultyAssignmentDetail({
         </Card>
       )}
 
-      {handout && currentVersion && !EDITABLE.has(status) && (
+      {aiEnabled && handout && currentVersion && !EDITABLE.has(status) && (
         <Card>
           <CardHeader>
             <CardTitle>AI quality check</CardTitle>
@@ -292,14 +305,14 @@ export default async function FacultyAssignmentDetail({
         </Card>
       )}
 
-      {handout && <QualityReportCard handoutId={handout.id} />}
+      {aiEnabled && handout && <QualityReportCard handoutId={handout.id} />}
 
       <Card>
         <CardHeader>
           <CardTitle>Attachments</CardTitle>
           <CardDescription>
-            Supplementary files for this handout (exam papers, slides, references). Visible to all
-            reviewers; editable by you while the handout is in progress.
+            Supplementary files for this handout (exam papers, slides, references), visible to all
+            reviewers. Adding files is switched off for now.
           </CardDescription>
         </CardHeader>
         <CardContent>

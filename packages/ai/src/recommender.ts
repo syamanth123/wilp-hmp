@@ -151,10 +151,16 @@ export async function recommendFaculty(
     const score = 0.5 * sharedTerm + 0.3 * depthTerm + 0.2 * loadTerm + typeNudge;
     const reasons: string[] = [];
     if (sharedPrefix > 0)
-      reasons.push(`${sharedPrefix} prior assignment(s) sharing prefix ${targetPrefix}`);
-    if (past.length > 0) reasons.push(`${past.length} total prior assignments`);
-    reasons.push(`Semester load ${load}/${cap}`);
-    if (facultyType) reasons.push(`Type: ${facultyType.toLowerCase().replace('_', '-')}`);
+      reasons.push(
+        `Taught ${sharedPrefix} similar ${targetPrefix} course${sharedPrefix === 1 ? '' : 's'}`,
+      );
+    if (past.length > 0)
+      reasons.push(`${past.length} earlier handout${past.length === 1 ? '' : 's'} in total`);
+    reasons.push(`Teaching ${load} of ${cap} allowed courses this semester`);
+    if (facultyType)
+      reasons.push(
+        `${facultyType === FacultyType.ON_CAMPUS ? 'On-campus' : facultyType === FacultyType.OFF_CAMPUS ? 'Off-campus' : facultyType === FacultyType.ADJUNCT ? 'Adjunct' : 'Guest'} faculty`,
+      );
     return { score: Math.min(1, score), reasons };
   }
 
@@ -212,9 +218,9 @@ export async function recommendFaculty(
         const depthTerm = Math.min(1, past.length / 10);
         const typeNudge = f.facultyType === FacultyType.ON_CAMPUS ? 0.05 : 0;
         score = Math.min(1, 0.5 * sim + 0.3 * depthTerm + 0.2 * loadTerm + typeNudge);
-        reasons.unshift(`Embedding similarity ${sim.toFixed(2)}`);
+        reasons.unshift(`AI match with the course: ${Math.round(sim * 100)}/100`);
       } else {
-        reasons.push('No embedding (insufficient history)');
+        reasons.push('Not enough teaching history for AI matching');
       }
     }
 

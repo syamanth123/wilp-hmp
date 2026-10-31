@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PermanentJobError, type Job, type AiJob } from '@hmp/queue';
 
 // vi.hoisted: the mock factory is hoisted above imports, so the symbols it
@@ -25,8 +25,30 @@ import { processAiJob } from '../processors';
 const aiJob = (): Job<AiJob> =>
   ({ data: { kind: 'quality_report', handoutVersionId: 'v1', requestId: 'r1' } }) as Job<AiJob>;
 
+const savedAiSwitch = process.env.AI_FEATURES_ENABLED;
+
 beforeEach(() => {
   runQualityReport.mockReset();
+  process.env.AI_FEATURES_ENABLED = 'true';
+});
+
+afterEach(() => {
+  if (savedAiSwitch === undefined) delete process.env.AI_FEATURES_ENABLED;
+  else process.env.AI_FEATURES_ENABLED = savedAiSwitch;
+});
+
+describe('processAiJob — AI switch (AI_FEATURES_ENABLED)', () => {
+  it('drops the job without running AI when the switch is off', async () => {
+    delete process.env.AI_FEATURES_ENABLED;
+    await expect(processAiJob(aiJob())).resolves.toBeUndefined();
+    expect(runQualityReport).not.toHaveBeenCalled();
+  });
+
+  it('runs the quality report when the switch is on', async () => {
+    runQualityReport.mockResolvedValueOnce(undefined);
+    await expect(processAiJob(aiJob())).resolves.toBeUndefined();
+    expect(runQualityReport).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('processAiJob — permanent vs transient classification', () => {

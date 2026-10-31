@@ -6,6 +6,7 @@ import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
 // cleanly under tsx. See docs/dev-handoff-audit.md §1 (worker architecture).
 import * as notify from '../lib/notifications';
 import type { WorkflowEventType } from '../lib/notifications';
+import { aiFeaturesEnabled } from '../lib/features';
 
 /**
  * Notification job processor. Dispatches by kind to the matching dispatch*
@@ -45,6 +46,12 @@ export async function processNotification(job: Job<NotifyJob>): Promise<void> {
  * other error is transient and retried.
  */
 export async function processAiJob(job: Job<AiJob>): Promise<void> {
+  // AI switched off (AI_FEATURES_ENABLED): drop the job without running it.
+  // Nothing new is queued while off; this clears anything queued before.
+  if (!aiFeaturesEnabled()) {
+    console.info('[worker] AI features off — dropping AI job', job.id);
+    return;
+  }
   try {
     await runQualityReport({ handoutVersionId: job.data.handoutVersionId, bypassRateLimit: true });
   } catch (err) {

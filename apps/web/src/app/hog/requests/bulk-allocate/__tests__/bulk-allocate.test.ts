@@ -276,7 +276,7 @@ describe('bulkAllocate (Prompt 14)', () => {
     expect(res.status).toBe('rejected');
     if (res.status !== 'rejected') return;
     expect(res.errors[0]!.code).toBe('request_not_allocatable');
-    expect(res.errors[0]!.message).toContain('ALLOCATED');
+    expect(res.errors[0]!.message).toContain('Allocated – waiting for PC');
   });
 
   it('rejects unknown faculty + faculty without FACULTY role', async () => {

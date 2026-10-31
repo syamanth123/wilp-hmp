@@ -26,7 +26,7 @@ export function ArchivePanel({ requestId }: { requestId: string }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
+      <p className="text-muted-foreground text-sm">
         Archiving moves the handout to read-only state. Use this at the end of the term.
       </p>
       <label className="flex items-center gap-2 text-sm">
@@ -35,9 +35,9 @@ export function ArchivePanel({ requestId }: { requestId: string }) {
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        I understand this moves the handout to ARCHIVED.
+        I understand this handout will be archived and can no longer be changed.
       </label>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-sm">{error}</p>}
       <Button variant="outline" onClick={run} disabled={pending || !confirmed}>
         {pending ? 'Archiving…' : 'Archive this handout'}
       </Button>

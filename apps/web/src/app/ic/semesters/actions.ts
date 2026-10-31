@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { audit } from '@/lib/audit';
+import { formError } from '@/lib/form-error';
 
 /** Parse `YYYY-MM-DD` as local midnight so the rendered date doesn't slip a day in +UTC zones. */
 function parseDateLocal(s: string): Date {
@@ -38,14 +39,14 @@ export async function updateSemesterDatesAction(formData: FormData) {
     ec1Deadline: formData.get('ec1Deadline'),
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+    return { error: formError(parsed.error) };
   }
 
   const existing = await prisma.semester.findUnique({
     where: { id: parsed.data.semesterId },
     select: { id: true, examDate: true, ec1Deadline: true },
   });
-  if (!existing) return { error: 'Semester not found' };
+  if (!existing) return { error: 'This semester no longer exists. Refresh the page.' };
 
   await prisma.semester.update({
     where: { id: parsed.data.semesterId },

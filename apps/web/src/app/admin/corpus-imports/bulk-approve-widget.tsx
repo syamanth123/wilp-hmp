@@ -58,8 +58,8 @@ export function BulkApproveWidget() {
         className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm"
         data-testid="corpus-bulk-approve-done"
       >
-        <strong>Approved {approvedCount} imports.</strong> They&apos;re now available to faculty via
-        auto-fetch Tier 2 for matching course codes.
+        <strong>Approved {approvedCount} past handouts.</strong> Faculty starting a handout for
+        these courses now get them as a starting draft.
         <button
           type="button"
           onClick={() => setStep('idle')}
@@ -80,12 +80,12 @@ export function BulkApproveWidget() {
       >
         <div>
           <p className="text-sm font-semibold">
-            Approve {eligibleCount} imports for faculty re-use?
+            Approve {eligibleCount} past handouts for reuse by faculty?
           </p>
           <p className="text-muted-foreground mt-1 text-xs">
-            Eligibility: MAMMOTH_STRUCTURED, ≤1 parseWarning, course number identified, not yet
-            approved. Approved imports become available via auto-fetch Tier 2 the next time faculty
-            starts a new handout for a matching course code.
+            Includes handouts that were read fully, have at most one warning, have a course number
+            and aren&apos;t approved yet. Faculty starting a handout for one of these courses will
+            get it as a starting draft.
           </p>
         </div>
         {sample.length > 0 && (
@@ -118,10 +118,10 @@ export function BulkApproveWidget() {
   return (
     <div className="flex items-center gap-3" data-testid="corpus-bulk-approve-widget">
       <Button onClick={openConfirm} disabled={pending} data-testid="corpus-bulk-approve-open">
-        {pending ? 'Counting…' : 'Approve all clean imports'}
+        {pending ? 'Counting…' : 'Approve all clean past handouts'}
       </Button>
       <span className="text-muted-foreground text-xs">
-        MAMMOTH_STRUCTURED + ≤1 warning + course identified, not yet approved
+        Read fully, at most 1 warning, course identified, not yet approved
       </span>
       {error && (
         <p className="text-destructive text-sm" data-testid="corpus-bulk-approve-error">

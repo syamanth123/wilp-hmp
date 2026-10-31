@@ -2,10 +2,10 @@
 
 Branch `hotfix/login-sme-access` = `main` + two security fixes:
 
-| Commit | Fix |
-|---|---|
+| Commit                                                                          | Fix                                                                                                                                                                         |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `fix(security): login page shows demo accounts only with SHOW_DEMO_LOGINS=true` | The login page no longer lists the demo accounts or their password and no longer pre-fills a login. The list appears only when `SHOW_DEMO_LOGINS=true` (never on a server). |
-| `fix(security): an SME can open only handouts assigned to them` | `/sme/review/<id>` shows "You don't have access to this page" to any SME who is not the assigned SME. Admins are unchanged. |
+| `fix(security): an SME can open only handouts assigned to them`                 | `/sme/review/<id>` shows "You don't have access to this page" to any SME who is not the assigned SME. Admins are unchanged.                                                 |
 
 Everything below is copy-paste for the EC2 host, run as `ubuntu` in an SSH session (PuTTY, as in
 `deploy/ONE_HOUR_DEPLOY.md` §1). It follows `docs/deployment-runbook.md` and `deploy/deploy.sh`.
@@ -28,7 +28,7 @@ before anything is changed. If you use `deploy/deploy.sh` (path A) it still runs
 ## 2. Back up
 
 **a. Database snapshot (AWS console).** RDS → Databases → the HMP database → Actions →
-*Take snapshot* → name it `hmp-before-hotfix-YYYYMMDD` → wait until its status is *Available*.
+_Take snapshot_ → name it `hmp-before-hotfix-YYYYMMDD` → wait until its status is _Available_.
 This fix doesn't touch the database; the snapshot is only a safety net.
 
 **b. Code, settings and the current build (on the server).**
@@ -79,7 +79,7 @@ pnpm --filter @hmp/db exec prisma migrate status
 - `git log` lists the commits that will go live: the two security fixes, plus any `main` commits
   the server doesn't have yet (for example the login rate-limit fix).
 - The `git diff` line must print **nothing** — no database files change.
-- `migrate status` should end with *Database schema is up to date!*
+- `migrate status` should end with _Database schema is up to date!_
 
 If `git status` shows edits, or the `git diff` line prints a migration, stop and ask before going on.
 

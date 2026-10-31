@@ -8,6 +8,9 @@ import { generateHandoutDraft, AiUnconfiguredError } from '@hmp/ai';
 import { appendVersion, renderTiptapToHtml } from '@/lib/handout-versioning';
 import { audit } from '@/lib/audit';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
+import { movedOnMessage } from '@hmp/workflow';
+import { GENERIC_ERROR } from '@/lib/form-error';
 
 const generateSchema = z.object({
   requestId: z.string().cuid(),
@@ -43,6 +46,7 @@ async function loadMyAssignment(requestId: string, facultyId: string) {
 
 export async function generateAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   // Per-user AI throttle (Prompt 20). Server action → RPC-shaped { error }, not
   // an HTTP 429. Fail-open if Redis is down.
   const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
@@ -51,13 +55,14 @@ export async function generateAiDraftAction(formData: FormData) {
     requestId: formData.get('requestId'),
     forceRefresh: formData.get('forceRefresh') === 'true',
   });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot generate from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   try {
@@ -86,35 +91,38 @@ export async function generateAiDraftAction(formData: FormData) {
     };
   } catch (err) {
     if (err instanceof AiUnconfiguredError) {
-      return { error: 'AI provider not configured. Ask admin to set AI_PROVIDER + API key.' };
+      return { error: "AI features aren't available right now." };
     }
-    return { error: err instanceof Error ? err.message : 'Draft generation failed' };
+    console.error('ai_draft_failed', err);
+    return { error: "The AI couldn't produce a usable draft. Try again." };
   }
 }
 
 export async function applyAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   const parsed = applySchema.safeParse({
     requestId: formData.get('requestId'),
     draftId: formData.get('draftId'),
   });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot apply draft from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const draft = await prisma.aIDraftLog.findUnique({
     where: { id: parsed.data.draftId },
   });
   if (!draft || draft.handoutId !== request.handout.id) {
-    return { error: 'Draft not found' };
+    return { error: 'This AI draft no longer exists. Create a new one.' };
   }
   const payload = draft.payload as { tiptapJson?: unknown } | null;
-  if (!payload?.tiptapJson) return { error: 'Draft payload is empty' };
+  if (!payload?.tiptapJson) return { error: 'This AI draft is empty. Create a new one.' };
 
   const handoutId = request.handout.id;
   const version = await prisma.$transaction(async (tx) => {
@@ -123,7 +131,7 @@ export async function applyAiDraftAction(formData: FormData) {
       handoutId,
       me.id,
       payload.tiptapJson as Prisma.InputJsonValue,
-      `AI-generated draft (${draft.source} · ${draft.model})`,
+      draft.source === 'stub' ? 'AI draft (generic template)' : 'AI draft',
     );
   });
   await audit({

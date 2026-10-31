@@ -23,10 +23,14 @@ import {
   type Queue,
 } from '@hmp/queue';
 import { FailedJobActions, ClearCompletedButton } from './queue-actions';
+import { aiFeaturesEnabled } from '@/lib/features';
+import { formatDateTime } from '@/lib/format-date';
+import { within } from '@/lib/within';
 
 export const dynamic = 'force-dynamic';
 
 const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 min
+const QUEUE_READ_LIMIT_MS = 2000;
 
 interface QueueView {
   name: 'notifications' | 'ai';
@@ -75,7 +79,8 @@ function HeartbeatBanner({ view }: { view: QueueView }) {
   if (!stale) {
     return (
       <p className="text-xs text-emerald-600">
-        ✓ Worker heartbeat {Math.round((Date.now() - view.heartbeatMs!) / 1000)}s ago
+        ✓ Background processor running (checked{' '}
+        {Math.round((Date.now() - view.heartbeatMs!) / 1000)}s ago)
       </p>
     );
   }
@@ -91,18 +96,14 @@ function HeartbeatBanner({ view }: { view: QueueView }) {
       }}
     >
       <div style={{ fontWeight: 700, color: '#9a3412', fontSize: 14 }}>
-        ⚠ Workers may not be running
+        ⚠ The background processor seems to have stopped
       </div>
       <p className="text-sm" style={{ color: '#7c2d12', margin: '4px 0 0' }}>
-        No recent heartbeat for the <strong>{view.name}</strong> queue
+        Nothing has been picked up from this list recently
         {view.heartbeatMs
-          ? ` (last seen ${Math.round((Date.now() - view.heartbeatMs) / 60000)} min ago)`
+          ? ` (last activity ${Math.round((Date.now() - view.heartbeatMs) / 60000)} min ago)`
           : ''}
-        . Jobs will queue but not process until a worker is started. See the{' '}
-        <Link href="/docs" className="underline underline-offset-2">
-          deployment runbook
-        </Link>{' '}
-        — run <code>pnpm workers</code> alongside the web service.
+        . Waiting jobs will be sent once IT restarts the background processor.
       </p>
     </div>
   );
@@ -113,7 +114,7 @@ function QueueCard({ view }: { view: QueueView }) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="capitalize">{view.name} queue</CardTitle>
+          <CardTitle>{view.name === 'ai' ? 'AI reports' : 'Emails and alerts'}</CardTitle>
           <ClearCompletedButton queue={view.name} />
         </div>
         <CardDescription>
@@ -122,24 +123,25 @@ function QueueCard({ view }: { view: QueueView }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {view.error ? (
-          <p className="text-destructive text-sm">Queue unavailable: {view.error}</p>
+          <p className="text-destructive text-sm">
+            Couldn&apos;t read the background jobs right now. Refresh the page in a minute.
+          </p>
         ) : (
           <>
             <div className="flex flex-wrap gap-2 text-sm">
-              <Badge variant="secondary">waiting {view.counts.waiting}</Badge>
-              <Badge variant="secondary">active {view.counts.active}</Badge>
-              <Badge variant="success">completed {view.counts.completed}</Badge>
+              <Badge variant="secondary">Waiting {view.counts.waiting}</Badge>
+              <Badge variant="secondary">Running {view.counts.active}</Badge>
+              <Badge variant="success">Done {view.counts.completed}</Badge>
               <Badge variant={view.counts.failed > 0 ? 'destructive' : 'outline'}>
-                failed {view.counts.failed}
+                Failed {view.counts.failed}
               </Badge>
             </div>
 
             {view.name === 'notifications' && (
               <p className="text-muted-foreground text-xs">
-                Per-recipient delivery status (SENT / FAILED) is tracked on the Notification rows,
-                not here — this view shows job-level processing only.{' '}
+                To see whether each person got a message, open{' '}
                 <Link href="/admin/notifications" className="underline underline-offset-2">
-                  View notification delivery →
+                  Notifications →
                 </Link>
               </p>
             )}
@@ -150,7 +152,7 @@ function QueueCard({ view }: { view: QueueView }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Job ID</TableHead>
+                    <TableHead>Reference</TableHead>
                     <TableHead>Error</TableHead>
                     <TableHead>Attempts</TableHead>
                     <TableHead>Failed</TableHead>
@@ -164,7 +166,7 @@ function QueueCard({ view }: { view: QueueView }) {
                       <TableCell className="max-w-sm text-xs">{j.reason || '—'}</TableCell>
                       <TableCell className="text-xs">{j.attempts}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">
-                        {j.failedAt ? new Date(j.failedAt).toLocaleString() : '—'}
+                        {j.failedAt ? formatDateTime(j.failedAt) : '—'}
                       </TableCell>
                       <TableCell>
                         <FailedJobActions queue={view.name} jobId={j.id} />
@@ -188,29 +190,54 @@ export default async function AdminQueuesPage() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Queues</CardTitle>
-          <CardDescription>Background job queues (BullMQ / Redis).</CardDescription>
+          <CardTitle>Background jobs</CardTitle>
+          <CardDescription>Emails waiting to be sent in the background.</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-sm">
-            Redis is not configured (<code>REDIS_URL</code> unset). Notifications and AI reports run
-            synchronously inline; there are no queues to inspect. Set <code>REDIS_URL</code> and run{' '}
-            <code>pnpm workers</code> to enable background processing.
+            Background processing is off on this server, so emails are sent straight away.
+            There&apos;s nothing to show here.
           </p>
         </CardContent>
       </Card>
     );
   }
 
-  const [notifications, ai] = await Promise.all([
-    loadQueue('notifications', getNotificationsQueue()),
-    loadQueue('ai', getAiQueue()),
-  ]);
+  // The AI queue is shown only with AI_FEATURES_ENABLED=true.
+  const aiEnabled = aiFeaturesEnabled();
+  // Redis that is configured but not running makes queue reads wait forever
+  // for a connection; stop waiting after 2 seconds and say so.
+  const loaded = await within(
+    () =>
+      Promise.all([
+        loadQueue('notifications', getNotificationsQueue()),
+        aiEnabled ? loadQueue('ai', getAiQueue()) : Promise.resolve(null),
+      ]),
+    QUEUE_READ_LIMIT_MS,
+  );
+  if (!loaded.ok || loaded.value[0].error) {
+    return (
+      <Card data-testid="background-jobs-unavailable">
+        <CardHeader>
+          <CardTitle>Background jobs</CardTitle>
+          <CardDescription>Emails waiting to be sent in the background.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm font-medium">Background jobs are not running on this server.</p>
+          <p className="text-muted-foreground mt-1 text-sm">
+            The background service didn&apos;t answer, so nothing can be shown here. Ask IT to check
+            that it is running.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  const [notifications, ai] = loaded.value;
 
   return (
     <div className="space-y-4">
       <QueueCard view={notifications} />
-      <QueueCard view={ai} />
+      {ai && <QueueCard view={ai} />}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { existsSync, statSync } from 'node:fs';
 import { z } from 'zod';
+import { GENERIC_ERROR, formError } from '@/lib/form-error';
 
 /**
  * Corpus-import admin actions (Prompts 11f-a + 11f-b2). All gated to ADMIN.
@@ -49,14 +50,14 @@ export async function runCorpusImportAction(formData: FormData) {
     corpusPath: formData.get('corpusPath'),
     limit: formData.get('limit') || undefined,
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   if (!existsSync(parsed.data.corpusPath)) {
-    return { error: `Corpus path does not exist on the server: ${parsed.data.corpusPath}` };
+    return { error: `That folder was not found on the server: ${parsed.data.corpusPath}` };
   }
   const st = statSync(parsed.data.corpusPath);
   if (!st.isDirectory()) {
-    return { error: `Corpus path is not a directory: ${parsed.data.corpusPath}` };
+    return { error: `That path is a file, not a folder: ${parsed.data.corpusPath}` };
   }
 
   const summary = await runCorpusImport(prisma, parsed.data.corpusPath, {
@@ -85,13 +86,13 @@ const idSchema = z.object({ id: z.string().cuid() });
 export async function reParseImportAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.ADMIN);
   const parsed = idSchema.safeParse({ id: formData.get('id') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const existing = await prisma.handoutImport.findUnique({ where: { id: parsed.data.id } });
-  if (!existing) return { error: 'Import not found' };
+  if (!existing) return { error: 'This upload no longer exists. Refresh the page.' };
 
   if (!existsSync(existing.sourceFile)) {
-    return { error: `Source file no longer at recorded path: ${existing.sourceFile}` };
+    return { error: `The original Word file has been moved or deleted: ${existing.sourceFile}` };
   }
 
   const result = await parseDocxFile(existing.sourceFile);
@@ -129,7 +130,7 @@ export async function reParseImportAction(formData: FormData) {
 export async function deleteImportAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.ADMIN);
   const parsed = idSchema.safeParse({ id: formData.get('id') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const existing = await prisma.handoutImport.findUnique({ where: { id: parsed.data.id } });
   if (!existing) return { ok: true }; // already gone
@@ -226,7 +227,7 @@ export async function bulkApproveEligibleAction() {
 export async function approveImportAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.ADMIN);
   const parsed = idSchema.safeParse({ id: formData.get('id') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const updated = await prisma.handoutImport.update({
     where: { id: parsed.data.id },
@@ -251,7 +252,7 @@ export async function approveImportAction(formData: FormData) {
 export async function rejectImportAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.ADMIN);
   const parsed = idSchema.safeParse({ id: formData.get('id') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const existing = await prisma.handoutImport.findUnique({ where: { id: parsed.data.id } });
   if (!existing) return { ok: true };

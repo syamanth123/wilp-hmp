@@ -1,20 +1,26 @@
 import Link from 'next/link';
 import { prisma } from '@hmp/db';
-import type { HandoutStatus } from '@hmp/db';
+import { statusLabel } from '@/components/status-badge';
+import { aiFeaturesEnabled } from '@/lib/features';
+import { actionSentence, entityLabel } from '@/lib/labels';
+import { SYSTEM_ACTIONS } from '@/lib/labels';
 
 function StatCard({
   label,
   value,
   sub,
   icon,
+  href,
 }: {
   label: string;
   value: number | string;
   sub: string;
   icon: React.ReactNode;
+  /** The list this number counts. */
+  href?: string;
 }) {
-  return (
-    <div className="glass-stat rounded-[10px] p-[18px_20px]">
+  const body = (
+    <div className="glass-stat h-full rounded-[10px] p-[18px_20px]">
       <div className="stat-accent">{icon}</div>
       <div
         style={{
@@ -37,10 +43,17 @@ function StatCard({
           color: 'var(--bits-navy)',
         }}
       >
-        {value}
+        <span data-testid="stat-value">{value}</span>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sub}</div>
     </div>
+  );
+  return href ? (
+    <Link href={href} data-testid="stat-card" className="block no-underline hover:opacity-90">
+      {body}
+    </Link>
+  ) : (
+    body
   );
 }
 
@@ -210,28 +223,17 @@ function timeAgo(date: Date): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const STATUS_LABELS: Partial<Record<HandoutStatus, string>> = {
-  DRAFT: 'Draft',
-  REQUESTED: 'Requested',
-  ALLOCATED: 'Allocated',
-  ASSIGNED: 'Assigned',
-  IN_PROGRESS: 'In Progress',
-  SUBMITTED: 'Submitted',
-  UNDER_REVIEW: 'Under Review',
-  APPROVED: 'Approved',
-  PUBLISHED: 'Published',
-  ARCHIVED: 'Archived',
-  REJECTED: 'Rejected',
-};
-
 export default async function AdminOverview() {
   const [users, programmes, courses, requests, audits, recentAudit, byStatus] = await Promise.all([
-    prisma.user.count(),
+    // "Active accounts" = active users only; the card links to that list.
+    prisma.user.count({ where: { active: true } }),
     prisma.programme.count(),
     prisma.course.count(),
     prisma.handoutRequest.count(),
     prisma.auditLog.count(),
     prisma.auditLog.findMany({
+      // People's actions only; system notices stay in the audit log.
+      where: { action: { notIn: SYSTEM_ACTIONS } },
       orderBy: { createdAt: 'desc' },
       take: 6,
       select: {
@@ -246,6 +248,7 @@ export default async function AdminOverview() {
     prisma.handoutRequest.groupBy({ by: ['status'], _count: { _all: true } }),
   ]);
 
+  const aiEnabled = aiFeaturesEnabled();
   const aiProvider = process.env['AI_PROVIDER'] ?? 'not configured';
   const totalRequests = requests || 1; // avoid div/0
 
@@ -263,7 +266,7 @@ export default async function AdminOverview() {
               margin: 0,
             }}
           >
-            Admin Overview
+            Admin overview
           </h1>
           <p style={{ color: 'var(--muted)', marginTop: 4, fontSize: 14 }}>
             System health, user management, and configuration.
@@ -276,10 +279,27 @@ export default async function AdminOverview() {
 
       {/* Stat cards */}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Users" value={users} sub="Active accounts" icon={<UsersIcon />} />
+        <StatCard
+          label="Users"
+          value={users}
+          sub="Active accounts"
+          icon={<UsersIcon />}
+          href="/admin/users?show=active"
+        />
         <StatCard label="Programmes" value={programmes} sub="Configured" icon={<ProgIcon />} />
-        <StatCard label="Courses" value={courses} sub="Master catalog" icon={<FileIcon />} />
-        <StatCard label="Handout Requests" value={requests} sub="Lifetime" icon={<ShieldIcon />} />
+        <StatCard
+          label="Courses"
+          value={courses}
+          sub="In the course catalogue"
+          icon={<FileIcon />}
+        />
+        <StatCard
+          label="Handout requests"
+          value={requests}
+          sub="All time"
+          icon={<ShieldIcon />}
+          href="/ic/requests"
+        />
       </div>
 
       {/* Two-column panels */}
@@ -309,14 +329,11 @@ export default async function AdminOverview() {
                   <LogIcon />
                 </div>
                 <div className="row-body">
-                  <div
-                    className="row-title"
-                    style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
-                  >
-                    {r.action}
+                  <div className="row-title" style={{ fontSize: 13 }}>
+                    {actionSentence(r.action)}
                   </div>
                   <div className="row-meta">
-                    {r.actor?.name ?? r.actor?.email ?? '—'} · {r.entity}
+                    {r.actor?.name ?? r.actor?.email ?? 'Automatic'} · {entityLabel(r.entity)}
                   </div>
                 </div>
                 <span className="row-time">{timeAgo(new Date(r.createdAt))}</span>
@@ -338,7 +355,7 @@ export default async function AdminOverview() {
                   <div key={row.status}>
                     <div className="mb-1 flex justify-between text-sm">
                       <span style={{ fontWeight: 500, color: 'var(--ink-2)' }}>
-                        {STATUS_LABELS[row.status] ?? row.status}
+                        {statusLabel(row.status)}
                       </span>
                       <span
                         style={{
@@ -378,25 +395,27 @@ export default async function AdminOverview() {
               <span className="qa-icon">
                 <UploadIcon />
               </span>
-              ERP import
+              Import academic data
             </Link>
             <Link href="/admin/workflow" className="quick-action">
               <span className="qa-icon">
                 <CheckIcon />
               </span>
-              Workflow config
+              Time limits & workflow
             </Link>
-            <Link href="/admin/ai-metrics" className="quick-action">
-              <span className="qa-icon">
-                <CpuIcon />
-              </span>
-              AI metrics
-            </Link>
+            {aiEnabled && (
+              <Link href="/admin/ai-metrics" className="quick-action">
+                <span className="qa-icon">
+                  <CpuIcon />
+                </span>
+                AI metrics
+              </Link>
+            )}
             <Link href="/admin/corpus-imports" className="quick-action">
               <span className="qa-icon">
                 <FileIcon />
               </span>
-              Corpus imports
+              Past handouts library
             </Link>
           </div>
         </div>
@@ -407,8 +426,7 @@ export default async function AdminOverview() {
           </div>
           <div className="panel-body flex flex-col gap-3">
             {[
-              { label: 'Node.js', value: process.version },
-              { label: 'AI provider', value: aiProvider },
+              ...(aiEnabled ? [{ label: 'AI provider', value: aiProvider }] : []),
               { label: 'Audit log entries', value: audits.toString() },
               { label: 'Total requests', value: requests.toString() },
             ].map((item) => (

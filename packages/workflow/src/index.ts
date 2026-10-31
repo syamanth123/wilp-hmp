@@ -10,6 +10,7 @@ export {
 } from './guards';
 export type { FacultyLoad } from './guards';
 export { transition } from './transition';
+export { STATUS_LABEL, statusLabel, movedOnMessage } from './labels';
 export type {
   TransitionActor,
   TransitionInput,

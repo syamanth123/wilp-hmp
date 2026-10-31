@@ -12,7 +12,7 @@ import {
   type BitsHandoutV1,
 } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { transition, WorkflowError } from '@hmp/workflow';
+import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
 import { appendStructuredVersion } from '@/lib/handout-versioning';
 import { audit } from '@/lib/audit';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
@@ -20,6 +20,8 @@ import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError, generateStructuredHandoutDraft } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
 import { blankHandoutForRequest } from './structured-editor/state';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
+import { GENERIC_ERROR } from '@/lib/form-error';
 
 /**
  * Server actions for the Prompt 11d structured editor. Mirrors the shape of
@@ -66,6 +68,22 @@ async function loadMyAssignment(requestId: string, facultyId: string) {
  * either the parsed value or a Zod error message suitable for surfacing in
  * the editor's sticky banner.
  */
+/** Handout sections by their place in the saved data, for plain error messages. */
+const SECTION_NAME: Record<string, string> = {
+  metadata: 'Handout details',
+  partA: 'Course details',
+  partB: 'Course plan',
+  experientialLearning: 'Experiential learning',
+  evaluation: 'Evaluation scheme',
+  importantLinks: 'Important notes',
+  evaluationGuidelines: 'Evaluation guidelines',
+};
+
+function sectionProblem(issue: { path: (string | number)[]; message: string } | undefined) {
+  const section = SECTION_NAME[String(issue?.path[0] ?? '')] ?? 'The handout';
+  return `${section}: something is missing or not filled in correctly. Check that section, then save again.`;
+}
+
 function parseDataField(
   formData: FormData,
 ): { ok: true; data: BitsHandoutV1 } | { ok: false; error: string } {
@@ -73,13 +91,13 @@ function parseDataField(
   try {
     raw = JSON.parse(String(formData.get('data') ?? ''));
   } catch {
-    return { ok: false, error: 'Invalid handout JSON' };
+    return { ok: false, error: GENERIC_ERROR };
   }
   const parsed = BitsHandoutSchemaV1.safeParse(raw);
   if (!parsed.success) {
-    const first = parsed.error.issues[0];
-    const path = first?.path.join('.') ?? '(root)';
-    return { ok: false, error: `${path}: ${first?.message ?? 'invalid'}` };
+    // The editor blocks most problems before saving; anything left is named
+    // by section, never by internal field path.
+    return { ok: false, error: sectionProblem(parsed.error.issues[0]) };
   }
   return { ok: true, data: parsed.data };
 }
@@ -87,16 +105,17 @@ function parseDataField(
 export async function saveStructuredDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const requestIdParse = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!requestIdParse.success) return { error: 'Invalid input' };
+  if (!requestIdParse.success) return { error: GENERIC_ERROR };
   const dataParse = parseDataField(formData);
   if (!dataParse.ok) return { error: dataParse.error };
   const notes = String(formData.get('notes') ?? '').slice(0, 1000);
 
   const request = await loadMyAssignment(requestIdParse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot save from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const handoutId = request.handout.id;
@@ -120,16 +139,17 @@ export async function saveStructuredDraftAction(formData: FormData) {
 export async function submitStructuredForReviewAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const requestIdParse = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!requestIdParse.success) return { error: 'Invalid input' };
+  if (!requestIdParse.success) return { error: GENERIC_ERROR };
   const dataParse = parseDataField(formData);
   if (!dataParse.ok) return { error: dataParse.error };
   const notes = String(formData.get('notes') ?? '').slice(0, 1000);
 
   const request = await loadMyAssignment(requestIdParse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot submit from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   // 11f-b2 submit-time CO/LO validation. The schema (relaxed in 11f-b2)
@@ -202,36 +222,39 @@ export async function submitStructuredForReviewAction(formData: FormData) {
   // legacy submitForReviewAction (see actions.ts) — queue when
   // WORKERS_ENABLED, otherwise run inline. AiUnconfiguredError swallowed
   // because the noop AI provider is a normal CI / dev state.
-  try {
-    const handoutAfter = await prisma.handout.findUnique({
-      where: { id: request.handout.id },
-      select: { currentVersionId: true },
-    });
-    if (handoutAfter?.currentVersionId) {
-      const versionId = handoutAfter.currentVersionId;
-      let queued = false;
-      if (process.env.WORKERS_ENABLED === 'true') {
-        try {
-          await enqueueAiJob({
-            kind: 'quality_report',
-            handoutVersionId: versionId,
-            requestId: request.id,
-          });
-          queued = true;
-        } catch (err) {
-          console.error('quality_check_enqueue_failed — running inline', err);
+  // Quality report on submit only with AI switched on (AI_FEATURES_ENABLED).
+  if (aiFeaturesEnabled()) {
+    try {
+      const handoutAfter = await prisma.handout.findUnique({
+        where: { id: request.handout.id },
+        select: { currentVersionId: true },
+      });
+      if (handoutAfter?.currentVersionId) {
+        const versionId = handoutAfter.currentVersionId;
+        let queued = false;
+        if (process.env.WORKERS_ENABLED === 'true') {
+          try {
+            await enqueueAiJob({
+              kind: 'quality_report',
+              handoutVersionId: versionId,
+              requestId: request.id,
+            });
+            queued = true;
+          } catch (err) {
+            console.error('quality_check_enqueue_failed — running inline', err);
+          }
+        }
+        if (!queued) {
+          await runQualityReport(
+            { handoutVersionId: versionId, bypassRateLimit: true },
+            { actorId: me.id },
+          );
         }
       }
-      if (!queued) {
-        await runQualityReport(
-          { handoutVersionId: versionId, bypassRateLimit: true },
-          { actorId: me.id },
-        );
+    } catch (err) {
+      if (!(err instanceof AiUnconfiguredError)) {
+        console.error('quality_check_on_submit_failed', err);
       }
-    }
-  } catch (err) {
-    if (!(err instanceof AiUnconfiguredError)) {
-      console.error('quality_check_on_submit_failed', err);
     }
   }
 
@@ -252,7 +275,7 @@ export async function submitStructuredForReviewAction(formData: FormData) {
 export async function resetToEmptyTemplateAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const parse = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parse.success) return { error: 'Invalid input' };
+  if (!parse.success) return { error: GENERIC_ERROR };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parse.data.requestId },
@@ -262,13 +285,14 @@ export async function resetToEmptyTemplateAction(formData: FormData) {
       assignments: { where: { facultyId: me.id, active: true }, take: 1 },
     },
   });
-  if (!request || request.assignments.length === 0) return { error: 'Assignment not found' };
-  if (!request.handout?.currentVersion) return { error: 'Editing has not started yet' };
+  if (!request || request.assignments.length === 0)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout?.currentVersion) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot reset from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
   if (request.handout.currentVersion.versionNo !== 1) {
-    return { error: 'Reset is only available on the initial version (before first save)' };
+    return { error: 'You can only start again from a blank handout before your first save.' };
   }
 
   const data = blankHandoutForRequest({
@@ -289,7 +313,7 @@ export async function resetToEmptyTemplateAction(formData: FormData) {
     data: {
       data: data as unknown as Prisma.InputJsonValue,
       contentHtml,
-      notes: 'Reset to empty template (auto-fetch declined).',
+      notes: 'Restarted from a blank handout.',
     },
   });
   await audit({
@@ -319,7 +343,7 @@ export async function resetToEmptyTemplateAction(formData: FormData) {
 export async function convertToStructuredAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const parse = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parse.success) return { error: 'Invalid input' };
+  if (!parse.success) return { error: GENERIC_ERROR };
 
   const request = await prisma.handoutRequest.findUnique({
     where: { id: parse.data.requestId },
@@ -329,11 +353,13 @@ export async function convertToStructuredAction(formData: FormData) {
       assignments: { where: { facultyId: me.id, active: true }, take: 1 },
     },
   });
-  if (!request) return { error: 'Assignment not found' };
-  if (request.assignments.length === 0) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (request.assignments.length === 0)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot convert from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const data = blankHandoutForRequest({
@@ -347,13 +373,7 @@ export async function convertToStructuredAction(formData: FormData) {
   });
   const handoutId = request.handout.id;
   const version = await prisma.$transaction(async (tx) => {
-    return appendStructuredVersion(
-      tx,
-      handoutId,
-      me.id,
-      data,
-      'Converted to structured editor (Prompt 11d).',
-    );
+    return appendStructuredVersion(tx, handoutId, me.id, data, 'Switched to the new editor.');
   });
   await audit({
     actorId: me.id,
@@ -383,6 +403,7 @@ export async function convertToStructuredAction(formData: FormData) {
  */
 export async function generateStructuredAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   // Per-user AI throttle (Prompt 20). RPC-shaped { error }, fail-open.
   const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
   if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };
@@ -395,13 +416,14 @@ export async function generateStructuredAiDraftAction(formData: FormData) {
       requestId: formData.get('requestId'),
       forceRefresh: formData.get('forceRefresh') === 'true',
     });
-  if (!parse.success) return { error: 'Invalid input' };
+  if (!parse.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot generate from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   try {
@@ -429,9 +451,10 @@ export async function generateStructuredAiDraftAction(formData: FormData) {
     };
   } catch (err) {
     if (err instanceof AiUnconfiguredError) {
-      return { error: 'AI provider not configured. Ask admin to set AI_PROVIDER + API key.' };
+      return { error: "AI features aren't available right now." };
     }
-    return { error: err instanceof Error ? err.message : 'Structured draft generation failed' };
+    console.error('structured_ai_draft_failed', err);
+    return { error: "The AI couldn't produce a usable draft. Try again." };
   }
 }
 
@@ -444,33 +467,32 @@ export async function generateStructuredAiDraftAction(formData: FormData) {
  */
 export async function applyStructuredAiDraftAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   const parse = z.object({ requestId: z.string().cuid(), draftId: z.string().cuid() }).safeParse({
     requestId: formData.get('requestId'),
     draftId: formData.get('draftId'),
   });
-  if (!parse.success) return { error: 'Invalid input' };
+  if (!parse.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parse.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot apply structured draft from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const draft = await prisma.aIDraftLog.findUnique({ where: { id: parse.data.draftId } });
   if (!draft || draft.handoutId !== request.handout.id) {
-    return { error: 'Draft not found' };
+    return { error: 'This AI draft no longer exists. Create a new one.' };
   }
   const payload = draft.payload as { data?: unknown } | null;
   if (!payload?.data) {
-    return { error: 'Draft has no structured data — was this a legacy TipTap draft?' };
+    return { error: "This AI draft can't be used in the new editor. Create a new one." };
   }
   const parsedData = BitsHandoutSchemaV1.safeParse(payload.data);
   if (!parsedData.success) {
-    const first = parsedData.error.issues[0];
-    return {
-      error: `Draft data is malformed: ${first?.path.join('.') ?? '(root)'}: ${first?.message ?? 'invalid'}`,
-    };
+    return { error: 'This AI draft is incomplete. Create a new one.' };
   }
 
   const handoutId = request.handout.id;
@@ -480,7 +502,7 @@ export async function applyStructuredAiDraftAction(formData: FormData) {
       handoutId,
       me.id,
       parsedData.data,
-      `AI-generated structured draft (${draft.source} · ${draft.model})`,
+      draft.source === 'stub' ? 'AI draft (generic template)' : 'AI draft',
     );
   });
   await audit({

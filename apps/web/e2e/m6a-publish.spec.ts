@@ -48,7 +48,7 @@ test.describe('IC publish (Mode B — export + manual confirm)', () => {
     await signIn(page, 'ic@hmp.local');
     await page.goto(`/ic/requests/${requestId}`);
 
-    await expect(page.getByText(/^Approved$/).first()).toBeVisible();
+    await expect(page.locator('[data-status="APPROVED"]').first()).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Publish to LMS' })).toBeVisible();
 
     // Step 1 — publish → Mode B export. Request stays APPROVED.
@@ -62,7 +62,7 @@ test.describe('IC publish (Mode B — export + manual confirm)', () => {
     const downloadLink = page.getByRole('link', { name: /download the export package/i });
     await expect(downloadLink).toBeVisible();
     // Status is still APPROVED (NOT auto-published).
-    await expect(page.getByText(/^Approved$/).first()).toBeVisible();
+    await expect(page.locator('[data-status="APPROVED"]').first()).toBeVisible();
 
     // Step 2 — the presigned link resolves against MinIO (HEAD → 200).
     const href = await downloadLink.getAttribute('href');
@@ -78,6 +78,6 @@ test.describe('IC publish (Mode B — export + manual confirm)', () => {
     await expect(page.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByText(/^Published$/).first()).toBeVisible();
+    await expect(page.locator('[data-status="PUBLISHED"]').first()).toBeVisible();
   });
 });

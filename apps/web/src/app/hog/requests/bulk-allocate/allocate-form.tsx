@@ -62,8 +62,8 @@ export function BulkAllocateForm() {
       {result?.status === 'success' && (
         <div className="space-y-2" data-testid="bulk-success">
           <p className="text-sm text-emerald-600">
-            Allocated {result.allocated} request{result.allocated === 1 ? '' : 's'} (status
-            ALLOCATED).
+            Allocated {result.allocated} request{result.allocated === 1 ? '' : 's'} and sent
+            {result.allocated === 1 ? ' it' : ' them'} to the Programme Committee.
           </p>
           <RefNoList refNos={result.refNos} />
         </div>
@@ -81,8 +81,8 @@ export function BulkAllocateForm() {
               allocated
             </p>
             <p className="text-muted-foreground text-xs">
-              These failed at the transition step (e.g. a concurrent status change). The others
-              committed. Re-upload just these rows.
+              These couldn't be allocated, possibly because someone changed them at the same moment.
+              The others were saved. Upload just these rows again.
             </p>
             <ul className="mt-1 text-xs">
               {result.failed.map((f) => (
@@ -104,9 +104,8 @@ export function BulkAllocateForm() {
           </p>
           <ol className="space-y-1 text-sm">
             {result.errors.map((e, i) => (
-              <li key={i} className="rounded-md border p-2">
-                <span className="font-mono text-xs">line {e.line}</span>{' '}
-                <span className="text-muted-foreground text-xs">[{e.code}]</span>
+              <li key={i} className="rounded-md border p-2" data-code={e.code}>
+                <span className="text-xs font-medium">Row {e.line}</span>
                 {e.field ? (
                   <span className="text-muted-foreground text-xs"> · {e.field}</span>
                 ) : null}

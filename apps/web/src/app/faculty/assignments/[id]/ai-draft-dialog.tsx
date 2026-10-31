@@ -77,7 +77,7 @@ export function AiDraftDialog({ requestId, open, onClose, onApplied }: Props) {
 
   const sourceLabel =
     draft?.source === 'stub'
-      ? 'Template stub (AI provider not configured)'
+      ? "Generic template (AI isn't available)"
       : draft?.source === 'cache'
         ? 'Reused recent draft'
         : 'AI-generated';
@@ -150,7 +150,7 @@ export function AiDraftDialog({ requestId, open, onClose, onApplied }: Props) {
 
         <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto' }}>
           {pending && !draft && (
-            <p className="text-sm text-muted-foreground">Drafting your handout…</p>
+            <p className="text-muted-foreground text-sm">Drafting your handout…</p>
           )}
 
           {error && (
@@ -187,7 +187,7 @@ export function AiDraftDialog({ requestId, open, onClose, onApplied }: Props) {
                 }}
               >
                 <span>
-                  <strong>{sourceLabel}</strong> · model: <code>{draft.model}</code>
+                  <strong>{sourceLabel}</strong>
                 </span>
                 <button
                   type="button"
@@ -209,7 +209,7 @@ export function AiDraftDialog({ requestId, open, onClose, onApplied }: Props) {
               </div>
 
               <article
-                className="prose prose-sm max-w-none rounded-md border bg-background p-4"
+                className="prose prose-sm bg-background max-w-none rounded-md border p-4"
                 dangerouslySetInnerHTML={{ __html: draft.previewHtml }}
               />
             </>

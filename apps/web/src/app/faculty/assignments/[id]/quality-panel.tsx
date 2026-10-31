@@ -19,8 +19,8 @@ export function QualityPanel({ requestId }: { requestId: string }) {
       } else if ('ok' in r && r.ok) {
         setStatus({
           message: r.cached
-            ? `Cached report shown (score ${((r.score ?? 0) * 100).toFixed(0)}).`
-            : `Fresh report ready (score ${((r.score ?? 0) * 100).toFixed(0)}).`,
+            ? `Showing your latest report (score ${((r.score ?? 0) * 100).toFixed(0)}).`
+            : `New report ready (score ${((r.score ?? 0) * 100).toFixed(0)}).`,
           tone: 'ok',
         });
       }
@@ -33,7 +33,9 @@ export function QualityPanel({ requestId }: { requestId: string }) {
         {pending ? 'Running…' : 'Run quality check'}
       </Button>
       {status && (
-        <p className={`text-sm ${status.tone === 'error' ? 'text-destructive' : 'text-emerald-700'}`}>
+        <p
+          className={`text-sm ${status.tone === 'error' ? 'text-destructive' : 'text-emerald-700'}`}
+        >
           {status.message}
         </p>
       )}

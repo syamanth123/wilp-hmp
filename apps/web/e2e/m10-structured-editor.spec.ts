@@ -6,14 +6,14 @@ import { test, expect, type Page } from '@playwright/test';
 //   - 11e auto-fetch: "Start editing" lands on the structured editor with the
 //     AutoFetchBanner (tier=empty for this fresh-DB test path), dismiss
 //     strips the search param so the banner doesn't reappear
-//   - Part A: course title, COs, T-books, LOs
-//   - Part B: sub-topics chip list (add 2, remove 1), references typeahead
-//     (suggestions from Part A's T-codes)
-//   - Experiential: enable section, edit overall objective
+//   - Course details table, COs (add, delete, auto-renumber), T-books, LOs —
+//     all edited in place on the document page (handout-editor-ux)
+//   - Course plan: topic, sub-topics one per line, references
+//   - Experiential: enable the optional section
 //   - Evaluation: live 100% validator — Save button DISABLED until weights
 //     sum to 100 (the load-bearing 11d-b business rule per the watch-items)
-//   - AI dialog: opens with stub draft (CI runs without AI keys)
-//   - Save → Preview matches → reload → state persisted
+//   - AI features off by default: no AI draft in the More menu
+//   - Save → full-screen Preview matches → reload → state persisted
 //
 // The legacy ConvertBanner path (data:null → click Convert → structured) is
 // no longer exercised here — 11e routes new handouts directly to the
@@ -38,7 +38,7 @@ async function signOut(page: Page) {
   await page.context().clearCookies();
 }
 
-test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A → chips → eval 100% block → AI → preview → reload)', async ({
+test('Structured editor — full flow on the document page (auto-fetch banner → course details → tables → eval 100% block → preview → reload)', async ({
   page,
 }) => {
   // -------- Setup: IC → HOG → PC → Faculty start editing → Convert --------
@@ -61,20 +61,22 @@ test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A �
   // Prompt 12-b: SME is mandatory at allocation. Pick the first seeded SME.
   await page.getByTestId('sme-picker').selectOption({ index: 1 });
   await page.getByRole('button', { name: /allocate/i }).click();
-  await expect(page.getByText(/ALLOCATED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ALLOCATED"]').first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 
   await signIn(page, 'pc@hmp.local');
   await page.goto(`/pc/requests/${requestId}`);
   await page.getByRole('button', { name: /confirm allocation/i }).click();
-  await expect(page.getByText(/ASSIGNED/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="ASSIGNED"]').first()).toBeVisible({ timeout: 10_000 });
   await signOut(page);
 
   await signIn(page, 'faculty@hmp.local');
   await page.goto(`/faculty/assignments/${requestId}`);
   await page.getByRole('button', { name: /accept assignment/i }).click();
   await page.getByRole('button', { name: /start editing/i }).click();
-  await expect(page.getByText(/IN_PROGRESS/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-status="IN_PROGRESS"]').first()).toBeVisible({
+    timeout: 10_000,
+  });
   // 11e auto-fetch: the redirect after startEditingAction adds
   // `?autoFetched=empty` to the URL; the banner renders above the structured
   // editor. In a fresh-DB test path there's no prior version for this course,
@@ -83,7 +85,7 @@ test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A �
   const banner = page.getByTestId('bits-autofetch-banner');
   await expect(banner).toBeVisible();
   await expect(banner).toHaveAttribute('data-tier', 'empty');
-  await expect(banner).toContainText(/Empty template/i);
+  await expect(banner).toContainText(/Started from a blank handout/i);
   // Dismiss the banner → router.replace strips the search params → banner
   // doesn't reappear on subsequent renders (verified again after Save below).
   await page.getByTestId('bits-autofetch-dismiss').click();
@@ -109,35 +111,25 @@ test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A �
 
   await page.getByTestId('bits-LO-text-0').fill('Save a structured handout');
 
-  // -------- Part B: title + chip-list sub-topics + references with typeahead --------
+  // Codes renumber themselves: delete CO1 and the old CO2 becomes CO1.
+  await page.getByTestId('bits-CO-add').click();
+  await page.getByTestId('bits-CO-text-2').fill('Temporary objective');
+  await page.getByTestId('bits-CO-row-2').hover();
+  await page.getByTestId('bits-CO-del-2').click();
+  await expect(page.getByTestId('bits-CO-row-2')).toHaveCount(0);
+
+  // -------- Course plan: topic, sub-topics one per line, references --------
   await page.getByTestId('bits-partb-title-0').fill('Introduction to structured authoring');
+  await page.getByTestId('bits-partb-subtopics-0').fill('Chips and pills\nFaculty workflow');
+  await page.getByTestId('bits-partb-refs-0').fill('T1, R1');
 
-  // Sub-topics: add 2 chips via Enter, then remove the first.
-  const subInput = page.getByTestId('bits-partb-subtopics-0-input');
-  await subInput.fill('Chips and pills');
-  await subInput.press('Enter');
-  await subInput.fill('Faculty workflow');
-  await subInput.press('Enter');
-  await expect(page.getByTestId('bits-partb-subtopics-0-chip-0')).toContainText('Chips and pills');
-  await expect(page.getByTestId('bits-partb-subtopics-0-chip-1')).toContainText('Faculty workflow');
-  // Remove the first chip — the second slides into index 0.
-  await page.getByTestId('bits-partb-subtopics-0-chip-0').getByRole('button').click();
-  await expect(page.getByTestId('bits-partb-subtopics-0-chip-0')).toContainText('Faculty workflow');
-
-  // References: type "T1", commit, verify chip appears.
-  const refInput = page.getByTestId('bits-partb-refs-0-input');
-  await refInput.fill('T1');
-  await refInput.press('Enter');
-  await expect(page.getByTestId('bits-partb-refs-0-chip-0')).toContainText('T1');
-
-  // Add a 2nd session via the Add button — verifies the repeater works.
+  // Add a 2nd session via "+ Add session" — verifies the repeater works.
   await page.getByTestId('bits-partb-add').click();
   await page.getByTestId('bits-partb-title-1').fill('Second contact session');
 
-  // -------- Experiential: enable section, verify the toggle works --------
+  // -------- Experiential: enable the optional section --------
   await page.getByTestId('bits-experiential-toggle').click();
-  // After toggling on, the toggle button text flips to "Remove section".
-  await expect(page.getByTestId('bits-experiential-toggle')).toContainText('Remove section');
+  await expect(page.getByTestId('bits-experiential')).toContainText('List of Experiments');
 
   // -------- Evaluation: the load-bearing 11d-b business rule --------
   //
@@ -149,7 +141,7 @@ test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A �
   // weight is 0% on first open. Save must be disabled here.
   const saveBtn = page.getByTestId('bits-save-button');
   await expect(saveBtn).toBeDisabled();
-  await expect(page.getByTestId('bits-eval-total')).toContainText(/must equal 100%/);
+  await expect(page.getByTestId('bits-eval-total')).toContainText(/must add up to 100%/);
 
   // Add EC-1 with the seeded sub-component (weight 0) — total still 0%.
   await page.getByTestId('bits-eval-add-ec').click();
@@ -165,30 +157,25 @@ test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A �
   await page.getByTestId('bits-eval-name-1-0').fill('Final');
   await page.getByTestId('bits-eval-weight-1-0').fill('40');
   await expect(page.getByTestId('bits-eval-total')).toContainText('100%');
-  await expect(page.getByTestId('bits-eval-total')).toContainText(/ready to save/);
+  await expect(page.getByTestId('bits-eval-total')).toContainText('✓');
   await expect(saveBtn).toBeEnabled();
 
   // Fill EC-1 sub-component name for completeness.
   await page.getByTestId('bits-eval-name-0-0').fill('Midterm');
 
-  // -------- AI dialog: opens with stub draft (CI has no AI key) --------
-  await page.getByTestId('bits-ai-open').click();
-  const dialog = page.getByTestId('bits-ai-dialog');
-  await expect(dialog).toBeVisible({ timeout: 15_000 });
-  // The stub source produces a clearly-labeled banner.
-  await expect(dialog).toContainText(/template stub/i);
-  // Close without applying (we don't want to clobber the form state we just filled).
-  await dialog.getByRole('button', { name: /discard/i }).click();
-  await expect(dialog).not.toBeVisible();
+  // -------- AI features are switched off by default (AI_FEATURES_ENABLED) --------
+  await page.getByTestId('bits-more-button').click();
+  await expect(page.getByTestId('bits-ai-open')).toHaveCount(0);
+  await page.getByTestId('bits-more-button').click();
 
   // -------- Save the structured version --------
   await page.getByTestId('bits-save-button').click();
-  await expect(page.getByTestId('bits-editor-saved')).toContainText(/Saved v\d+/, {
+  await expect(page.getByTestId('bits-editor-saved')).toContainText(/Saved draft v\d+/, {
     timeout: 15_000,
   });
 
-  // -------- Preview tab: rendered HTML carries everything --------
-  await page.getByTestId('bits-tab-preview').click();
+  // -------- Preview (full screen, published renderer) carries everything --------
+  await page.getByTestId('bits-preview-button').click();
   const preview = page.getByTestId('bits-preview');
   await expect(preview).toContainText('Automotive Diagnostics — E2E test');
   await expect(preview).toContainText('CO1');
@@ -198,6 +185,7 @@ test('Structured editor — full 11d-b/11e flow (auto-fetch banner → Part A �
   // The renderer shows the EC numbers from Part C (Evaluation Scheme).
   await expect(preview).toContainText('EC-1');
   await expect(preview).toContainText('EC-2');
+  await page.getByTestId('bits-preview-back').click();
 
   // -------- Reload: state persisted via HandoutVersion.data --------
   await page.reload();

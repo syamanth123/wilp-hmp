@@ -55,8 +55,8 @@ export function PublishPanel({
           Action required: finish publishing
         </div>
         <p className="text-sm" style={{ color: '#7c2d12', margin: 0 }}>
-          The Taxila API isn&apos;t configured, so this handout was exported as a downloadable
-          package. Upload it to Taxila manually, then mark it as published below.
+          Automatic publishing to Taxila isn&apos;t set up, so this handout was saved as a file.
+          Upload it to Taxila yourself, then mark it as published below.
         </p>
 
         <ol className="text-sm" style={{ color: '#7c2d12', margin: 0, paddingLeft: 18 }}>
@@ -117,13 +117,13 @@ export function PublishPanel({
     <div className="space-y-3">
       <p className="text-muted-foreground text-sm">
         {taxilaConfigured
-          ? 'Publishes the approved handout to Taxila via the LMS API and moves the request to PUBLISHED.'
-          : 'Taxila API is not configured — publishing will generate a downloadable export package for manual upload.'}
+          ? 'Publishes the approved handout to Taxila for students.'
+          : "Automatic publishing to Taxila isn't set up, so you'll get a file to upload to Taxila yourself."}
       </p>
       <p className="text-muted-foreground text-xs">
         {taxilaConfigured
-          ? 'Publishing via Taxila API'
-          : 'Publishing via export (Taxila API not configured)'}
+          ? 'Publishes to Taxila automatically.'
+          : "You'll download a file and upload it to Taxila yourself."}
       </p>
       {error && <p className="text-destructive text-sm">{error}</p>}
       <Button onClick={() => run(publishAction)} disabled={pending}>

@@ -1,5 +1,8 @@
 import Link from 'next/link';
 import { prisma } from '@hmp/db';
+import { requestHref, type ViewerRole } from '@/lib/request-links';
+import { actionSentence } from '@/lib/labels';
+import { formatDateTime } from '@/lib/format-date';
 
 const ICON_PROPS = {
   width: 18,
@@ -56,11 +59,22 @@ function timeAgo(date: Date): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-export async function RecentActivity({ userId, limit = 6 }: { userId: string; limit?: number }) {
-  const rows = await prisma.auditLog.findMany({
+export async function RecentActivity({
+  userId,
+  role,
+  limit = 6,
+}: {
+  userId: string;
+  /** Whose dashboard this is: request links open that role's own page. */
+  role: ViewerRole;
+  limit?: number;
+}) {
+  const rawRows = await prisma.auditLog.findMany({
     where: { actorId: userId },
     orderBy: { createdAt: 'desc' },
-    take: limit,
+    // Fetch extra: one action can write two log rows (the workflow step and
+    // the action's own record), which are merged below.
+    take: limit * 2,
     select: {
       id: true,
       action: true,
@@ -72,12 +86,35 @@ export async function RecentActivity({ userId, limit = 6 }: { userId: string; li
     },
   });
 
+  // Merge rows that say the same thing about the same request within a minute.
+  const rows = rawRows
+    .filter((r, i, all) => {
+      const prev = all[i - 1];
+      return !(
+        prev &&
+        prev.requestId === r.requestId &&
+        actionSentence(prev.action) === actionSentence(r.action) &&
+        Math.abs(prev.createdAt.getTime() - r.createdAt.getTime()) < 60_000
+      );
+    })
+    .slice(0, limit);
+
   return (
-    <div className="glass-panel rounded-[10px] overflow-hidden">
+    <div className="glass-panel overflow-hidden rounded-[10px]">
       <div className="panel-head">
         <h3>Recent activity</h3>
         {rows.length > 0 && (
-          <span style={{ fontSize: 12, background: 'var(--bits-blue-tint)', color: 'var(--bits-navy)', border: '1px solid #d8e0f4', padding: '2px 8px', borderRadius: 999, fontWeight: 600 }}>
+          <span
+            style={{
+              fontSize: 12,
+              background: 'var(--bits-blue-tint)',
+              color: 'var(--bits-navy)',
+              border: '1px solid #d8e0f4',
+              padding: '2px 8px',
+              borderRadius: 999,
+              fontWeight: 600,
+            }}
+          >
             {rows.length}
           </span>
         )}
@@ -85,7 +122,16 @@ export async function RecentActivity({ userId, limit = 6 }: { userId: string; li
       {rows.length === 0 ? (
         <div className="empty-state">
           <span className="empty-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <circle cx="12" cy="12" r="9" />
               <path d="M12 7v5l3 2" />
             </svg>
@@ -102,17 +148,24 @@ export async function RecentActivity({ userId, limit = 6 }: { userId: string; li
               </div>
               <div className="row-body">
                 <div className="row-title">
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.action}</span>
+                  <span style={{ fontSize: 13 }}>{actionSentence(r.action)}</span>
                   {r.request?.refNo && r.requestId && (
                     <>
                       {' '}
-                      <Link href={`/ic/requests/${r.requestId}`} style={{ color: 'var(--bits-navy)', textDecoration: 'underline', fontSize: 12 }}>
+                      <Link
+                        href={requestHref(role, r.requestId)}
+                        style={{
+                          color: 'var(--bits-navy)',
+                          textDecoration: 'underline',
+                          fontSize: 12,
+                        }}
+                      >
                         {r.request.refNo}
                       </Link>
                     </>
                   )}
                 </div>
-                <div className="row-meta">{r.entity}{r.entityId ? ` · ${r.entityId}` : ''}</div>
+                <div className="row-meta">{formatDateTime(r.createdAt)}</div>
               </div>
               <span className="row-time">{timeAgo(new Date(r.createdAt))}</span>
             </div>

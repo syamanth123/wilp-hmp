@@ -5,6 +5,7 @@ import { Button, Label } from '@hmp/ui';
 import type { RecommendationResult } from '@hmp/ai';
 import { RecommendationList } from '@/components/recommendation-list';
 import { allocateFacultyAction } from './actions';
+import { facultyTypeLabel } from '@/lib/labels';
 
 export interface FacultyChoice {
   id: string;
@@ -37,6 +38,17 @@ export function AllocationPanel({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [smeUserId, setSmeUserId] = useState('');
+  // The roster can hold hundreds of faculty: search it, and keep ticked
+  // faculty visible whatever the search says.
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = faculties.filter(
+    (f) =>
+      !q ||
+      selected.has(f.id) ||
+      f.name.toLowerCase().includes(q) ||
+      f.email.toLowerCase().includes(q),
+  );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -75,7 +87,9 @@ export function AllocationPanel({
 
   if (success) {
     return (
-      <p className="text-sm text-emerald-600">Faculty allocated. Status moved to ALLOCATED.</p>
+      <p className="text-sm text-emerald-600">
+        Faculty allocated and sent to the Programme Committee to confirm.
+      </p>
     );
   }
 
@@ -96,11 +110,28 @@ export function AllocationPanel({
       <div>
         <Label>Faculty roster</Label>
         <p className="text-muted-foreground text-xs">
-          Off-campus / adjunct / guest faculty are capped at {cap} active courses per semester.
+          Off-campus, adjunct and guest faculty can have at most {cap} courses per semester.
         </p>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${faculties.length} faculty by name or email`}
+          aria-label="Search faculty"
+          className="bg-background mt-2 h-9 w-full rounded-md border px-3 text-sm"
+          data-testid="faculty-search"
+        />
       </div>
-      <ul className="divide-y rounded-md border">
-        {faculties.map((f) => (
+      <ul className="max-h-96 divide-y overflow-y-auto rounded-md border">
+        {faculties.length > 0 && shown.length === 0 && (
+          <li className="text-muted-foreground p-3 text-sm">No faculty match that search.</li>
+        )}
+        {faculties.length === 0 && (
+          <li className="text-muted-foreground p-3 text-sm">
+            No active faculty accounts yet. Ask the administrator to add them.
+          </li>
+        )}
+        {shown.map((f) => (
           <li key={f.id} className="flex items-center justify-between gap-3 p-3 text-sm">
             <label
               className={`flex flex-1 items-center gap-3 ${f.capped ? 'opacity-50' : 'cursor-pointer'}`}
@@ -117,10 +148,10 @@ export function AllocationPanel({
               </span>
             </label>
             <div className="text-muted-foreground text-right text-xs">
-              <div>{f.facultyType ?? 'unspecified'}</div>
+              <div>{facultyTypeLabel(f.facultyType)}</div>
               <div>
-                load: {f.loadInSemester}
-                {f.capped ? ' (capped)' : ''}
+                {f.loadInSemester} {f.loadInSemester === 1 ? 'course' : 'courses'} this semester
+                {f.capped ? ' (at the limit)' : ''}
               </div>
             </div>
           </li>
@@ -138,7 +169,11 @@ export function AllocationPanel({
           className="bg-background rounded-md border px-2 py-1.5 text-sm"
           data-testid="sme-picker"
         >
-          <option value="">— Select an SME —</option>
+          <option value="">
+            {smes.length === 0
+              ? 'No subject experts yet — ask the administrator'
+              : 'Choose a subject expert'}
+          </option>
           {smes.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name} ({s.email})

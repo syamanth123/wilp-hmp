@@ -1,5 +1,6 @@
-import Link from 'next/link';
 import { AppShell } from '@/components/app-shell';
+import { RoleTabs } from '@/components/role-tabs';
+import { aiFeaturesEnabled } from '@/lib/features';
 
 const TABS = [
   { href: '/admin', label: 'Overview' },
@@ -7,10 +8,12 @@ const TABS = [
   { href: '/admin/roles', label: 'Roles' },
   { href: '/admin/programmes', label: 'Programmes' },
   { href: '/admin/import', label: 'Import' },
+  { href: '/admin/corpus-imports', label: 'Past handouts' },
   { href: '/admin/workflow', label: 'Workflow' },
   { href: '/admin/notifications', label: 'Notifications' },
-  { href: '/admin/queues', label: 'Queues' },
-  { href: '/admin/ai-metrics', label: 'AI Metrics' },
+  { href: '/admin/queues', label: 'Background jobs' },
+  // Shown only with AI_FEATURES_ENABLED=true (filtered below).
+  { href: '/admin/ai-metrics', label: 'AI Metrics', ai: true },
   { href: '/admin/audit', label: 'Audit' },
 ];
 
@@ -20,17 +23,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <AppShell area="/admin">
       <div className="space-y-4">
-        <nav className="flex flex-wrap gap-2 border-b pb-2 text-sm">
-          {TABS.map((t) => (
-            <Link
-              key={t.href}
-              href={t.href}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5"
-            >
-              {t.label}
-            </Link>
-          ))}
-        </nav>
+        <RoleTabs tabs={TABS.filter((t) => !('ai' in t) || aiFeaturesEnabled())} />
         <div>{children}</div>
       </div>
     </AppShell>

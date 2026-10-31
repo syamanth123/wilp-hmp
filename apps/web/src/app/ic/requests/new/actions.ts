@@ -8,6 +8,7 @@ import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { createRequestWithRefNo, RefNoRetryExhausted } from './ref-no';
+import { formError } from '@/lib/form-error';
 
 const schema = z.object({
   courseOfferingId: z.string().cuid(),
@@ -23,13 +24,14 @@ export async function createRequestAction(formData: FormData) {
     previousHandoutUrl: formData.get('previousHandoutUrl') ?? '',
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+    return { error: formError(parsed.error) };
   }
 
   const offering = await prisma.courseOffering.findUnique({
     where: { id: parsed.data.courseOfferingId },
   });
-  if (!offering) return { error: 'Course offering not found' };
+  if (!offering)
+    return { error: 'That course offering no longer exists. Refresh the page and choose again.' };
 
   let created: { id: string; refNo: string };
   try {

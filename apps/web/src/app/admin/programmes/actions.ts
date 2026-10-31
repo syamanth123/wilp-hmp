@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma, RoleName, normalizeBitsCourseNumber } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { audit } from '@/lib/audit';
+import { formError } from '@/lib/form-error';
 
 const programmeSchema = z.object({
   code: z.string().min(2).max(20),
@@ -32,9 +33,21 @@ export async function createProgrammeAction(formData: FormData) {
     code: formData.get('code'),
     name: formData.get('name'),
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (!parsed.success)
+    return {
+      error: formError(parsed.error, {
+        code: 'Code',
+        name: 'Name',
+        title: 'Course title',
+        credits: 'Credit units',
+        year: 'Year',
+        term: 'Term',
+        startDate: 'Start date',
+        endDate: 'End date',
+      }),
+    };
   const exists = await prisma.programme.findUnique({ where: { code: parsed.data.code } });
-  if (exists) return { error: 'Programme code already exists' };
+  if (exists) return { error: 'A programme with that code already exists. Use a different code.' };
   const created = await prisma.programme.create({ data: parsed.data });
   await audit({
     actorId: actor.id,
@@ -54,7 +67,19 @@ export async function createCourseAction(formData: FormData) {
     title: formData.get('title'),
     credits: formData.get('credits'),
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (!parsed.success)
+    return {
+      error: formError(parsed.error, {
+        code: 'Code',
+        name: 'Name',
+        title: 'Course title',
+        credits: 'Credit units',
+        year: 'Year',
+        term: 'Term',
+        startDate: 'Start date',
+        endDate: 'End date',
+      }),
+    };
   // Educational rejection — same contract as the CSV importer (Prompt 11b
   // Decision 4). The schema accepts any 2-20 char string; the BITS-format
   // gate is normalizeBitsCourseNumber().
@@ -65,11 +90,11 @@ export async function createCourseAction(formData: FormData) {
     return {
       error:
         `'${parsed.data.code}' is not a valid BITS course number. ` +
-        'Expected format: "AE ZG510" (2-4 letter discipline, space, Z[CG], 3-4 digit code).',
+        'Use the format "AE ZG510": 2–4 letters, a space, ZG or ZC, then 3–4 digits.',
     };
   }
   const exists = await prisma.course.findUnique({ where: { bitsCourseNumber: canonical } });
-  if (exists) return { error: 'Course code already exists' };
+  if (exists) return { error: 'A course with that code already exists. Use a different code.' };
   const created = await prisma.course.create({
     data: {
       bitsCourseNumber: canonical,
@@ -104,7 +129,19 @@ export async function createSemesterAction(formData: FormData) {
     startDate: formData.get('startDate'),
     endDate: formData.get('endDate'),
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (!parsed.success)
+    return {
+      error: formError(parsed.error, {
+        code: 'Code',
+        name: 'Name',
+        title: 'Course title',
+        credits: 'Credit units',
+        year: 'Year',
+        term: 'Term',
+        startDate: 'Start date',
+        endDate: 'End date',
+      }),
+    };
   const created = await prisma.semester.create({
     data: {
       ...parsed.data,

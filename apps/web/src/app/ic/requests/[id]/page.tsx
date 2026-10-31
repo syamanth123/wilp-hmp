@@ -26,6 +26,7 @@ import { QualityReportCard } from '@/components/quality-report-card';
 import Link from 'next/link';
 import { PublishPanel } from './publish-panel';
 import { ArchivePanel } from './archive-panel';
+import { formatDateTime } from '@/lib/format-date';
 
 export default async function RequestDetailPage({ params }: { params: { id: string } }) {
   const request = await prisma.handoutRequest.findUnique({
@@ -95,8 +96,8 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             {request.initiator.name}{' '}
             <span className="text-muted-foreground">({request.initiator.email})</span>
           </Field>
-          <Field label="Created">{new Date(request.createdAt).toLocaleString()}</Field>
-          <Field label="Updated">{new Date(request.updatedAt).toLocaleString()}</Field>
+          <Field label="Created">{formatDateTime(request.createdAt)}</Field>
+          <Field label="Updated">{formatDateTime(request.updatedAt)}</Field>
           {request.notes && (
             <div className="sm:col-span-2">
               <Field label="Notes">{request.notes}</Field>
@@ -147,7 +148,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                 >
                   Set them now
                 </Link>
-                . You can still publish — but downstream LMS sync may be incomplete.
+                . You can still publish, but Taxila won't show these dates.
               </div>
             )}
             <PublishPanel
@@ -258,7 +259,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
       <Card>
         <CardHeader>
           <CardTitle>Lifecycle</CardTitle>
-          <CardDescription>Every transition is recorded in the audit log.</CardDescription>
+          <CardDescription>Every step is recorded.</CardDescription>
         </CardHeader>
         <CardContent>
           <StatusTimeline requestId={request.id} />

@@ -140,7 +140,7 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
         line,
         field: 'course_code',
         code: 'course_not_found',
-        message: `No course matching "${row.course_code}" (normalized "${normalized}")`,
+        message: `No course with code "${row.course_code}" in the catalogue`,
       });
       continue;
     }
@@ -260,7 +260,7 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
     } catch (err) {
       strandedAtDraft.push({
         refNo: req.refNo,
-        reason: err instanceof Error ? err.message : 'transition failed',
+        reason: err instanceof Error ? err.message : "Couldn't send this request on. Try again.",
       });
     }
   }

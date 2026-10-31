@@ -1,4 +1,4 @@
-import { prisma, HandoutStatus, type WorkflowConfig } from '@hmp/db';
+import { prisma, HandoutStatus, type Prisma, type WorkflowConfig } from '@hmp/db';
 
 export type SlaClassification = 'on_track' | 'due_soon' | 'overdue' | 'n_a';
 
@@ -89,11 +89,18 @@ export async function loadWorkflowConfig(): Promise<WorkflowConfig> {
   return cfg;
 }
 
-export async function scanActiveRequestsWithSla(filterStatuses?: HandoutStatus[]) {
+/**
+ * `scope` narrows the scan to one person's requests (e.g. the faculty
+ * dashboard counts only that faculty member's own assignments).
+ */
+export async function scanActiveRequestsWithSla(
+  filterStatuses?: HandoutStatus[],
+  scope?: Prisma.HandoutRequestWhereInput,
+) {
   const cfg = await loadWorkflowConfig();
   const statuses = filterStatuses && filterStatuses.length > 0 ? filterStatuses : NON_TERMINAL;
   const rows = await prisma.handoutRequest.findMany({
-    where: { status: { in: statuses } },
+    where: scope ? { AND: [{ status: { in: statuses } }, scope] } : { status: { in: statuses } },
     select: {
       id: true,
       refNo: true,
@@ -113,8 +120,11 @@ export async function scanActiveRequestsWithSla(filterStatuses?: HandoutStatus[]
   }));
 }
 
-export async function countSlaBucketsForStatuses(statuses: HandoutStatus[]) {
-  const scanned = await scanActiveRequestsWithSla(statuses);
+export async function countSlaBucketsForStatuses(
+  statuses: HandoutStatus[],
+  scope?: Prisma.HandoutRequestWhereInput,
+) {
+  const scanned = await scanActiveRequestsWithSla(statuses, scope);
   return {
     total: scanned.length,
     dueSoon: scanned.filter((r) => r.sla.classification === 'due_soon').length,

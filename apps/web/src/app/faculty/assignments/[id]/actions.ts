@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { prisma, RoleName, HandoutStatus, type Prisma } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { transition, WorkflowError } from '@hmp/workflow';
+import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
 import { appendVersion, createInitialStructuredVersion } from '@/lib/handout-versioning';
 import {
   loadAndResolveAutoFetchSource,
@@ -17,6 +17,8 @@ import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { notifyTransition } from '@/lib/notifications';
 import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
 import { enqueueAiJob } from '@hmp/queue';
+import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
+import { GENERIC_ERROR, formError } from '@/lib/form-error';
 
 const tiptapDocSchema = z.object({
   type: z.literal('doc'),
@@ -60,12 +62,13 @@ async function loadMyAssignment(requestId: string, facultyId: string) {
 export async function acceptAssignmentAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
   if (request.status !== HandoutStatus.ASSIGNED) {
-    return { error: `Cannot accept from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const assignment = request.assignments[0]!;
@@ -90,12 +93,13 @@ export async function acceptAssignmentAction(formData: FormData) {
 export async function startEditingAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
   if (!request.assignments[0]!.acceptedAt) {
-    return { error: 'Accept the assignment first' };
+    return { error: 'Click Accept assignment first.' };
   }
 
   // Auto-fetch context (Prompt 11e): re-load with the joins the cascade
@@ -112,7 +116,8 @@ export async function startEditingAction(formData: FormData) {
       },
     },
   });
-  if (!fullRequest) return { error: 'Assignment not found' };
+  if (!fullRequest)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
 
   const cascadeContext: RequestLite = {
     id: fullRequest.id,
@@ -136,8 +141,8 @@ export async function startEditingAction(formData: FormData) {
         resolved = await loadAndResolveAutoFetchSource(tx, cascadeContext);
         const sourceLabel =
           resolved.tier === 'empty'
-            ? 'Initial version (empty template).'
-            : `Initial version (${resolved.tier === 'prior-version' ? 'auto-fetched prior version' : 'auto-fetched import'}): ${resolved.sourceDetail}`;
+            ? 'First version, started from a blank handout.'
+            : `First version, started from ${resolved.sourceDetail.charAt(0).toLowerCase()}${resolved.sourceDetail.slice(1)}.`;
         await createInitialStructuredVersion(tx, ctx.handoutId, me.id, resolved.data, sourceLabel);
       },
     });
@@ -178,20 +183,21 @@ export async function saveDraftAction(formData: FormData) {
   try {
     contentJson = JSON.parse(String(formData.get('contentJson') ?? ''));
   } catch {
-    return { error: 'Invalid document JSON' };
+    return { error: GENERIC_ERROR };
   }
   const parsed = saveSchema.safeParse({
     requestId: formData.get('requestId'),
     contentJson,
     notes: formData.get('notes') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot save from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   const handoutId = request.handout.id;
@@ -223,20 +229,21 @@ export async function submitForReviewAction(formData: FormData) {
   try {
     contentJson = JSON.parse(String(formData.get('contentJson') ?? ''));
   } catch {
-    return { error: 'Invalid document JSON' };
+    return { error: GENERIC_ERROR };
   }
   const parsed = submitSchema.safeParse({
     requestId: formData.get('requestId'),
     contentJson,
     notes: formData.get('notes') ?? '',
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  if (!parsed.success) return { error: formError(parsed.error) };
 
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
   if (!EDITABLE_STATUSES.includes(request.status)) {
-    return { error: `Cannot submit from status ${request.status}` };
+    return { error: movedOnMessage(request.status) };
   }
 
   // Prompt 12-b: SME review is mandatory (same as submitStructuredForReviewAction).
@@ -288,36 +295,39 @@ export async function submitForReviewAction(formData: FormData) {
   // "Run quality check" button (runQualityCheckAction) stays SYNCHRONOUS — the
   // faculty awaits that result, so it's not queued. See audit §1 (queueing is
   // a property of the calling context).
-  try {
-    const handoutAfter = await prisma.handout.findUnique({
-      where: { id: request.handout.id },
-      select: { currentVersionId: true },
-    });
-    if (handoutAfter?.currentVersionId) {
-      const versionId = handoutAfter.currentVersionId;
-      let queued = false;
-      if (process.env.WORKERS_ENABLED === 'true') {
-        try {
-          await enqueueAiJob({
-            kind: 'quality_report',
-            handoutVersionId: versionId,
-            requestId: request.id,
-          });
-          queued = true;
-        } catch (err) {
-          console.error('quality_check_enqueue_failed — running inline', err);
+  // Quality report on submit only with AI switched on (AI_FEATURES_ENABLED).
+  if (aiFeaturesEnabled()) {
+    try {
+      const handoutAfter = await prisma.handout.findUnique({
+        where: { id: request.handout.id },
+        select: { currentVersionId: true },
+      });
+      if (handoutAfter?.currentVersionId) {
+        const versionId = handoutAfter.currentVersionId;
+        let queued = false;
+        if (process.env.WORKERS_ENABLED === 'true') {
+          try {
+            await enqueueAiJob({
+              kind: 'quality_report',
+              handoutVersionId: versionId,
+              requestId: request.id,
+            });
+            queued = true;
+          } catch (err) {
+            console.error('quality_check_enqueue_failed — running inline', err);
+          }
+        }
+        if (!queued) {
+          await runQualityReport(
+            { handoutVersionId: versionId, bypassRateLimit: true },
+            { actorId: me.id },
+          );
         }
       }
-      if (!queued) {
-        await runQualityReport(
-          { handoutVersionId: versionId, bypassRateLimit: true },
-          { actorId: me.id },
-        );
+    } catch (err) {
+      if (!(err instanceof AiUnconfiguredError)) {
+        console.error('quality_check_on_submit_failed', err);
       }
-    }
-  } catch (err) {
-    if (!(err instanceof AiUnconfiguredError)) {
-      console.error('quality_check_on_submit_failed', err);
     }
   }
 
@@ -327,20 +337,23 @@ export async function submitForReviewAction(formData: FormData) {
 
 export async function runQualityCheckAction(formData: FormData) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
+  if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   // Per-user AI throttle (Prompt 20). RPC-shaped { error }, fail-open.
   const rl = await rateLimit(`ai:${me.id}`, RATE_LIMITS.ai.limit, RATE_LIMITS.ai.windowSec);
   if (!rl.ok) return { error: 'Rate limit reached — try again in a little while.' };
   const parsed = idOnlySchema.safeParse({ requestId: formData.get('requestId') });
-  if (!parsed.success) return { error: 'Invalid input' };
+  if (!parsed.success) return { error: GENERIC_ERROR };
   const request = await loadMyAssignment(parsed.data.requestId, me.id);
-  if (!request) return { error: 'Assignment not found' };
-  if (!request.handout) return { error: 'Editing has not started yet' };
+  if (!request)
+    return { error: "You're no longer assigned to this handout. Go back to My assignments." };
+  if (!request.handout) return { error: 'Click Start editing first.' };
 
   const handout = await prisma.handout.findUnique({
     where: { id: request.handout.id },
     select: { currentVersionId: true },
   });
-  if (!handout?.currentVersionId) return { error: 'No version to check yet' };
+  if (!handout?.currentVersionId)
+    return { error: 'Save your handout before running the quality check.' };
 
   try {
     const report = await runQualityReport(
@@ -359,8 +372,14 @@ export async function runQualityCheckAction(formData: FormData) {
     return { ok: true, score: report.score, cached: report.cached };
   } catch (err) {
     if (err instanceof AiUnconfiguredError) {
-      return { error: 'AI provider not configured. Ask admin to set AI_PROVIDER + API key.' };
+      return { error: "AI features aren't available right now." };
     }
-    return { error: err instanceof Error ? err.message : 'Quality check failed' };
+    console.error('quality_check_failed', err);
+    return {
+      error:
+        err instanceof Error && /handout_empty|version_not_found/.test(err.message)
+          ? 'Save your handout before running the quality check.'
+          : "The quality check couldn't run. Try again.",
+    };
   }
 }

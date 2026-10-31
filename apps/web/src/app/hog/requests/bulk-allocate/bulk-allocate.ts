@@ -10,6 +10,7 @@ import {
 import { parseCsv, parseAllocationsCsv } from '@hmp/integrations';
 import { transition, isCappedFacultyType, WorkflowError } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
+import { statusLabel } from '@hmp/workflow';
 
 /**
  * HOG bulk faculty + SME allocation (Prompt 14).
@@ -107,6 +108,19 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
   const resolved: ResolvedRow[] = [];
   const seenRef = new Map<string, number>();
 
+  // An empty or header-only file used to "succeed" with 0 requests allocated.
+  if (parsed.rows.length === 0) {
+    const errors: BulkAllocError[] = [
+      {
+        line: 1,
+        code: 'invalid_csv_format',
+        message:
+          'The file has no rows. Add one row per request below the header line, then upload it again.',
+      },
+    ];
+    return { status: 'rejected', errors, rejectedCsv: buildRejectedCsv(csv, errors) };
+  }
+
   for (let i = 0; i < parsed.rows.length; i++) {
     const row = parsed.rows[i]!;
     const line = i + 2;
@@ -146,7 +160,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
         line,
         field: 'request_reference',
         code: 'request_not_allocatable',
-        message: `Request ${row.request_reference} is not allocatable — already at status ${request.status}`,
+        message: `Request ${row.request_reference} isn't waiting for allocation (it is "${statusLabel(request.status)}").`,
       });
       continue;
     }
@@ -160,7 +174,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
         line,
         field: 'faculty_emails',
         code: 'faculty_emails_empty',
-        message: 'faculty_emails has no valid email after trimming',
+        message: "The faculty email column is empty or isn't a valid email.",
       });
       continue;
     }
@@ -343,7 +357,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
     } catch (err) {
       failed.push({
         refNo: r.refNo,
-        reason: err instanceof Error ? err.message : 'transition failed',
+        reason: err instanceof Error ? err.message : "Couldn't allocate this request. Try again.",
       });
     }
   }

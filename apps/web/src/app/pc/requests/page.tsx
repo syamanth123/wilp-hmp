@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { prisma, HandoutStatus } from '@hmp/db';
+import { prisma } from '@hmp/db';
 import {
   Card,
   CardContent,
@@ -14,27 +14,22 @@ import {
   buttonVariants,
 } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
+import { RequestListToolbar } from '@/components/request-list-toolbar';
+import { filterQuery, listWhere, parseListFilter } from '@/lib/request-views';
 
 const PAGE_SIZE = 25;
-
-const PC_STATUSES: HandoutStatus[] = [
-  HandoutStatus.ALLOCATED,
-  HandoutStatus.ASSIGNED,
-  HandoutStatus.IN_PROGRESS,
-  HandoutStatus.SUBMITTED,
-  HandoutStatus.UNDER_REVIEW,
-  HandoutStatus.REWORK_REQUESTED,
-];
 
 export default async function PCRequestList({
   searchParams,
 }: {
-  searchParams?: { status?: string; page?: string };
+  searchParams?: { status?: string; view?: string; page?: string };
 }) {
-  const status = (searchParams?.status as HandoutStatus | undefined) ?? undefined;
+  // Unknown or out-of-scope filters in the address are ignored (see
+  // lib/request-views.ts); the dashboard card that links here counts the same query.
+  const filter = parseListFilter('PC', searchParams);
   const page = Math.max(1, parseInt(searchParams?.page ?? '1', 10) || 1);
 
-  const where = status ? { status } : { status: { in: PC_STATUSES } };
+  const where = listWhere('PC', '', filter);
   const [total, requests] = await Promise.all([
     prisma.handoutRequest.count({ where }),
     prisma.handoutRequest.findMany({
@@ -53,26 +48,12 @@ export default async function PCRequestList({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle>Handout requests</CardTitle>
-        <form className="flex gap-2 text-sm" action="/pc/requests">
-          <select
-            name="status"
-            defaultValue={status ?? ''}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-          >
-            <option value="">All PC statuses</option>
-            {PC_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <button className={buttonVariants({ variant: 'outline', size: 'sm' })}>Filter</button>
-        </form>
+        <CardTitle>Requests</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <RequestListToolbar role="PC" filter={filter} total={total} />
         {requests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No requests in scope.</p>
+          <p className="text-muted-foreground text-sm">No requests to show.</p>
         ) : (
           <Table>
             <TableHeader>
@@ -86,11 +67,11 @@ export default async function PCRequestList({
             </TableHeader>
             <TableBody>
               {requests.map((r) => (
-                <TableRow key={r.id}>
+                <TableRow key={r.id} data-testid="request-row">
                   <TableCell className="font-mono text-xs">{r.refNo}</TableCell>
                   <TableCell>
                     <div className="font-medium">{r.offering.course.title}</div>
-                    <div className="text-xs text-muted-foreground">{r.offering.course.code}</div>
+                    <div className="text-muted-foreground text-xs">{r.offering.course.code}</div>
                   </TableCell>
                   <TableCell className="text-xs">
                     {r.offering.semester.programme.code} · {r.offering.semester.name}
@@ -99,8 +80,11 @@ export default async function PCRequestList({
                     <StatusBadge status={r.status} />
                   </TableCell>
                   <TableCell>
-                    <Link className="text-sm text-primary underline-offset-4 hover:underline" href={`/pc/requests/${r.id}`}>
-                      Open
+                    <Link
+                      className="text-primary text-sm underline-offset-4 hover:underline"
+                      href={`/pc/requests/${r.id}`}
+                    >
+                      Open request
                     </Link>
                   </TableCell>
                 </TableRow>
@@ -109,14 +93,14 @@ export default async function PCRequestList({
           </Table>
         )}
         {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+          <div className="text-muted-foreground mt-4 flex items-center justify-between text-sm">
             <span>
               Page {page} of {totalPages} · {total} total
             </span>
             <div className="flex gap-2">
               {page > 1 && (
                 <Link
-                  href={`/pc/requests?${new URLSearchParams({ ...(status ? { status } : {}), page: String(page - 1) })}`}
+                  href={`C:/Program Files/Git/pc/requests${filterQuery(filter, page - 1)}`}
                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 >
                   Prev
@@ -124,7 +108,7 @@ export default async function PCRequestList({
               )}
               {page < totalPages && (
                 <Link
-                  href={`/pc/requests?${new URLSearchParams({ ...(status ? { status } : {}), page: String(page + 1) })}`}
+                  href={`C:/Program Files/Git/pc/requests${filterQuery(filter, page + 1)}`}
                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 >
                   Next

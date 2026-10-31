@@ -1,6 +1,7 @@
 import type { HandoutStatus } from '@hmp/db';
 import { FacultyType, RoleName } from '@hmp/db';
 import type { WorkflowEvent } from './types';
+import { movedOnMessage } from './labels';
 
 /**
  * Map workflow event -> role(s) authorized to invoke it.
@@ -42,7 +43,7 @@ export function assertRoleAllowed(event: WorkflowEvent['type'], roles: RoleName[
   if (roles.includes(RoleName.ADMIN)) return;
   const allowed = EVENT_ROLE_MATRIX[event] ?? [];
   if (!allowed.some((r) => roles.includes(r))) {
-    throw new WorkflowError('forbidden', `Your role cannot invoke ${event}`);
+    throw new WorkflowError('forbidden', "You don't have permission to do this.");
   }
 }
 
@@ -75,7 +76,7 @@ export function assertOffCampusCap(load: FacultyLoad, cap: number) {
   if (load.activeAssignmentsInSemester >= cap) {
     throw new WorkflowError(
       'off_campus_cap_exceeded',
-      `Off-campus/adjunct faculty cannot exceed ${cap} courses per semester (current: ${load.activeAssignmentsInSemester}).`,
+      `This faculty member already has ${load.activeAssignmentsInSemester} courses this semester; off-campus and adjunct faculty can have at most ${cap}.`,
     );
   }
 }
@@ -86,9 +87,6 @@ export function assertOffCampusCap(load: FacultyLoad, cap: number) {
  */
 export function assertStatus(current: HandoutStatus, allowed: HandoutStatus[]) {
   if (!allowed.includes(current)) {
-    throw new WorkflowError(
-      'invalid_status',
-      `Action not allowed from status ${current}. Expected one of: ${allowed.join(', ')}.`,
-    );
+    throw new WorkflowError('invalid_status', movedOnMessage(current));
   }
 }

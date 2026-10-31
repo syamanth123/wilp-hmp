@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { Button, Input, Label } from '@hmp/ui';
 import { updateSemesterDatesAction } from '../actions';
+import { formatTime } from '@/lib/format-date';
 
 interface Props {
   semesterId: string;
@@ -27,7 +28,7 @@ export function SemesterDatesForm({ semesterId, examDate, ec1Deadline }: Props) 
     startTransition(async () => {
       const r = await updateSemesterDatesAction(fd);
       if (r?.error) setError(r.error);
-      else setSavedAt(new Date().toLocaleTimeString());
+      else setSavedAt(formatTime(new Date()));
     });
   };
 
@@ -36,12 +37,7 @@ export function SemesterDatesForm({ semesterId, examDate, ec1Deadline }: Props) 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label htmlFor="examDate">Exam date</Label>
-          <Input
-            id="examDate"
-            type="date"
-            value={exam}
-            onChange={(e) => setExam(e.target.value)}
-          />
+          <Input id="examDate" type="date" value={exam} onChange={(e) => setExam(e.target.value)} />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="ec1Deadline">EC1 deadline</Label>
@@ -53,7 +49,7 @@ export function SemesterDatesForm({ semesterId, examDate, ec1Deadline }: Props) 
           />
         </div>
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-sm">{error}</p>}
       {savedAt && <p className="text-sm text-emerald-600">Saved at {savedAt}</p>}
       <div className="flex gap-2">
         <Button onClick={save} disabled={pending}>

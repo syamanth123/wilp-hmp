@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { prisma, HandoutStatus, RoleName } from '@hmp/db';
+import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import {
   Card,
@@ -15,32 +15,24 @@ import {
   buttonVariants,
 } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
+import { RequestListToolbar } from '@/components/request-list-toolbar';
+import { filterQuery, listWhere, parseListFilter } from '@/lib/request-views';
+import { formatDate } from '@/lib/format-date';
 
 const PAGE_SIZE = 25;
-
-const FACULTY_STATUSES: HandoutStatus[] = [
-  HandoutStatus.ASSIGNED,
-  HandoutStatus.IN_PROGRESS,
-  HandoutStatus.SUBMITTED,
-  HandoutStatus.UNDER_REVIEW,
-  HandoutStatus.REWORK_REQUESTED,
-  HandoutStatus.APPROVED,
-  HandoutStatus.PUBLISHED,
-];
 
 export default async function FacultyAssignmentsList({
   searchParams,
 }: {
-  searchParams?: { status?: string; page?: string };
+  searchParams?: { status?: string; view?: string; page?: string };
 }) {
   const me = requireRole(await getSessionUser(), RoleName.FACULTY);
-  const status = (searchParams?.status as HandoutStatus | undefined) ?? undefined;
+  // Unknown or out-of-scope filters in the address are ignored (see
+  // lib/request-views.ts); the dashboard card that links here counts the same query.
+  const filter = parseListFilter('FACULTY', searchParams);
   const page = Math.max(1, parseInt(searchParams?.page ?? '1', 10) || 1);
 
-  const where = {
-    assignments: { some: { facultyId: me.id, active: true } },
-    ...(status ? { status } : { status: { in: FACULTY_STATUSES } }),
-  };
+  const where = listWhere('FACULTY', me.id, filter);
 
   const [total, requests] = await Promise.all([
     prisma.handoutRequest.count({ where }),
@@ -62,23 +54,9 @@ export default async function FacultyAssignmentsList({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle>My assignments</CardTitle>
-        <form className="flex gap-2 text-sm" action="/faculty/assignments">
-          <select
-            name="status"
-            defaultValue={status ?? ''}
-            className="bg-background h-9 rounded-md border px-2 text-sm"
-          >
-            <option value="">All statuses</option>
-            {FACULTY_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <button className={buttonVariants({ variant: 'outline', size: 'sm' })}>Filter</button>
-        </form>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <RequestListToolbar role="FACULTY" filter={filter} total={total} />
         {requests.length === 0 ? (
           <p className="text-muted-foreground text-sm">You have no assignments in this view.</p>
         ) : (
@@ -97,7 +75,7 @@ export default async function FacultyAssignmentsList({
               {requests.map((r) => {
                 const a = r.assignments[0];
                 return (
-                  <TableRow key={r.id}>
+                  <TableRow key={r.id} data-testid="request-row">
                     <TableCell className="font-mono text-xs">{r.refNo}</TableCell>
                     <TableCell>
                       <div className="font-medium">{r.offering.course.title}</div>
@@ -107,7 +85,7 @@ export default async function FacultyAssignmentsList({
                       {r.offering.semester.programme.code} · {r.offering.semester.name}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
-                      {a?.acceptedAt ? new Date(a.acceptedAt).toLocaleDateString() : 'pending'}
+                      {a?.acceptedAt ? formatDate(a.acceptedAt) : 'Not accepted yet'}
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={r.status} />
@@ -117,7 +95,7 @@ export default async function FacultyAssignmentsList({
                         className="text-primary text-sm underline-offset-4 hover:underline"
                         href={`/faculty/assignments/${r.id}`}
                       >
-                        Open
+                        Open handout
                       </Link>
                     </TableCell>
                   </TableRow>
@@ -134,7 +112,7 @@ export default async function FacultyAssignmentsList({
             <div className="flex gap-2">
               {page > 1 && (
                 <Link
-                  href={`/faculty/assignments?${new URLSearchParams({ ...(status ? { status } : {}), page: String(page - 1) })}`}
+                  href={`C:/Program Files/Git/faculty/assignments${filterQuery(filter, page - 1)}`}
                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 >
                   Prev
@@ -142,7 +120,7 @@ export default async function FacultyAssignmentsList({
               )}
               {page < totalPages && (
                 <Link
-                  href={`/faculty/assignments?${new URLSearchParams({ ...(status ? { status } : {}), page: String(page + 1) })}`}
+                  href={`C:/Program Files/Git/faculty/assignments${filterQuery(filter, page + 1)}`}
                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 >
                   Next
