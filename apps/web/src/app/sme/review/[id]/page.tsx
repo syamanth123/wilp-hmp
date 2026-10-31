@@ -7,6 +7,8 @@ import { HandoutViewer } from '@/components/handout-viewer';
 import { CommentThread } from '@/components/comment-thread';
 import { AttachmentsPanel } from '@/components/attachments-panel';
 import { loadAttachments } from '@/lib/attachments';
+import { AccessDenied } from '@/components/access-denied';
+import { canOpenSmeReview } from '@/lib/sme-access';
 import { SmeReviewPanel } from './sme-review-panel';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +19,9 @@ export const dynamic = 'force-dynamic';
  * panel. The panel only renders when the request is in SME_REVIEW AND the
  * signed-in SME is the assigned one — otherwise a read-only "not in your
  * queue" note (the action layer enforces the same, this is just UX).
+ *
+ * Access: an SME who is not the assigned SME gets the "You don't have access"
+ * page and sees nothing of the handout (lib/sme-access.ts). Admins see all.
  */
 export default async function SmeReviewDetail({ params }: { params: { id: string } }) {
   const me = requireRole(await getSessionUser(), RoleName.SME);
@@ -30,6 +35,18 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
     },
   });
   if (!request) notFound();
+
+  // An SME may open only a handout they are the assigned SME for (admins may
+  // open any). Checked before anything about the handout is loaded.
+  if (
+    !canOpenSmeReview({
+      roles: me.roles,
+      userId: me.id,
+      assignedSmeUserId: request.smeAssignment?.smeUserId,
+    })
+  ) {
+    return <AccessDenied reason="This handout is not assigned to you for review." />;
+  }
 
   const attachments = await loadAttachments(request.id);
 
