@@ -147,7 +147,7 @@ in the Handout Portal — contact the Instruction Cell." Every SSO sign-in and r
 **Login page:** "Sign in with BITS ID" is the main button. Email + password only when
 `PASSWORD_LOGIN_ENABLED=true` (the server action and the credentials provider both refuse
 otherwise). **Decision for you:** to avoid locking everyone out, I propose password login also
-stays on while SSO isn't configured on that server (no IdP/SP settings) — see §H.
+stays on while SSO isn't configured on that server (no IdP/SP settings) — see §G.
 
 **Keys:** `SAML_SP_PRIVATE_KEY` (PEM in env) or `SAML_SP_PRIVATE_KEY_FILE` (path outside the
 repo); certificate from the SP metadata file. Nothing in git; the laptop copy lives in
