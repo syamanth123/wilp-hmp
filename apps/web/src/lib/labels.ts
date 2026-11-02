@@ -148,6 +148,8 @@ const ACTION_SENTENCE: Record<string, string> = {
   'reconciliation.success': 'Checked the Taxila publication',
   'reconciliation.failed': 'Taxila publication check failed',
   'ratelimit.unavailable': 'Sign-in protection was briefly unavailable',
+  'auth.sso.login': 'Signed in with BITS ID',
+  'auth.sso.refused': 'BITS sign-in was refused',
   'ai.draft.generated': 'Created an AI draft',
   'ai.draft.generated.structured': 'Created an AI draft',
   'ai.draft.applied': 'Used an AI draft',
@@ -191,6 +193,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   Embedding: 'AI matching data',
   ErpSnapshot: 'Academic data import',
   RateLimit: 'Sign-in protection',
+  Auth: 'Sign-in',
   Reconciliation: 'Taxila check',
 };
 export const entityLabel = (e: string | null | undefined) => pick(ENTITY_LABEL, e);

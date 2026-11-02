@@ -140,6 +140,9 @@ export async function makeResponse(o: ResponseOptions): Promise<string> {
   return Buffer.from(xml).toString('base64');
 }
 
+// xml-crypto: put the Signature right after the element's Issuer.
+const PLACE_AFTER = 'after' as const;
+
 /** Enveloped RSA-SHA256 signature on the (outermost) element, placed after its Issuer. */
 function signElement(xml: string, localName: string, idp: Identity): string {
   const sig = new SignedXml({
@@ -160,7 +163,7 @@ function signElement(xml: string, localName: string, idp: Identity): string {
     prefix: 'ds',
     location: {
       reference: `/*[local-name(.)='${localName}']/*[local-name(.)='Issuer']`,
-      action: 'after',
+      action: PLACE_AFTER,
     },
   });
   return sig.getSignedXml();
