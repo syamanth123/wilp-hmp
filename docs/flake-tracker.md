@@ -52,6 +52,19 @@ The IC-create → HOG-allocate → PC-confirm workflow E2E. First flaked in PR #
 
 ---
 
+## m4-sme-approval-loop — faculty submit → SME_REVIEW (+ notifies the SME)
+
+`apps/web/e2e/m4-sme-approval-loop.spec.ts:301` "faculty submit routes through the SME gate → SME_REVIEW (+ notifies the SME)". Runs under `scripts/ci-local` (GitHub Actions is still billing-locked). Deferred: the failure is a timing issue, not a wrong result. The test polls until the request reaches SME_REVIEW, then reads the in-portal notification recipients **once** (`recip.has(...)` → `expect(received).toBe(expected)`); the notifications are written just after the status change, so a slow run can read them a moment too early. The retry passed.
+
+| Branch / commit                                                   | Run      |  Result   | Notes                                                                                                                |
+| ----------------------------------------------------------------- | -------- | :-------: | -------------------------------------------------------------------------------------------------------------------- |
+| earlier ci-local runs (UI clean-up, hotfix, release 1.0 branches) | ci-local |   clean   | passed on every run before this one                                                                                  |
+| `main` @ `f98e97f` (release 1.0)                                  | ci-local | **flaky** | first observation: failed once on the notification count, passed on retry; job green (54 passed, 1 flaky, 9 skipped) |
+
+**If it flakes again:** wrap the recipient check in `expect.poll` the way the status check just above it already is, instead of reading it once.
+
+---
+
 ## How to update
 
 After every CI run on a feature branch, add a row above with:
