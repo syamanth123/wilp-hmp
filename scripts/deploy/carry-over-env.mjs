@@ -111,7 +111,9 @@ export function carryOver(old, makeDefault = (k) => DEFAULTS[k]()) {
     if (!(env[k] ?? '').trim()) report.push(`MISSING  ${k} — add it by hand (see §2)`);
   }
   if ((env.S3_ENDPOINT ?? '').trim()) {
-    report.push('CHECK    S3_ENDPOINT is set — remove it unless the pilot really needed it (real AWS S3 needs none)');
+    report.push(
+      'CHECK    S3_ENDPOINT is set — remove it unless the pilot really needed it (real AWS S3 needs none)',
+    );
   }
   for (const [k, v] of Object.entries(env)) {
     if (/['\n\r]/.test(v)) errors.push(`${k} contains a quote or line break — copy it by hand`);
@@ -120,7 +122,9 @@ export function carryOver(old, makeDefault = (k) => DEFAULTS[k]()) {
 }
 
 export function render(env) {
-  const lines = ['# HMP v1.0.0 settings — built by scripts/deploy/carry-over-env.mjs from the old pilot file.'];
+  const lines = [
+    '# HMP v1.0.0 settings — built by scripts/deploy/carry-over-env.mjs from the old pilot file.',
+  ];
   for (const k of Object.keys(env).sort()) lines.push(`${k}='${env[k]}'`);
   return lines.join('\n') + '\n';
 }
@@ -128,7 +132,9 @@ export function render(env) {
 function main() {
   const [from, to] = process.argv.slice(2);
   if (!from || !to) {
-    console.error('usage: node scripts/deploy/carry-over-env.mjs <old .env.production> <new .env.production>');
+    console.error(
+      'usage: node scripts/deploy/carry-over-env.mjs <old .env.production> <new .env.production>',
+    );
     process.exit(2);
   }
   if (!existsSync(from)) {
@@ -147,7 +153,9 @@ function main() {
     process.exit(1);
   }
   writeFileSync(to, render(env), { mode: 0o600 });
-  console.log(`Wrote ${to} (${Object.keys(env).length} settings, permissions 600). Values were not shown.`);
+  console.log(
+    `Wrote ${to} (${Object.keys(env).length} settings, permissions 600). Values were not shown.`,
+  );
 }
 
 if (process.argv[1]?.endsWith('carry-over-env.mjs')) main();
