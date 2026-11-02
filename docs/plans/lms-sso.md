@@ -6,23 +6,25 @@ plan is approved.
 
 ## 0. Inputs — what's here and what isn't
 
-| Input                                                | Status                                                                                                                                                                                                                                                                                                                                                                |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TAXILA_WS_TOKEN` in `C:\work\wilp-hmp\.env`         | **Not there yet.** Not needed to write the code (tests use saved responses), only for the admin check page on the laptop.                                                                                                                                                                                                                                             |
-| Our SP metadata `local-data/sso/hmp-sp-metadata.xml` | **Not there yet — the SP check below is blocked.** Nothing about it can be confirmed until the file is saved.                                                                                                                                                                                                                                                         |
-| BITS IdP metadata (public)                           | Read on 2026-10-31. EntityID `https://idp.bits-pilani.ac.in/idp/shibboleth`. SSO endpoints for HTTP-Redirect and HTTP-POST. One certificate, `CN=idp.bits-pilani.ac.in`, valid to 14 Jul 2034. Its `KeyDescriptor` has no `use=`, so it is used for signing **and** the IdP may encrypt assertions to us. NameID formats: transient (and the old Shibboleth 1.0 one). |
-| eLearn SP metadata (public, reference)               | HTTP-POST ACS; `AuthnRequestsSigned="true"`, `WantAssertionsSigned="true"`; transient NameID; requests `uid`, `mail`, `cn`, `employeeType`.                                                                                                                                                                                                                           |
+| Input                                                | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TAXILA_WS_TOKEN` in `C:\work\wilp-hmp\.env`         | **Not there yet.** Not needed to write the code (tests use saved responses), only for the admin check page on the laptop.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Our SP metadata `local-data/sso/hmp-sp-metadata.xml` | **Generated on the server (2026-11-02), copy not on the laptop yet.** Stated values: entityID `https://hmp.wilp-connect.net/api/saml/metadata`; one ACS, HTTP-POST, `https://hmp.wilp-connect.net/api/saml/acs`; signed AuthnRequests (RSA-SHA256); signed assertions required; encrypted assertions supported; requests `mail` (required), `uid`, `cn`, `employeeType`. Key pair stays on the server: `/home/ubuntu/hmp-saml/sp-key.pem`, `sp-cert.pem`. The check below still needs the XML itself (public — safe to copy). |
+| BITS IdP metadata (public)                           | Read on 2026-10-31. EntityID `https://idp.bits-pilani.ac.in/idp/shibboleth`. SSO endpoints for HTTP-Redirect and HTTP-POST. One certificate, `CN=idp.bits-pilani.ac.in`, valid to 14 Jul 2034. Its `KeyDescriptor` has no `use=`, so it is used for signing **and** the IdP may encrypt assertions to us. NameID formats: transient (and the old Shibboleth 1.0 one).                                                                                                                                                         |
+| eLearn SP metadata (public, reference)               | HTTP-POST ACS; `AuthnRequestsSigned="true"`, `WantAssertionsSigned="true"`; transient NameID; requests `uid`, `mail`, `cn`, `employeeType`.                                                                                                                                                                                                                                                                                                                                                                                   |
 
 **SP metadata check (runs first, the moment the XML is saved).** HMP's SAML settings will be
 read _from that file_, not typed in by hand, so the two can't drift. Before writing any SSO code
 I will check and report:
 
 1. `entityID` — an https URL on the live HMP domain (not `localhost`, not an IP, not `http`).
-2. `AssertionConsumerService` — exactly one, `Binding` = HTTP-POST, `Location` = `https://<live
-domain>/api/auth/saml/acs`. If the path differs I will make our route match **their** path
-   rather than ask IT to re-register.
-3. A signing certificate present, not expired, and that we hold its private key (the key must
-   match; I will compare the public keys, never print the private key).
+2. `AssertionConsumerService` — exactly one, `Binding` = HTTP-POST, `Location` =
+   `https://hmp.wilp-connect.net/api/saml/acs` (moved out of `/api/auth/…`, which NextAuth owns).
+   Our routes use whatever path the file says.
+3. A signing certificate present and not expired. The private key never leaves the server, so
+   "the key matches the certificate" is checked **on the server**: HMP checks it at start-up (SSO
+   stays off with a clear log line if they don't match), and the install steps include a one-line
+   `openssl` comparison of the two public keys (never prints the private key).
 4. Whether the certificate is marked `use="signing"` only. If it has no `use`, the IdP may encrypt
    assertions to it — supported (we decrypt with the same key), noted.
 5. `AuthnRequestsSigned` / `WantAssertionsSigned` — whatever the file says is what HMP does.
@@ -122,16 +124,31 @@ NextAuth v5 keeps issuing the normal session.
 
 **Routes**
 
-- `GET /api/auth/saml/login?next=…` — builds the AuthnRequest, **HTTP-Redirect binding**
-  (signed in the query string if the metadata says `AuthnRequestsSigned="true"`). Redirect, not
-  POST, so our strict CSP (`form-action 'self'`, no inline scripts) is untouched.
-- `POST /api/auth/saml/acs` — path taken from our SP metadata. Validates the response, matches
+All under **`/api/saml/`** (outside NextAuth's `/api/auth/…`, so the two can't clash).
+
+- `GET /api/saml/login?next=…` — builds the AuthnRequest, **HTTP-Redirect binding**, signed
+  **RSA-SHA256** in the query string. Redirect, not POST, so our strict CSP (`form-action 'self'`,
+  no inline scripts) is untouched. `next` travels as RelayState (only same-site paths accepted).
+- `POST /api/saml/acs` — path taken from our SP metadata. Validates the response, matches
   the user, issues a **one-time sign-in ticket** (random, 60 s, single use, stored in Redis or
   memory) and redirects to `/login/sso?ticket=…`, which signs in through a second NextAuth
   provider (`bits-sso`) whose `authorize()` only accepts a valid unused ticket. Same session,
   roles and permissions as today.
-- `GET /api/auth/saml/metadata` — serves SP metadata generated from the same settings, so you
-  can diff it against the file IT has.
+- `GET /api/saml/metadata` (= our entityID) — serves **the generated XML file itself**, byte for
+  byte (`SAML_SP_METADATA_PATH`), so what the URL shows is exactly what IT registered. At start-up
+  HMP reads its entityID, ACS and certificate **from that file** and checks the certificate equals
+  `SAML_SP_CERT_PATH` and matches `SAML_SP_KEY_PATH`; any mismatch → SSO off + a clear log line
+  (password login unaffected).
+
+**Plumbing that must not block SSO** (checked in the code):
+
+- The middleware already skips every `/api/…` path, so `/api/saml/*` is reachable signed out.
+  `/login/sso` is **not** skipped today (only `/login` is public) → add it to the public pages.
+- The ACS is a cross-site POST from `idp.bits-pilani.ac.in`, so it gets **no** same-origin check
+  (that check lives per upload route, not globally — nothing to switch off). Its protection is the
+  signature, `InResponseTo` and the one-time assertion ID.
+- The sent request IDs are kept **on the server** (Redis, memory fallback), not in a cookie: our
+  `SameSite=Lax` cookies aren't sent on that cross-site POST.
 
 **Validation** (all must pass): signature by the IdP certificate from its metadata (assertion
 signed if `WantAssertionsSigned`); encrypted assertions decrypted with our key; Issuer = IdP
@@ -139,8 +156,14 @@ entityID; Audience = our entityID; Destination/Recipient = our ACS URL; `InRespo
 request we sent (stored 5 min); `NotBefore`/`NotOnOrAfter` with **2 minutes** skew; assertion ID
 **single use** (stored until it expires).
 
-**Who gets in:** match on `mail` (lowercased) → `User.email`; fallback on `uid` only when exactly
-one active HMP user's email starts with `<uid>@` (no new column); **never on NameID** (transient).
+**Who gets in** (decided 2026-11-02: `mail` first, `uid` fallback): match on `mail` (lowercased)
+→ `User.email`; fallback on `uid` only when exactly one active HMP user's email starts with
+`<uid>@` (no new column); **never on NameID** (transient).
+**My recommendation on _when_ the fallback applies:** only when the IdP sends **no** `mail`. If
+`mail` is sent but matches no account, refuse rather than fall back. Otherwise a person whose
+`mail` HMP doesn't know (e.g. `amit@goa…`) could be signed in to a _different_ person's account
+that happens to start with the same uid (`amit@pilani…`). The IC fixes such cases by correcting
+the email in HMP. Since `mail` is marked required in our metadata, the fallback should rarely run.
 User must exist **and** be active; roles come from HMP. Otherwise: "Your BITS account isn't set up
 in the Handout Portal — contact the Instruction Cell." Every SSO sign-in and refusal is audited.
 
@@ -149,34 +172,42 @@ in the Handout Portal — contact the Instruction Cell." Every SSO sign-in and r
 otherwise). **Decision for you:** to avoid locking everyone out, I propose password login also
 stays on while SSO isn't configured on that server (no IdP/SP settings) — see §G.
 
-**Keys:** `SAML_SP_PRIVATE_KEY` (PEM in env) or `SAML_SP_PRIVATE_KEY_FILE` (path outside the
-repo); certificate from the SP metadata file. Nothing in git; the laptop copy lives in
-`local-data/sso/`.
+**Keys:** read from files on the server — `SAML_SP_KEY_PATH=/home/ubuntu/hmp-saml/sp-key.pem`,
+`SAML_SP_CERT_PATH=/home/ubuntu/hmp-saml/sp-cert.pem`. The same key signs AuthnRequests and
+decrypts encrypted assertions. **HMP never generates a key pair** (a new key would silently break
+SSO until IT re-uploads the metadata). Nothing in git; tests make a throwaway pair in memory.
+`~/hmp-saml` is outside the code folder, so installs and rollbacks never touch it; a rebuilt
+server needs that folder copied across first.
 
 **Rate limiting:** the existing limiter only throttles `/callback/credentials`; ACS gets its own
 per-IP limit.
 
 **Tests (no network):** a local fake IdP using a key pair generated in the test — valid
 assertion; bad signature; wrong audience; expired; replayed; unknown user; inactive user; plus
-encrypted assertion, wrong `InResponseTo`, NameID ignored (mail wins). E2E: the login page shows
-the BITS button; CI keeps `PASSWORD_LOGIN_ENABLED=true` so the existing specs still sign in.
+encrypted assertion, wrong `InResponseTo`, NameID ignored (mail wins), no `mail` → `uid` fallback
+(one match signs in, two matches refused), `mail` sent but unknown → refused. Settings: the login
+redirect carries `SigAlg=…rsa-sha256` and a signature our certificate verifies; `/api/saml/metadata`
+returns the file's exact bytes; certificate ≠ metadata's, or key ≠ certificate → SSO off, password
+login still works. E2E: the login page shows the BITS button, `/login/sso` and `/api/saml/metadata`
+open signed out; CI keeps `PASSWORD_LOGIN_ENABLED=true` so the existing specs still sign in.
 
 ## D. Env settings the server will need
 
-| Setting                                             | Value / note                                                                                                                                    |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TAXILA_WS_URL`                                     | `https://taxila-aws.bits-pilani.ac.in/webservice/rest/server.php`                                                                               |
-| `TAXILA_WS_TOKEN`                                   | the **new HMP-only** token from IT (not the shared one)                                                                                         |
-| `TAXILA_UPLOAD_ENABLED`                             | `false` until IT provides the upload function                                                                                                   |
-| `SAML_SP_METADATA_FILE`                             | path to our SP metadata XML (outside the repo)                                                                                                  |
-| `SAML_SP_PRIVATE_KEY_FILE` or `SAML_SP_PRIVATE_KEY` | the SP private key (outside the repo)                                                                                                           |
-| `SAML_IDP_METADATA_URL`                             | `https://idp.bits-pilani.ac.in/idp/profile/Metadata/SAML` (fetched at start and cached; a saved copy can be given via `SAML_IDP_METADATA_FILE`) |
-| `PASSWORD_LOGIN_ENABLED`                            | `true` only as an admin fallback                                                                                                                |
-| `SHOW_DEMO_LOGINS`, `AI_FEATURES_ENABLED`           | unset / `false` (as before)                                                                                                                     |
+| Setting                                   | Value / note                                                                                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TAXILA_WS_URL`                           | `https://taxila-aws.bits-pilani.ac.in/webservice/rest/server.php`                                                                               |
+| `TAXILA_WS_TOKEN`                         | the **new HMP-only** token from IT (not the shared one)                                                                                         |
+| `TAXILA_UPLOAD_ENABLED`                   | `false` until IT provides the upload function                                                                                                   |
+| `SAML_SP_METADATA_PATH`                   | the generated SP metadata XML on the server, e.g. `/home/ubuntu/hmp-saml/<file name>` — **which name did the generator use?**                   |
+| `SAML_SP_KEY_PATH`                        | `/home/ubuntu/hmp-saml/sp-key.pem` (private key; never in git, chat or email)                                                                   |
+| `SAML_SP_CERT_PATH`                       | `/home/ubuntu/hmp-saml/sp-cert.pem`                                                                                                             |
+| `SAML_IDP_METADATA_URL`                   | `https://idp.bits-pilani.ac.in/idp/profile/Metadata/SAML` (fetched at start and cached; a saved copy can be given via `SAML_IDP_METADATA_FILE`) |
+| `PASSWORD_LOGIN_ENABLED`                  | `true` only as an admin fallback                                                                                                                |
+| `SHOW_DEMO_LOGINS`, `AI_FEATURES_ENABLED` | unset / `false` (as before)                                                                                                                     |
 
 ## E. Order of work
 
-1. SP metadata check (needs the XML) → report.
+1. SP metadata check (needs a copy of the XML in `local-data/sso/hmp-sp-metadata.xml`) → report.
 2. Moodle module + tests → admin connection page.
 3. New tables + migration → Taxila links page (suggest/confirm) → course-row comparison →
    "Open in Taxila".
@@ -203,8 +234,9 @@ the BITS button; CI keeps `PASSWORD_LOGIN_ENABLED=true` so the existing specs st
 
 1. **Password login while SSO isn't configured** — recommended: on, so no server can lock
    everyone out; `PASSWORD_LOGIN_ENABLED=true` keeps it on after SSO is live.
-2. **`uid` fallback rule** as above (only when exactly one active account matches), or `mail`
-   only until IT confirms the `uid` format.
+2. ~~`uid` fallback~~ — **decided 2026-11-02:** `mail` first, `uid` fallback (exactly one active
+   match). Still open: fall back **only when `mail` is missing** (recommended, see "Who gets in"),
+   or also when `mail` is sent but unknown.
 3. **One live, read-only call to Taxila** from the laptop (`core_webservice_get_site_info` — no
    user data) once the token is in `.env`, to list exactly which functions this token can use, so
    the IT message is precise. Tests and CI never call Taxila either way.
