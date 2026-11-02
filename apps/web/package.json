@@ -19,6 +19,7 @@
     "@hmp/queue": "workspace:*",
     "@hmp/ui": "workspace:*",
     "@hmp/workflow": "workspace:*",
+    "@node-saml/node-saml": "5.2.0",
     "@tiptap/core": "^2.6.6",
     "@tiptap/extension-link": "^2.6.6",
     "@tiptap/extension-underline": "^2.6.6",
@@ -26,6 +27,7 @@
     "@tiptap/pm": "^2.6.6",
     "@tiptap/react": "^2.6.6",
     "@tiptap/starter-kit": "^2.6.6",
+    "@xmldom/xmldom": "^0.8.15",
     "bcryptjs": "^2.4.3",
     "diff": "^5.2.0",
     "docx": "^9.7.1",
@@ -49,8 +51,11 @@
     "eslint-config-next": "^14.2.13",
     "postcss": "^8.4.45",
     "prettier-plugin-tailwindcss": "^0.6.6",
+    "selfsigned": "^2.4.1",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "xml-crypto": "^6.4.0",
+    "xml-encryption": "3.1.0"
   }
 }

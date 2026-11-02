@@ -57,8 +57,10 @@ function setsSessionCookie(res: Response): boolean {
 
 export async function POST(req: NextRequest): Promise<Response> {
   // Only throttle credentials-callback (actual login attempts).
-  // Other auth POSTs (session refresh, future OAuth/SAML callbacks) bypass it.
-  // When SAML SSO lands in Prompt 19, verify this doesn't throttle SAML callbacks.
+  // Other auth POSTs (session refresh, …) bypass it. BITS SSO never comes
+  // through here: the IdP posts to /api/saml/acs (its own per-IP limit), which
+  // signs in via the `bits-sso` provider in-process; a direct POST to
+  // /callback/bits-sso is useless without a valid HMAC proof.
   if (!req.nextUrl.pathname.endsWith('/callback/credentials')) return authPost(req);
 
   const ip = clientIpFromHeaders(req.headers);

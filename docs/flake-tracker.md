@@ -60,8 +60,19 @@ The IC-create → HOG-allocate → PC-confirm workflow E2E. First flaked in PR #
 | ----------------------------------------------------------------- | -------- | :-------: | -------------------------------------------------------------------------------------------------------------------- |
 | earlier ci-local runs (UI clean-up, hotfix, release 1.0 branches) | ci-local |   clean   | passed on every run before this one                                                                                  |
 | `main` @ `f98e97f` (release 1.0)                                  | ci-local | **flaky** | first observation: failed once on the notification count, passed on retry; job green (54 passed, 1 flaky, 9 skipped) |
+| `main` @ `cf23a66` (tagged v1.0.0)                                | ci-local |   clean   |                                                                                                                      |
 
 **If it flakes again:** wrap the recipient check in `expect.poll` the way the status check just above it already is, instead of reading it once.
+
+---
+
+## handout-editor-inline — objective typed on the page survives Save + reload
+
+`apps/web/e2e/handout-editor-inline.spec.ts:69` "a course objective typed on the page shows in Preview and survives Save + reload". Failed once, passed on retry; not investigated yet.
+
+| Branch / commit                    | Run      |  Result   | Notes                                                                          |
+| ---------------------------------- | -------- | :-------: | ------------------------------------------------------------------------------ |
+| `main` @ `cf23a66` (tagged v1.0.0) | ci-local | **flaky** | first observation; job green (54 passed, 1 flaky, 9 skipped; m9 + AI-on green) |
 
 ---
 

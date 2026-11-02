@@ -240,3 +240,65 @@ open signed out; CI keeps `PASSWORD_LOGIN_ENABLED=true` so the existing specs st
 3. **One live, read-only call to Taxila** from the laptop (`core_webservice_get_site_info` — no
    user data) once the token is in `.env`, to list exactly which functions this token can use, so
    the IT message is precise. Tests and CI never call Taxila either way.
+
+**Decided 2 Nov 2026:** (1) password login stays **on** (`PASSWORD_LOGIN_ENABLED=true`) until SSO
+is tested on the live site; after that it is for administrators only. (2) `uid` fallback **only
+when `mail` is absent**; `mail` sent but unknown → refused ("account isn't set up"), audited with
+the email only. (3) Taxila: one read-only `core_webservice_get_site_info` call once the token is
+in `.env` (still waiting for the token).
+
+## H. As built — part C (BITS SSO)
+
+**SP metadata checked 2 Nov 2026** (`local-data/sso/hmp-sp-metadata.xml`, generated on the server
+by `make-hmp-sp-metadata.sh`): entityID `https://hmp.wilp-connect.net/api/saml/metadata`; one
+HTTP-POST ACS `…/api/saml/acs`; `AuthnRequestsSigned` and `WantAssertionsSigned` true; one RSA
+3072 certificate (`CN=hmp.wilp-connect.net`, valid to 30 Oct 2036, SHA-256
+`78:07:56:…:13:92`) used for both signing and encryption; encryption methods start with
+`rsa-oaep-mgf1p` (the `xmlenc11#rsa-oaep` line was removed — node-saml's `xml-encryption` 3.1.0
+can't decrypt it); `uid` + `mail` required, `cn` + `employeeType` optional; no private key in the
+file. **Ready to send to IT.** A copy is the test fixture
+`apps/web/src/lib/saml/__tests__/__fixtures__/hmp-sp-metadata.xml` (public).
+
+**Changes from the plan above, and why:**
+
+- **No ticket hop / no `/login/sso` page.** The ACS route signs the user in itself: it calls
+  `signIn('bits-sso', { proof })` in the same request (Auth.js runs in-process, CSRF skipped,
+  cookies set on the 303 response). The proof is an HMAC (Web Crypto, 30 s, keyed from the
+  Auth.js secret with a purpose label) that never reaches the browser — so nothing Redis-backed
+  is needed inside `@hmp/auth`, which the Edge middleware imports.
+- **Request IDs and assertion IDs in process memory** (node-saml `InMemoryCacheProvider`,
+  consumed on use, `rejectReplayedAssertions`), not Redis: HMP runs as one `next start` process.
+  Switch to a shared store if it ever runs as several.
+- **IdP metadata from a file** (`SAML_IDP_METADATA_PATH`), downloaded once at install, not
+  fetched at run time.
+- **Password policy** (`packages/auth/src/password-policy.ts`): everyone may use a password while
+  `PASSWORD_LOGIN_ENABLED=true` **or** SSO isn't set up on the server; otherwise administrators
+  only (the form folds away under "Administrator sign-in"). Nobody can be locked out entirely.
+
+**Code:** `apps/web/src/lib/saml/` (metadata, config, sp, attributes, match-user, relay,
+messages, app-url, prisma-finder), routes `apps/web/src/app/api/saml/{login,acs,metadata}`,
+`packages/auth/src/{sso-proof,password-policy}.ts`, the `bits-sso` provider in
+`packages/auth/src/config.ts`, the login page button and messages.
+
+**Tests (no network):** a fake IdP (`__tests__/fake-idp.ts`, throwaway keys) — signed and
+encrypted assertions accepted; tampered, foreign-signed, unsigned, wrong-audience, expired,
+unsolicited and replayed responses rejected; the redirect is signed RSA-SHA256 and verifies with
+our certificate; config refuses a missing setting, unreadable file, cert ≠ metadata, key ≠ cert,
+other ACS path, http entityID, other site than `NEXTAUTH_URL`, expired cert; account matching
+(mail, uid-only-when-no-mail, ambiguous, inactive, NameID ignored); ACS route end to end with the
+database mocked; metadata route returns the file's exact bytes; proof and password policy units.
+
+**Server settings for the SSO release** (add to `apps/web/.env.production`, then restart):
+
+```
+SAML_SP_METADATA_PATH='/home/ubuntu/hmp-saml/hmp-sp-metadata.xml'
+SAML_SP_KEY_PATH='/home/ubuntu/hmp-saml/sp-key.pem'
+SAML_SP_CERT_PATH='/home/ubuntu/hmp-saml/sp-cert.pem'
+SAML_IDP_METADATA_PATH='/home/ubuntu/hmp-saml/bits-idp-metadata.xml'
+PASSWORD_LOGIN_ENABLED='true'
+```
+
+IdP metadata, once: `curl -fsS -o ~/hmp-saml/bits-idp-metadata.xml
+https://idp.bits-pilani.ac.in/idp/shibboleth` (check it names `entityID="https://idp.bits-pilani.ac.in/idp/shibboleth"`).
+If any file is missing or disagrees, the log says `[saml] BITS sign-in is OFF: <reason>` and
+the login page simply shows no BITS button.
