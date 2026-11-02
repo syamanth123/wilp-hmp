@@ -18,9 +18,14 @@ browser ──https──▶ ALB (TLS ends here) ──http──▶ nginx :80 o
 ## 0. Before you start
 
 - **The domain currently serves an old HMP build** that redirects to the IP and lists demo
-  accounts on its login page. If this instance is that old pilot (or a copy of it), step 1b
-  stops it first. Keep the _other_ old pilot (if there is one) running until §9 passes.
+  accounts on its login page.
+  - **Same box** (this instance _is_ the old pilot — `pm2 list` shows `hmp-web` and there is a
+    `~/wilp-hmp` folder): the old pilot can't keep running alongside the new install. Step 1b
+    **stops it** and keeps everything needed to bring it back (§10 "Same box").
+  - **Different box:** keep the old pilot running until §9 passes, then stop it.
 - Ask IT (or check) which **port the ALB target group sends to**. This guide uses **80** (nginx).
+  The ALB **health-check path should be `/login`** (not `/api/health`, which answers 503 while
+  Redis is down — with one server, that would take the whole site out).
 - Have ready: the RDS endpoint, master user and password; the S3 access key pair for IAM user
   "handout"; an admin email; an SMTP account (optional).
 - Connect: `ssh -i C:\work\secrets\Handout.pem ubuntu@13.201.161.6`.
@@ -47,14 +52,25 @@ soffice --version && psql --version && redis-cli ping     # PONG
 sudo systemctl enable --now redis-server
 ```
 
-**1b. If anything from the old pilot is on this box** (skip on a truly empty box)
+**1b. Same box: stop the old pilot, keep it restorable** (skip on a truly empty box)
+
+The old site goes down here and stays down until §6 starts v1.0.0 (nginx shows an error page in
+between — better than a login page listing passwords). Nothing is deleted; §10 "Same box" brings
+it back.
 
 ```bash
 pm2 list 2>/dev/null; ls -d ~/wilp-hmp 2>/dev/null; ls /etc/nginx/sites-enabled/
-# If pm2 shows hmp-web / hmp-worker:
-pm2 delete all && pm2 save --force && pm2 unstartup systemd 2>/dev/null
-# Keep the old code and its settings, out of the way:
-[ -d ~/wilp-hmp ] && mv ~/wilp-hmp ~/wilp-hmp-old-$(date +%Y%m%d)
+# 1. Remember exactly what pm2 was running, then stop it (stop, not delete):
+pm2 save && cp ~/.pm2/dump.pm2 ~/pm2-dump-old.pm2
+pm2 stop all
+# 2. Don't let pm2 restart the old app on reboot (it would fight hmp-web for port 3000).
+#    Run the `sudo …` line this prints:
+pm2 unstartup systemd
+# 3. Keep the old code + its settings file under a fixed name (§7 reads the old database address from it):
+mv ~/wilp-hmp ~/wilp-hmp-old
+# 4. Keep the old nginx setup, then switch off its site(s) (§5 adds the new one):
+sudo tar czf ~/nginx-old.tgz -C / etc/nginx
+sudo find /etc/nginx/sites-enabled -mindepth 1 -delete
 ```
 
 **1c. Code — exactly v1.0.0**
@@ -89,13 +105,6 @@ LMS_EXPORTS_BUCKET='handout-09-07-2026'
 # --- Redis on this box (login rate limiting + health check) ---
 REDIS_URL='redis://127.0.0.1:6379'
 
-# --- Email (optional; blank = emails are skipped and logged, the app works) ---
-SMTP_HOST='<SMTP_HOST>'
-SMTP_PORT='587'
-SMTP_USER='<SMTP_USER>'
-SMTP_PASS='<SMTP_PASSWORD>'
-SMTP_FROM='HMP <no-reply@wilp-connect.net>'
-
 # --- Features ---
 AI_FEATURES_ENABLED='false'
 PASSWORD_LOGIN_ENABLED='true'
@@ -105,6 +114,21 @@ NODE_ENV='production'
 # SHOW_DEMO_LOGINS must NOT appear in this file.
 # WORKERS_ENABLED is left unset: emails are sent during the request (no worker process).
 ```
+
+**Email — only if you have an SMTP account.** Add these lines with every `<…>` filled in. **No
+SMTP account → add nothing:** with no `SMTP_HOST` line the app skips emails (it logs them) and
+works normally. Never leave a `<…>` placeholder in the file — the app would try to connect to it.
+
+```
+SMTP_HOST='<SMTP_HOST>'
+SMTP_PORT='587'
+SMTP_USER='<SMTP_USER>'
+SMTP_PASS='<SMTP_PASSWORD>'
+SMTP_FROM='HMP <no-reply@wilp-connect.net>'
+```
+
+Before going on, check nothing is left unfilled — this must print nothing:
+`grep -n '<' ~/wilp-hmp/apps/web/.env.production | grep -v 'no-reply@'`
 
 Notes:
 
@@ -291,20 +315,36 @@ sudo systemctl daemon-reload && sudo systemctl enable --now hmp-reminders.timer
 - **Yes** → copy it into the new database **before** step 4b's `migrate deploy` (the migrations
   then bring it up to v1.0.0), and skip 4c (its users already exist):
 
+The old database address comes from the old pilot's own settings file (kept in `~/wilp-hmp-old`
+by step 1b; on a different box, copy that file over first). You don't type the old credentials.
+
 ```bash
-# Old database (read-only dump; nothing is changed there)
-pg_dump -Fc --no-owner --no-acl "postgresql://<OLD_USER>:<OLD_PASSWORD_URL_ENCODED>@<OLD_RDS_ENDPOINT>:5432/<OLD_DB>?sslmode=require" -f ~/old-pilot.dump
+# 1. Which settings files hold a database address (password shown as ****):
+grep -H '^DATABASE_URL' ~/wilp-hmp-old/apps/web/.env* ~/wilp-hmp-old/.env* 2>/dev/null \
+  | sed -E 's#(://[^:/@]+:)[^@]*@#\1****@#'
+# 2. Pick the file the old site ran with (normally apps/web/.env.production — change if the list shows otherwise):
+OLD_ENV=~/wilp-hmp-old/apps/web/.env.production
+OLD_URL="$(grep -h '^DATABASE_URL' "$OLD_ENV" | head -1 | cut -d= -f2- | tr -d "'\"")"
+# 3. psql/pg_dump reject Prisma's "?schema=public": keep only the part before "?".
+#    (No sslmode added: psql uses SSL whenever the server offers it.)
+OLD="${OLD_URL%%\?*}"
+echo "$OLD" | sed -E 's#(://[^:/@]+:)[^@]*@#\1****@#'      # the address you'll copy from, password hidden
+psql "$OLD" -tAc 'select 1'                                # must print 1
+
+# Old database: a read-only dump (nothing is changed there)
+pg_dump -Fc --no-owner --no-acl "$OLD" -f ~/old-pilot.dump
 ls -lh ~/old-pilot.dump
 # New (empty) database
-pg_restore --no-owner --no-acl -d "${DATABASE_URL%%\?*}?sslmode=require" ~/old-pilot.dump
-# Check: the same counts on both sides (run once with OLD, once with NEW)
-OLD='postgresql://<OLD_USER>:<OLD_PASSWORD_URL_ENCODED>@<OLD_RDS_ENDPOINT>:5432/<OLD_DB>?sslmode=require'
+set -a; . ~/wilp-hmp/apps/web/.env.production; set +a
 NEW="${DATABASE_URL%%\?*}?sslmode=require"
+pg_restore --no-owner --no-acl -d "$NEW" ~/old-pilot.dump
+# Check: the same counts on both sides
 for DB in "$OLD" "$NEW"; do
   for T in User HandoutRequest HandoutVersion; do
     echo "$T $(psql "$DB" -tAc "select count(*) from \"$T\"")"
   done; echo ---
 done
+unset OLD_URL OLD NEW
 ```
 
 Then continue with 4b. Afterwards run the default-password check from
@@ -320,7 +360,7 @@ Prints the versions, **whether** each required setting is set (never the value),
 connection over SSL, an S3 write + read (and whether publishing can check the bucket), and the
 health of the app locally and through the public address.
 
-## 9. Checks after install (all must pass before switching off the old pilot)
+## 9. Checks after install (all must pass before go-live — or, on a different box, before switching off the old pilot)
 
 ```bash
 curl -sI https://hmp.wilp-connect.net/login | grep -iE '^(HTTP|location)'   # 200, and no Location with an IP
@@ -341,13 +381,30 @@ In a browser (private window):
 
 ## 10. Rollback
 
-- **Before go-live** (the old pilot is still serving): nothing to undo for users; fix and re-run.
+- **Different box, before go-live** (the old pilot is still serving): nothing to undo for users;
+  fix and re-run.
+- **Same box — bring the old pilot back** (uses what step 1b kept; v1.0.0 is set aside, not
+  deleted):
+
+  ```bash
+  sudo systemctl disable --now hmp-web
+  mv ~/wilp-hmp ~/wilp-hmp-v1 && mv ~/wilp-hmp-old ~/wilp-hmp
+  sudo mv /etc/nginx /etc/nginx-v1 && sudo tar xzf ~/nginx-old.tgz -C /   # old nginx site, exactly as it was
+  sudo nginx -t && sudo systemctl reload nginx
+  cp ~/pm2-dump-old.pm2 ~/.pm2/dump.pm2 && pm2 resurrect && pm2 list   # old app running again
+  pm2 startup systemd                                                  # run the `sudo …` line it prints
+  ```
+
+  The old site comes back **with its demo-account login page**, so only do this to recover, and
+  first change the passwords of every account that page lists (or deactivate them).
+
 - **App release** (later versions): `cd ~/wilp-hmp && git checkout <previous tag> && pnpm install
 --frozen-lockfile && pnpm --filter @hmp/db exec prisma generate && pnpm --filter @hmp/web build &&
 sudo systemctl restart hmp-web`.
 - **Database:** RDS → Snapshots → `hmp-before-v1-0-0` → Restore (to a new instance), point
   `DATABASE_URL` at it, restart. Only needed if a migration or a data copy went wrong.
-- **Whole server:** ask IT to point the ALB target back at the old pilot instance.
+- **Whole server (different box only):** ask IT to point the ALB target back at the old pilot
+  instance.
 
 ## After go-live — ask IT
 
@@ -355,3 +412,7 @@ sudo systemctl restart hmp-web`.
   RDS master password, a new SSH key; update `.env.production` once and
   `sudo systemctl restart hmp-web`.
 - Security group: SSH (22) only from the office IP; port 80 only from the ALB.
+- ALB health check on `/login` (see §0).
+- Same box: once v1.0.0 has run cleanly for a week, `~/wilp-hmp-old`, `~/pm2-dump-old.pm2`,
+  `~/nginx-old.tgz` and `~/old-pilot.dump` can be deleted (the dump holds user data — don't keep it
+  around).
