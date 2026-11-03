@@ -1,7 +1,10 @@
 import Image from 'next/image';
 import { prisma } from '@hmp/db';
+import { passwordLoginOpenToAll } from '@hmp/auth';
 import { LoginForm } from './login-form';
 import { demoLoginsVisible } from '@/lib/demo-logins';
+import { getSamlSetup } from '@/lib/saml/config';
+import { ssoMessage } from '@/lib/saml/messages';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,11 +20,18 @@ const DEMO_LOGIN_EMAILS = [
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { next?: string; error?: string };
+  searchParams: { next?: string; error?: string; sso?: string };
 }) {
   // The demo-accounts box is shown only when SHOW_DEMO_LOGINS=true (local
   // demo). Off by default, so a real server never advertises the accounts.
   const showDemoLogins = demoLoginsVisible();
+  // BITS sign-in shows when its settings files are present and agree. Once it
+  // is live (and PASSWORD_LOGIN_ENABLED is off), the password form is for
+  // administrators only, folded away under "Administrator sign-in".
+  const ssoEnabled = getSamlSetup().status === 'ok';
+  const passwordForAll = passwordLoginOpenToAll();
+  const ssoNotice = ssoMessage(searchParams.sso);
+  const ssoHref = `/api/saml/login${searchParams.next ? `?next=${encodeURIComponent(searchParams.next)}` : ''}`;
   const [programmes, users] = await Promise.all([prisma.programme.count(), prisma.user.count()]);
 
   return (
@@ -500,7 +510,76 @@ export default async function LoginPage({
             </p>
 
             <div className="hmp-login-form" style={{ position: 'relative' }}>
-              <LoginForm next={searchParams.next} error={searchParams.error} />
+              {ssoNotice && (
+                <p
+                  role="alert"
+                  data-testid="sso-notice"
+                  style={{
+                    fontSize: 13,
+                    color: '#fda4a4',
+                    background: 'rgba(196,59,59,0.12)',
+                    border: '1px solid rgba(196,59,59,0.4)',
+                    padding: '10px 14px',
+                    borderRadius: 10,
+                    margin: '0 0 14px',
+                  }}
+                >
+                  {ssoNotice}
+                </p>
+              )}
+              {ssoEnabled && (
+                <>
+                  <a
+                    href={ssoHref}
+                    data-testid="bits-sso-button"
+                    className="hmp-login-button"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: 48,
+                      borderRadius: 12,
+                      background: 'linear-gradient(135deg, #4F46E5, #7C3AED)',
+                      color: '#fff',
+                      fontSize: 15,
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Sign in with BITS ID
+                  </a>
+                  {passwordForAll && (
+                    <p
+                      style={{
+                        textAlign: 'center',
+                        fontSize: 12,
+                        color: 'rgba(255,255,255,0.55)',
+                        margin: '16px 0',
+                      }}
+                    >
+                      or sign in with your email and password
+                    </p>
+                  )}
+                </>
+              )}
+              {passwordForAll ? (
+                <LoginForm next={searchParams.next} error={searchParams.error} />
+              ) : (
+                <details
+                  data-testid="admin-password-login"
+                  open={!!searchParams.error}
+                  style={{ marginTop: 18 }}
+                >
+                  <summary
+                    style={{ cursor: 'pointer', fontSize: 12.5, color: 'rgba(255,255,255,0.65)' }}
+                  >
+                    Administrator sign-in
+                  </summary>
+                  <div style={{ marginTop: 14 }}>
+                    <LoginForm next={searchParams.next} error={searchParams.error} />
+                  </div>
+                </details>
+              )}
             </div>
 
             {/* Demo accounts: only with SHOW_DEMO_LOGINS=true */}

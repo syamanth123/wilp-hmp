@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma, type RoleName } from '@hmp/db';
 import { loadUserAccess } from './rbac';
+import { authSecret, verifySsoProof } from './sso-proof';
+import { passwordLoginAllowed } from './password-policy';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -35,11 +37,29 @@ export const authConfig: NextAuthConfig = {
         if (!user || !user.active || !user.passwordHash) return null;
         const ok = await bcrypt.compare(password, user.passwordHash);
         if (!ok) return null;
+        // Once BITS SSO is live, password sign-in is for administrators only
+        // (see password-policy.ts); until then everyone may use it.
+        const { roles } = await loadUserAccess(user.id);
+        if (!passwordLoginAllowed(roles)) return null;
         return { id: user.id, email: user.email, name: user.name };
       },
     }),
-    // NOTE: SSO provider plugs in here. Implement OIDC/SAML provider in `sso.ts`
-    // and add a `next-auth` provider that delegates to it.
+    // BITS SSO. The SAML endpoint (/api/saml/acs) validates the IdP's response
+    // and picks the user, then signs them in through this provider in the same
+    // request with a short-lived HMAC proof (sso-proof.ts) that never reaches
+    // the browser. Nothing else is accepted here.
+    Credentials({
+      id: 'bits-sso',
+      name: 'BITS SSO',
+      credentials: { proof: { type: 'text' } },
+      async authorize(raw) {
+        const userId = await verifySsoProof(raw?.proof, authSecret());
+        if (!userId) return null;
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user || !user.active) return null;
+        return { id: user.id, email: user.email, name: user.name };
+      },
+    }),
   ],
   callbacks: {
     async jwt({ token, user }) {

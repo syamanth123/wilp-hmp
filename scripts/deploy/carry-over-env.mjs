@@ -38,6 +38,9 @@ const DROP = {
   SHOW_DEMO_LOGINS: 'lists demo accounts on the login page',
   WORKERS_ENABLED: 'no worker process in v1.0.0 (emails are sent during the request)',
   AUTH_URL: 'would override NEXTAUTH_URL (the old one pointed at the IP)',
+  S3_ENDPOINT: 'MinIO / local only — real AWS S3 needs no endpoint',
+  S3_FORCE_PATH_STYLE: 'MinIO / local only',
+  S3_BUCKET: 'not read by the code (HANDOUT_ATTACHMENTS_BUCKET / LMS_EXPORTS_BUCKET are)',
 };
 const SMTP = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'];
 
@@ -108,11 +111,10 @@ export function carryOver(old, makeDefault = (k) => DEFAULTS[k]()) {
     errors.push('NEXTAUTH_SECRET (or AUTH_SECRET) is missing in the old file');
   }
   for (const k of ['S3_ACCESS_KEY', 'S3_SECRET_KEY']) {
-    if (!(env[k] ?? '').trim()) report.push(`MISSING  ${k} — add it by hand (see §2)`);
-  }
-  if ((env.S3_ENDPOINT ?? '').trim()) {
     report.push(
-      'CHECK    S3_ENDPOINT is set — remove it unless the pilot really needed it (real AWS S3 needs none)',
+      (env[k] ?? '').trim()
+        ? `REPLACE  ${k} — the pilot's may be MinIO values; put IT's key for user "handout" in (§2)`
+        : `MISSING  ${k} — add IT's key for user "handout" (§2)`,
     );
   }
   for (const [k, v] of Object.entries(env)) {
