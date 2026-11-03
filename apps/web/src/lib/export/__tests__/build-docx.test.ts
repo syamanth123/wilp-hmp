@@ -190,3 +190,37 @@ describe('buildHandoutDocx — full BITS section walk', () => {
     expect(xml).toContain('Part B — Learning Plan'); // rest intact
   });
 });
+
+describe('buildHandoutDocx — "DRAFT – not for circulation" mark (decision D1)', () => {
+  const DIAGONAL = readFileSync(join(__dirname, '..', 'assets', 'draft-diagonal.png'));
+  const headerOf = async (draft?: Parameters<typeof buildHandoutDocx>[3]) => {
+    const z = new AdmZip(await buildHandoutDocx(FULL, LOGO, undefined, draft));
+    return {
+      xml: z
+        .getEntries()
+        .filter((e) => /word\/header\d*\.xml/.test(e.entryName))
+        .map((e) => z.readAsText(e.entryName))
+        .join('\n'),
+      media: z.getEntries().filter((e) => e.entryName.startsWith('word/media/')).length,
+    };
+  };
+
+  it('no mark on a Published-tab download', async () => {
+    const h = await headerOf();
+    expect(h.xml).not.toContain('not for circulation');
+  });
+
+  it('Word: a red header line on every page, no diagonal image', async () => {
+    const h = await headerOf({ text: 'DRAFT – not for circulation' });
+    expect(h.xml).toContain('DRAFT – not for circulation');
+    expect(h.xml).toContain('B91C1C');
+    expect(h.xml).not.toContain('behindDoc="1"');
+  });
+
+  it('PDF: the header line plus a diagonal mark behind the text', async () => {
+    const h = await headerOf({ text: 'DRAFT – not for circulation', diagonal: DIAGONAL });
+    expect(h.xml).toContain('DRAFT – not for circulation');
+    expect(h.xml).toContain('behindDoc="1"');
+    expect(h.media).toBeGreaterThanOrEqual(2);
+  });
+});

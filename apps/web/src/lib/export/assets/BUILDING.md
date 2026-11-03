@@ -47,3 +47,11 @@ alpha): decode + `getImageData`, the **max alpha across all pixels must be ≈ 3
 Screen alpha and print alpha don't always agree — print can render lighter. If a
 downloaded PDF reads as _too faint_ on paper, re-bake at **0.14–0.15** and
 re-verify (max alpha ≈ 36–38). This is the EC2 print-check follow-up.
+
+## `draft-diagonal.png` — "DRAFT – not for circulation" diagonal mark (⚠ pre-faded to 16% alpha)
+
+Placed behind the text on every page of a **PDF** download of a handout that isn't in the
+library's Published tab (decision D1, `docs/plans/handout-library.md`). Word downloads get only
+the red header line. Baked once the same way as the crest — a 960×960 Chromium canvas,
+`globalAlpha = 0.16`, fill `#B91C1C`, rotated −45°, "DRAFT" bold 230 px over "not for
+circulation" bold 66 px, Arial — and written out with `canvas.toDataURL('image/png')`.

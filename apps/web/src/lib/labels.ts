@@ -118,6 +118,8 @@ const ACTION_SENTENCE: Record<string, string> = {
   'handout.autofetch.reset_to_empty': 'Restarted from a blank handout',
   'handout.manually_confirmed': 'Confirmed it was published on Taxila',
   'handout.export': 'Downloaded the handout',
+  'handout.past_export': 'Downloaded a past BITS handout',
+  'library.export': 'Exported a Handout Library list to Excel',
   'handout.exported': 'Prepared the Taxila file',
   'comment.added': 'Added a comment',
   'attachment.uploaded': 'Uploaded an attachment',
@@ -195,6 +197,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   RateLimit: 'Sign-in protection',
   Auth: 'Sign-in',
   Reconciliation: 'Taxila check',
+  HandoutLibrary: 'Handout Library',
 };
 export const entityLabel = (e: string | null | undefined) => pick(ENTITY_LABEL, e);
 
