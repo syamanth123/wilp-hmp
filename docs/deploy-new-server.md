@@ -1,4 +1,4 @@
-# Install HMP v1.0.0 on the "Handout" server — upgrade in place
+# Install HMP v1.1.0 on the "Handout" server — upgrade in place
 
 For the person upgrading HMP on the EC2 instance "Handout" (Ubuntu, t3a.medium, 4 GB RAM, 20 GB
 disk, Elastic IP 13.201.161.6, ap-south-1) behind the AWS load balancer that serves
@@ -8,9 +8,14 @@ inside the repo or in a chat.
 
 **What this server is (checked 2 Nov 2026).** "Handout" **is the old pilot box**, and the RDS
 database "handout" is the **pilot's own database** — 11 team test accounts, 4 requests, no demo
-accounts. So this is an **upgrade in place**: v1.0.0 is built in a new folder while the pilot keeps
+accounts. So this is an **upgrade in place**: v1.1.0 is built in a new folder while the pilot keeps
 serving, and the pilot is stopped only for the switch in §6 (a minute or two of downtime). Existing
 users and requests are kept. (For a truly new, empty server see Appendix A.)
+
+**v1.1.0 = v1.0.0 + "Sign in with BITS ID"** (BITS SSO; no database change). IT has registered
+our SP metadata. SSO switches itself off if any of its files is missing or disagrees, and password
+login stays open to everyone (`PASSWORD_LOGIN_ENABLED=true`) until BITS sign-in has been tried on
+the live site.
 
 ```
 browser ──https──▶ ALB (TLS ends here) ──http──▶ nginx :80 on EC2 ──▶ Next.js 127.0.0.1:3000
@@ -26,10 +31,10 @@ browser ──https──▶ ALB (TLS ends here) ──http──▶ nginx :80 o
   Redis on 127.0.0.1:6379; folders `~/corpus`, `~/logs` and `~/hmp-saml`.
 - **Never touch `~/hmp-saml`** (the BITS-SSO key pair — a new key breaks SSO until IT re-registers
   it), **`~/corpus`** or **`~/logs`**. Nothing in this guide moves or deletes them.
-- **From IT:** the **VPC CIDR** (§5 needs it — the server's private address is 192.168.1.57, so it
-  is probably inside `192.168.0.0/16`; use IT's exact value), the ALB **target port** (this guide
-  uses **80**) and an ALB **health-check path of `/login`** (not `/api/health`, which answers 503
-  while Redis is down — with one server, that would take the whole site out).
+- **From IT:** the S3 access-key CSV for IAM user "handout" (§2), the ALB **target port** (this
+  guide uses **80**) and an ALB **health-check path of `/login`** (not `/api/health`, which answers
+  503 while Redis is down — with one server, that would take the whole site out). The **VPC CIDR**
+  for §5 can be read on the server itself (command in §5).
 - **Know an admin password** for one of the existing accounts — no new admin is created.
 - Connect: `ssh -i C:\work\secrets\Handout.pem ubuntu@13.201.161.6`.
 
@@ -66,17 +71,17 @@ sudo tar czf ~/pilot-backup/nginx.tgz -C / etc/nginx && sudo chown ubuntu: ~/pil
 git -C ~/wilp-hmp log -1 --format='pilot code: %h %ad %s' --date=short | tee ~/pilot-backup/pilot-version.txt
 ```
 
-**1c. Code — exactly v1.0.0, in its own folder**
+**1c. Code — exactly v1.1.0, in its own folder**
 
 ```bash
-cd ~ && git clone https://github.com/syamanth123/wilp-hmp.git hmp-v1.0.0 && cd hmp-v1.0.0
-git checkout v1.0.0 && git log -1 --oneline
+cd ~ && git clone https://github.com/syamanth123/wilp-hmp.git hmp-v1.1.0 && cd hmp-v1.1.0
+git checkout v1.1.0 && git log -1 --oneline
 ```
 
 ## 2. Settings — carried over from the pilot, nothing retyped
 
 ```bash
-cd ~/hmp-v1.0.0
+cd ~/hmp-v1.1.0
 node scripts/deploy/carry-over-env.mjs ~/wilp-hmp/apps/web/.env.production apps/web/.env.production
 chmod 600 apps/web/.env.production
 grep -n '<' apps/web/.env.production | grep -v 'no-reply@'     # must print nothing
@@ -86,7 +91,7 @@ The script prints only setting **names** and what happened to each — values ar
 
 - **kept:** everything the pilot had — the database address, `NEXTAUTH_SECRET`, the S3 keys, a
   real SMTP account, `CRON_SECRET`, `HMP_CORPUS_DIR` (so `~/corpus` stays in use), …
-- **set for v1.0.0:** `NEXTAUTH_URL` and `APP_BASE_URL` = `https://hmp.wilp-connect.net`,
+- **set for v1.1.0:** `NEXTAUTH_URL` and `APP_BASE_URL` = `https://hmp.wilp-connect.net`,
   `AUTH_TRUST_HOST=true`, `AI_FEATURES_ENABLED=false`, `PASSWORD_LOGIN_ENABLED=true`,
   `NODE_ENV=production`, region `ap-south-1`, both buckets `handout-09-07-2026`;
   `sslmode=require` added to the database address if it was missing.
@@ -94,9 +99,49 @@ The script prints only setting **names** and what happened to each — values ar
   during the request), `AUTH_URL` (it would override `NEXTAUTH_URL`), and the SMTP lines if the
   host was blank or a `<…>` placeholder (the app would try to connect to it).
 - **added if missing:** `REDIS_URL`, `SOFFICE_BIN`, a new `CRON_SECRET`.
+- **removed (S3):** `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` (MinIO / local only — real AWS S3 needs
+  none) and `S3_BUCKET` (not read by the code).
+- **REPLACE** `S3_ACCESS_KEY` / `S3_SECRET_KEY`: the pilot's may be MinIO values — **2a** puts IT's
+  keys in.
 - A **MISSING** or **ERROR** line means: stop and fix that one setting by hand
   (`nano apps/web/.env.production`, one `KEY='value'` per line). It refuses to overwrite an
   existing file — delete it first to run it again.
+
+**2a. IT's S3 keys** (from the CSV IT sent for user "handout"; the values are never shown). On
+the laptop, in PowerShell, copy the CSV to the server owner-only:
+
+```
+type C:\work\secrets\handout_accessKeys-1.csv | ssh -i C:\work\secrets\Handout.pem ubuntu@13.201.161.6 "umask 077; cat > ~/.hmp-s3.csv"
+```
+
+Then on the server:
+
+```bash
+cd ~/hmp-v1.1.0
+IFS=, read -r K S < <(sed -n 2p ~/.hmp-s3.csv | tr -d '\r"'); rm -f ~/.hmp-s3.csv
+[[ "$K" == AKIA* && ${#S} -ge 30 ]] && echo "keys look right" || echo "STOP: the CSV doesn't look right"
+sed -i '/^S3_ACCESS_KEY=/d;/^S3_SECRET_KEY=/d' apps/web/.env.production
+printf "S3_ACCESS_KEY='%s'\nS3_SECRET_KEY='%s'\n" "$K" "$S" >> apps/web/.env.production; unset K S
+```
+
+**2b. BITS sign-in (SSO).** The four files live in `~/hmp-saml` (never in the code folder). The
+key pair and our SP metadata were made there by `make-hmp-sp-metadata.sh`; the BITS IdP metadata
+is downloaded once:
+
+```bash
+curl -fsS -m 30 -o ~/hmp-saml/bits-idp-metadata.xml https://idp.bits-pilani.ac.in/idp/profile/Metadata/SAML
+grep -c 'entityID="https://idp.bits-pilani.ac.in/idp/shibboleth"' ~/hmp-saml/bits-idp-metadata.xml   # 1
+cat >> ~/hmp-v1.1.0/apps/web/.env.production <<'EOF'
+SAML_SP_METADATA_PATH='/home/ubuntu/hmp-saml/hmp-sp-metadata.xml'
+SAML_SP_KEY_PATH='/home/ubuntu/hmp-saml/sp-key.pem'
+SAML_SP_CERT_PATH='/home/ubuntu/hmp-saml/sp-cert.pem'
+SAML_IDP_METADATA_PATH='/home/ubuntu/hmp-saml/bits-idp-metadata.xml'
+EOF
+ls -l ~/hmp-saml                          # sp-key.pem must be -rw------- (600)
+```
+
+(`https://idp.bits-pilani.ac.in/idp/shibboleth` is the IdP's _name_; its metadata is published at
+`…/idp/profile/Metadata/SAML`.) §4's check script proves the four files agree before the switch.
 
 Notes:
 
@@ -113,8 +158,9 @@ hmp-web`).
 - **No overwrites in the shared bucket:** attachments go under `attachments/<request>/<random id>`,
   Taxila exports under `lms-exports/<year>/<HMP-ref>.zip`; the check script writes only under
   `healthcheck/`.
-- **`PASSWORD_LOGIN_ENABLED`** has no effect in v1.0.0 (password login is the only sign-in); it is
-  set now so the later BITS-SSO release keeps password login on until SSO is tested.
+- **`PASSWORD_LOGIN_ENABLED=true`** keeps email + password sign-in open to everyone next to "Sign
+  in with BITS ID". Once BITS sign-in has worked for real users, delete that line and restart:
+  password sign-in is then for administrators only (folded under "Administrator sign-in").
 
 **Redis stays, the worker goes.** Without Redis, login rate limiting is off, `/api/health` answers
 503 and Admin → Background jobs says jobs aren't running. The pilot's `hmp-worker` is not needed:
@@ -126,7 +172,7 @@ jobs.
 | Feature                                  | Needs                                                                                                                       | With IT's current policy                                                                                     |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Taxila export ZIP (publishing, "Mode B") | `s3:PutObject`, `s3:GetObject` (download link) **and `s3:ListBucket`** (the code checks the bucket exists before uploading) | **Fails until `s3:ListBucket` is granted** — without it the code tries to create the bucket, which is denied |
-| Attachments (upload / download)          | `s3:PutObject`, `s3:GetObject`, `s3:ListBucket`                                                                             | **Switched off in v1.0.0** (no upload button; upload route answers 501)                                      |
+| Attachments (upload / download)          | `s3:PutObject`, `s3:GetObject`, `s3:ListBucket`                                                                             | **Switched off in v1.1.0** (no upload button; upload route answers 501)                                      |
 | Attachments (remove)                     | `s3:DeleteObject`                                                                                                           | off                                                                                                          |
 | Attachments (archive tagging)            | `s3:PutObjectTagging`, `s3:GetObjectTagging`                                                                                | off (nothing to tag while attachments are off)                                                               |
 | Word / PDF download                      | none (built in memory)                                                                                                      | works                                                                                                        |
@@ -137,7 +183,7 @@ rest only when attachments are switched on.
 ## 4. Install, build and pre-check (pilot keeps running)
 
 ```bash
-cd ~/hmp-v1.0.0
+cd ~/hmp-v1.1.0
 pnpm install --frozen-lockfile
 pnpm --filter @hmp/db exec prisma generate
 pnpm --filter @hmp/web build                            # ~5–8 min
@@ -148,7 +194,14 @@ psql "$DB" -tAc 'select 1'                              # must print 1
 pnpm --filter @hmp/db exec prisma migrate status        # see below
 for T in User HandoutRequest HandoutVersion; do echo "$T $(psql "$DB" -tAc "select count(*) from \"$T\"")"; done \
   | tee ~/pilot-backup/counts-before.txt               # User 11, HandoutRequest 4, …
+
+# Prove the settings, database (SSL), Redis, S3 write + read and the SSO files NOW, while the
+# pilot still serves. (Its "App health" part still looks at the pilot — ignore that part here.)
+bash scripts/deploy/check.sh apps/web/.env.production
 ```
+
+Everything above "App health" must be **OK** (the `s3:ListBucket` line may stay WARN until IT
+grants it). A FAIL here is fixed before the switch, at no cost to users.
 
 `migrate status` must list **exactly two** migrations not yet applied —
 `20260929120000_add_course_dibba` and `20261001140000_academic_term_year_term_unique`. Both only
@@ -161,6 +214,15 @@ rollback in §10 simple). **If it lists anything else, stop** and send the outpu
 This replaces the pilot's site `hmp` (backed up in 1b). It proxies to the same port 3000, so the
 pilot keeps serving through it, and the switch in §6 needs no nginx change.
 
+The VPC CIDR (the load balancer's address range) can be read from the instance itself — put the
+printed value in place of `<VPC_CIDR>` below:
+
+```bash
+T=$(curl -s -m 5 -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')
+M=$(curl -s -m 5 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/mac)
+curl -s -m 5 -H "X-aws-ec2-metadata-token: $T" "http://169.254.169.254/latest/meta-data/network/interfaces/macs/$M/vpc-ipv4-cidr-blocks"; echo
+```
+
 ```bash
 sudo tee /etc/nginx/sites-available/hmp >/dev/null <<'EOF'
 upstream hmp_web { server 127.0.0.1:3000; keepalive 32; }
@@ -172,7 +234,7 @@ server {
     # The ALB is the client nginx sees; trust its X-Forwarded-For so every user keeps
     # their own IP (the login limiter counts per IP — without this, all users share the
     # ALB's address and a few wrong passwords would lock everyone out).
-    set_real_ip_from <VPC_CIDR>;          # from IT, e.g. 192.168.0.0/16
+    set_real_ip_from <VPC_CIDR>;          # printed above, e.g. 192.168.0.0/16
     real_ip_header X-Forwarded-For;
     real_ip_recursive on;
 
@@ -206,7 +268,7 @@ sudo nginx -t && sudo systemctl reload nginx
 curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: hmp.wilp-connect.net' http://127.0.0.1/login   # 200 (still the pilot)
 ```
 
-The service that will run v1.0.0 — written now, **started in §6**:
+The service that will run v1.1.0 — written now, **started in §6**:
 
 ```bash
 sudo tee /etc/systemd/system/hmp-web.service >/dev/null <<'EOF'
@@ -235,7 +297,7 @@ sudo systemctl daemon-reload
 ## 6. The switch (downtime starts at 6b, ends at 6e — a minute or two)
 
 **6a. RDS snapshot — mandatory, it is the undo button for the database.** AWS console → RDS →
-Databases → **handout** → Actions → Take snapshot → name `hmp-before-v1-0-0`. **Wait until its
+Databases → **handout** → Actions → Take snapshot → name `hmp-before-v1-1-0`. **Wait until its
 status is "Available"** (a few minutes) before 6b. The pilot is still serving meanwhile.
 
 ```bash
@@ -244,14 +306,14 @@ pm2 save && cp ~/.pm2/dump.pm2 ~/pilot-backup/pm2-dump.pm2
 pm2 stop hmp-web hmp-worker
 pm2 unstartup systemd            # run the `sudo …` line it prints (so pm2 doesn't start the pilot on reboot)
 
-# 6c. Bring the database up to v1.0.0 (the two migrations from §4)
-cd ~/hmp-v1.0.0 && set -a; . apps/web/.env.production; set +a
+# 6c. Bring the database up to v1.1.0 (the two migrations from §4)
+cd ~/hmp-v1.1.0 && set -a; . apps/web/.env.production; set +a
 pnpm --filter @hmp/db exec prisma migrate deploy        # "All migrations have been successfully applied."
 
-# 6d. ~/wilp-hmp now points at v1.0.0; the pilot's folder is kept as ~/wilp-hmp-pilot
-mv ~/wilp-hmp ~/wilp-hmp-pilot && ln -s ~/hmp-v1.0.0 ~/wilp-hmp && ls -l ~/wilp-hmp
+# 6d. ~/wilp-hmp now points at v1.1.0; the pilot's folder is kept as ~/wilp-hmp-pilot
+mv ~/wilp-hmp ~/wilp-hmp-pilot && ln -s ~/hmp-v1.1.0 ~/wilp-hmp && ls -l ~/wilp-hmp
 
-# 6e. Start v1.0.0 (restarts on failure and on reboot)
+# 6e. Start v1.1.0 (restarts on failure and on reboot)
 sudo systemctl enable --now hmp-web
 sleep 8 && systemctl status hmp-web --no-pager | head -5    # active (running)
 curl -s http://127.0.0.1:3000/api/health; echo             # {"status":"ok","db":"connected","redis":"connected",…}
@@ -322,6 +384,15 @@ In a browser (private window):
    `https://hmp.wilp-connect.net/sme/review/<request id>` → **"You don't have access to this page"**.
 3. Word / PDF download on an approved handout (faculty or IC) → both files open.
 4. Remove the test accounts (Admin → Users → Deactivate).
+5. **BITS sign-in.** New private window → `https://hmp.wilp-connect.net/login` → **Sign in with
+   BITS ID** → BITS login page → back on HMP, signed in as
+   `syamanth.dadi@hyderabad.bits-pilani.ac.in` (that account already exists in HMP).
+6. **Refusal.** A BITS account that has no HMP account must come back to the login page with
+   "Your BITS account isn't set up in the Handout Portal". Admin → Audit log shows both
+   ("Signed in with BITS ID", "BITS sign-in was refused").
+
+`check.sh` (§7) also says "BITS sign-in is ON" once the app serves the SP metadata. If the BITS
+button is missing: `journalctl -u hmp-web --no-pager | grep saml` names the file that disagrees.
 
 ## 9. Later releases
 
@@ -332,7 +403,7 @@ hmp-web`. Going back = point the link at the previous folder and restart.
 
 ## 10. Rollback
 
-**Back to the pilot** (v1.0.0 is set aside, not deleted). The database can stay as it is: v1.0.0's
+**Back to the pilot** (v1.1.0 is set aside, not deleted). The database can stay as it is: v1.1.0's
 two migrations only added tables, which the pilot ignores.
 
 ```bash
@@ -346,10 +417,10 @@ pm2 startup systemd                                                   # run the 
 ```
 
 The pilot's login page shows its demo-account list again; those accounts don't exist in the
-database, so the list opens nothing — but get v1.0.0 back up soon.
+database, so the list opens nothing — but get v1.1.0 back up soon.
 
 **Database** — only if `migrate deploy` or later use damaged data: RDS → Snapshots →
-`hmp-before-v1-0-0` → Restore snapshot. That creates a **new** instance with its own endpoint; put
+`hmp-before-v1-1-0` → Restore snapshot. That creates a **new** instance with its own endpoint; put
 that endpoint in `DATABASE_URL` (`nano ~/wilp-hmp/apps/web/.env.production`) and restart
 (`sudo systemctl restart hmp-web`, or `pm2 restart hmp-web` for the pilot).
 
@@ -358,12 +429,14 @@ that endpoint in `DATABASE_URL` (`nano ~/wilp-hmp/apps/web/.env.production`) and
 - **IT:** rotate what was shared over chat — a new S3 access key (disable the old one), a new RDS
   master password, a new SSH key; then update `.env.production` once and `sudo systemctl restart
 hmp-web`. Security group: SSH (22) only from the office IP; port 80 only from the ALB; the old
-  `*:3000` exposure is gone (v1.0.0 listens on 127.0.0.1 only). ALB health check on `/login`.
+  `*:3000` exposure is gone (v1.1.0 listens on 127.0.0.1 only). ALB health check on `/login`.
 - **Accounts:** deactivate the test accounts real users won't need (Admin → Users), including the
   two student-ID addresses.
 - **After a week of clean running:** delete `~/wilp-hmp-pilot` and `~/pilot-backup` (it holds a
   copy of the pilot's secrets and pm2 environment), and `pm2 kill` to retire pm2.
 - **Never delete `~/hmp-saml`.** If the server is ever rebuilt, copy that folder across first.
+- **Password sign-in to admins only** once BITS sign-in has worked for real users: delete the
+  `PASSWORD_LOGIN_ENABLED` line from `.env.production` and `sudo systemctl restart hmp-web`.
 
 ## Appendix A — a truly new, empty server
 

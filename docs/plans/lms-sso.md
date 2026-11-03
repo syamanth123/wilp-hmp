@@ -299,6 +299,6 @@ PASSWORD_LOGIN_ENABLED='true'
 ```
 
 IdP metadata, once: `curl -fsS -o ~/hmp-saml/bits-idp-metadata.xml
-https://idp.bits-pilani.ac.in/idp/shibboleth` (check it names `entityID="https://idp.bits-pilani.ac.in/idp/shibboleth"`).
+https://idp.bits-pilani.ac.in/idp/profile/Metadata/SAML` — the published metadata address; the entityID URL `/idp/shibboleth` is a name, not where the file is served (check it names `entityID="https://idp.bits-pilani.ac.in/idp/shibboleth"`).
 If any file is missing or disagrees, the log says `[saml] BITS sign-in is OFF: <reason>` and
 the login page simply shows no BITS button.

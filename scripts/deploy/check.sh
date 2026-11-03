@@ -90,6 +90,40 @@ else
   bad "Redis doesn't answer (sudo systemctl status redis-server)"
 fi
 
+head_ "BITS sign-in (SSO) files"
+# Same checks the app makes at start-up (apps/web/src/lib/saml/config.ts); if any fails, the app
+# keeps SSO off and password login works as before.
+node_env -e '
+const fs = require("fs"), c = require("crypto");
+const keys = ["SAML_SP_METADATA_PATH", "SAML_SP_KEY_PATH", "SAML_SP_CERT_PATH", "SAML_IDP_METADATA_PATH"];
+const p = keys.map((k) => (process.env[k] || "").trim());
+const line = (s, t) => console.log(`  ${s.padEnd(5)} ${t}`);
+if (p.every((x) => !x)) { line("WARN", "not set up — the login page shows no BITS button"); process.exit(0); }
+let fail = 0;
+const check = (ok, text, level = "FAIL") => { line(ok ? "OK" : level, text); if (!ok && level === "FAIL") fail = 1; };
+keys.forEach((k, i) => check(!!p[i] && fs.existsSync(p[i]), `${k} ${p[i] && fs.existsSync(p[i]) ? "file present" : "missing"}`));
+if (!fail) {
+  const mode = (fs.statSync(p[1]).mode & 0o777).toString(8);
+  check(mode === "600", `private key permissions ${mode}`, "WARN");
+  const cert = new c.X509Certificate(fs.readFileSync(p[2]));
+  const spki = (k) => k.export({ type: "spki", format: "der" }).toString("base64");
+  let match = false;
+  try { match = spki(c.createPublicKey(c.createPrivateKey(fs.readFileSync(p[1])))) === spki(cert.publicKey); } catch {}
+  check(match, "private key matches the certificate");
+  check(Date.parse(cert.validTo) > Date.now(), `certificate valid until ${cert.validTo}`);
+  const md = fs.readFileSync(p[0], "utf8");
+  check(md.replace(/\s+/g, "").includes(cert.raw.toString("base64")), "certificate is the one in the SP metadata IT registered");
+  let origin = "";
+  try { origin = new URL(process.env.NEXTAUTH_URL || "").origin; } catch {}
+  check(!!origin && md.includes(`entityID="${origin}/api/saml/metadata"`) && md.includes(`Location="${origin}/api/saml/acs"`),
+    `SP metadata names ${origin || "NEXTAUTH_URL"}/api/saml/metadata and /api/saml/acs`);
+  const idp = fs.readFileSync(p[3], "utf8");
+  check(/entityID="https:\/\/idp\.bits-pilani\.ac\.in\/idp\/shibboleth"/.test(idp) && /bindings:HTTP-Redirect/.test(idp),
+    "BITS IdP metadata (entityID + HTTP-Redirect sign-in endpoint)");
+}
+process.exit(fail);
+' || FAIL=1
+
 head_ "S3 (bucket write + read)"
 ( cd "$REPO/packages/integrations" && node --env-file="$ENV_FILE" --input-type=module -e '
 import { S3Client, PutObjectCommand, GetObjectCommand, HeadBucketCommand } from "@aws-sdk/client-s3";
@@ -131,6 +165,14 @@ code="$(curl -s -o /tmp/hmp-health.$$ -w '%{http_code}' --max-time 5 http://127.
 rm -f /tmp/hmp-health.$$
 code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H 'Host: hmp.wilp-connect.net' http://127.0.0.1/login || true)"; code="${code:-000}"
 [ "$code" = "200" ] && ok "nginx → app /login 200" || bad "nginx → app /login HTTP $code (sudo nginx -t; systemctl status nginx)"
+spmd="$(node_env -e 'process.stdout.write(process.env.SAML_SP_METADATA_PATH||"")')"
+if [ -n "$spmd" ] && [ -f "$spmd" ]; then
+  if curl -s --max-time 5 http://127.0.0.1:3000/api/saml/metadata | cmp -s - "$spmd"; then
+    ok "app serves the SP metadata IT registered — BITS sign-in is ON"
+  else
+    warn "app does not serve the SP metadata — BITS sign-in is OFF (journalctl -u hmp-web | grep saml), or the app running is older than v1.1.0"
+  fi
+fi
 
 pub="$(curl -sI --max-time 10 "$PUBLIC_URL/" || true)"
 if [ -z "$pub" ]; then
