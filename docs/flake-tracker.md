@@ -110,6 +110,26 @@ Also seen on `feature/lms-sso` @ `5842951`, unrelated to sign-in: the `packages/
 
 ---
 
+## hog-bulk-allocate — HOG uploads a valid allocation CSV
+
+`apps/web/e2e/hog-bulk-allocate.spec.ts:102` "HOG uploads a valid allocation CSV → 2 requests ALLOCATED". Failed once (`bulk-success` not visible within 15 s), passed on retry; not investigated yet.
+
+| Branch / commit                       | Run      |  Result   | Notes                                                                          |
+| ------------------------------------- | -------- | :-------: | ------------------------------------------------------------------------------ |
+| `feature/handout-library` @ `cef1689` | ci-local | **flaky** | first observation; job green (74 passed, 2 flaky, 9 skipped; m9 + AI-on green) |
+
+---
+
+## handout-library — faculty / SME never see someone else's draft
+
+`apps/web/e2e/handout-library.spec.ts:166` (new in v1.2.0). Failed once on the 90 s test limit while signing in for the third time in one test, passed on retry. **Fixed:** split into one test per sign-in (faculty, SME, own handout), each closing its browser context.
+
+| Branch / commit                       | Run      |  Result   | Notes                                    |
+| ------------------------------------- | -------- | :-------: | ---------------------------------------- |
+| `feature/handout-library` @ `cef1689` | ci-local | **flaky** | timeout, not a wrong result; fixed after |
+
+---
+
 ## How to update
 
 After every CI run on a feature branch, add a row above with:

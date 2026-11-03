@@ -163,10 +163,11 @@ test.describe('Handout Library', () => {
     });
   }
 
-  test('faculty and SMEs never see someone else’s draft — list, URL or download', async ({
-    browser,
-  }) => {
-    for (const email of ['faculty@hmp.local', 'sme@hmp.local']) {
+  // One sign-in per test (three in one test ran past the 90 s limit under ci-local load).
+  for (const email of ['faculty@hmp.local', 'sme@hmp.local']) {
+    test(`${email} never sees someone else’s draft — list, URL, download or suggestion`, async ({
+      browser,
+    }) => {
       const page = await as(browser, email);
       await page.goto(`/handouts?tab=in-progress&term=all&q=${others.refNo}`);
       expect(await courseTotal(page)).toBe(0);
@@ -176,12 +177,16 @@ test.describe('Handout Library', () => {
       expect(dl.status(), email).toBe(403);
       const sug = await page.request.get(`/api/handouts/suggest?q=${others.refNo}`);
       expect((await sug.json()).courses).toEqual([]);
-    }
-    // …while their own (faculty) / assigned (SME) one opens.
+      await page.context().close();
+    });
+  }
+
+  test('faculty open their own handout, with its version history', async ({ browser }) => {
     const fac = await as(browser, 'faculty@hmp.local');
     await fac.goto(`/handouts/${mine.requestId}`);
     await expect(fac.getByTestId('handout-viewer-page')).toBeVisible();
     await expect(fac.getByTestId('version-history')).toBeVisible();
+    await fac.context().close();
   });
 
   test('an in-progress download carries the draft mark note; the assigned SME may download', async ({
