@@ -2,7 +2,7 @@
 
 Branch `feature/handout-library` off `main` (v1.1.0, 733c7ed). Brief: `local-data/NEXT-STEPS-FOR-CLAUDE-CODE.md`
 (3 Nov 2026). Rules: plan + one screenshot first; no deploy; no merge without OK; ci-local green before push;
-no secrets in git. **Nothing below is built except the screenshot page (§9).**
+no secrets in git. Plan approved 3 Nov 2026 with the decisions in §10; built as described in §11.
 
 ## 0. What the data looks like today (checked in code + the local demo database)
 
@@ -35,7 +35,8 @@ suggestion, export, detail page and download:
 - Inactive users never get here (login already refuses them).
 
 **HOG and PC see every handout.** HMP records no programme ↔ person link today, so it can't limit them to their
-programmes. Adding that needs a programme field on users (a database change) — say so if it's wanted.
+programmes. Kept as "all programmes" for v1.2.0 (decided 3 Nov). **Possible later change:** a programme field on
+users (a database change), then `libraryScope` narrows HOG/PC to their programmes.
 
 Tests: a role × status × ownership matrix for `libraryScope` / `canViewHandout` (unit), plus e2e: faculty and SME
 can't open someone else's draft by URL, can't see it in lists, counts, suggestions or the Excel export.
@@ -154,3 +155,58 @@ or download it; compare works; tab counts match lists (added to the dashboard-co
 The main page is built far enough to show real demo data: tabs with counts, role default quick view, search and
 the first filters (semester, programme, status, source), grouped-by-course rows, pagination. Everything else in
 §2–§4 comes after the plan is approved.
+
+## 10. Decisions (approved 3 Nov 2026)
+
+- **D1 Downloads — agreed, plus a draft mark.** Published tab (approved / published / archived): everyone who can
+  see it. In progress: today's rule (faculty on it, after first submission) plus the Programme Committee and the
+  assigned SME. Draft / rejected: nobody. Every download outside the Published tab is marked **"DRAFT – not for
+  circulation"** — a red header line on every page (Word and PDF) and a diagonal mark behind the text (PDF).
+  Every download is audited (it already was: `handout.export`; past handouts: `handout.past_export`).
+- **D2 — agreed.** Draft / rejected: Admin, IC, HOG, PC only, through the status filter, never by default. The
+  same applies to "Not started" (scheduled courses with no request): its own quick view or the status filter.
+- **D3 — agreed, a cookie,** written only when the view changes (`hmp_lib_last`, path `/handouts`, holds
+  `<userId>|<address>`; ignored for anyone else on the same browser).
+- **D4 — agreed, on demand.** If the 1,000-handout timing test goes over 500 ms, ask before adding a stored value.
+- **HOG/PC scope — keep "all programmes".** Possible later change: a programme field on users (a database change).
+
+Fixes asked for from the screenshot: search placeholder "Search course, title or person" (hint kept); semester
+default "Current semester (<real name>)"; a sortable **Due** column (Overdue in red, "Due in 3 days"); the IC
+quick views from the brief (Not started yet, Overdue, Approved not yet published) with counts — every role checked
+against the brief's table; **Export to Excel** and **Save this view** top right of the list (export: IC/HOG/PC/
+Admin).
+
+## 11. As built (v1.2.0)
+
+**Quick views are per role, not per tab** (the brief's table), shown on every tab; each opens its own tab. The
+first is the role's landing view. A bare `/handouts` opens the last view (D3) or the default; a tab link without
+a view shows that tab for the current semester. Tab and chip counts are the course counts of exactly the list
+the link opens (same filters carried; status and semester come from the view).
+
+**Status filter = the brief's plain groups:** Not started · Being allocated · Being written · With subject expert
+· With reviewer (PC/HOG) · Sent back for changes · Approved – not yet published · Published · Archived (+ Draft
+and Rejected for oversight), each with a colour dot. "Approved + sent to Taxila" counts as Published.
+**Source** is the tab (HMP tabs vs Past BITS handouts), so there is no separate source filter.
+
+**Due** = when the current step's workflow time limit runs out (`lib/sla.ts`: last status change + the hours in
+Workflow Config) — the same rule the dashboard's overdue widgets use. **"Allocated by"** = the HOG who made the
+allocation (recorded on the SME assignment). Past BITS handouts get a semester from the text in the file
+("First Semester 2025-2026"), so the semester filter works on that tab too.
+
+**Version history is for the people who could see the handout in progress** (oversight roles, its faculty, its
+SME). Others see the published handout and can compare it with last year's, but not its earlier draft versions.
+
+**"Last year's handout"** = the latest published HMP handout for the course from an earlier semester; failing
+that, the latest past BITS handout from this semester or earlier.
+
+**Timing (1,000 handouts, `handout-library.perf.integration.test.ts`, local):** default list 91 ms, search +
+filters 162 ms, "changed vs last year" computed on demand for ~800 handouts 247 ms — all under 500 ms, so no
+stored value (D4) and no new indexes.
+
+**Database:** one additive migration, `20261103120000_add_saved_view` (new `SavedView` table; nothing existing
+altered).
+
+Files: `lib/handout-access.ts` (scope), `lib/handout-library.ts` (list maths, quick views, filters, facets),
+`lib/handout-library-load.ts`, `lib/handout-history.ts` (course history, last year's handout, change sizes),
+`lib/handout-compare.ts` + `components/handout-compare-view.tsx`, `lib/export/access.ts` (D1),
+`lib/export/build-docx.ts` (draft mark), `app/handouts/**`, `app/api/handouts/{suggest,library/export,past}`.

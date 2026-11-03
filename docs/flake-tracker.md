@@ -90,6 +90,26 @@ Also seen on `feature/lms-sso` @ `5842951`, unrelated to sign-in: the `packages/
 
 ---
 
+## pc-allocation-reject — reject requires a comment
+
+`apps/web/e2e/pc-allocation-reject.spec.ts:100` "reject requires a comment (empty → inline error, no transition)". Failed once, passed on retry; not investigated yet.
+
+| Branch / commit                    | Run      |  Result   | Notes                                                    |
+| ---------------------------------- | -------- | :-------: | -------------------------------------------------------- |
+| `main` @ `733c7ed` (tagged v1.1.0) | ci-local | **flaky** | first observation; job green (2 flaky, both on this run) |
+
+---
+
+## security-headers — static security headers on document responses
+
+`apps/web/e2e/security-headers.spec.ts:19` "static security headers are present on document responses". Failed once, passed on retry; not investigated yet.
+
+| Branch / commit                    | Run      |  Result   | Notes                                                    |
+| ---------------------------------- | -------- | :-------: | -------------------------------------------------------- |
+| `main` @ `733c7ed` (tagged v1.1.0) | ci-local | **flaky** | first observation; job green (2 flaky, both on this run) |
+
+---
+
 ## How to update
 
 After every CI run on a feature branch, add a row above with:

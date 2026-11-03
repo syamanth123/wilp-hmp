@@ -48,3 +48,8 @@ If a request sits in your queue past 75% of the configured SLA you get a `due_so
 ## Notifications
 
 The bell in the top bar shows real-time updates. Full list at `/notifications`. Emails go to Mailhog locally.
+
+## Handout Library (`/handouts`)
+
+Find, read, compare and download handouts — published, in progress and past BITS handouts — from
+**Handout Library** in the menu. See [handout-library.md](handout-library.md).

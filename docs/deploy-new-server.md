@@ -308,7 +308,9 @@ pm2 unstartup systemd            # run the `sudo …` line it prints (so pm2 doe
 
 # 6c. Bring the database up to v1.1.0 (the two migrations from §4)
 cd ~/hmp-v1.1.0 && set -a; . apps/web/.env.production; set +a
-pnpm --filter @hmp/db exec prisma migrate deploy        # "All migrations have been successfully applied."
+export PRISMA_HIDE_UPDATE_MESSAGE=1                     # keeps Prisma's "Update available" box out of the output
+pnpm --filter @hmp/db exec prisma migrate deploy
+pnpm --filter @hmp/db exec prisma migrate status        # THE check: "Database schema is up to date!"
 
 # 6d. ~/wilp-hmp now points at v1.1.0; the pilot's folder is kept as ~/wilp-hmp-pilot
 mv ~/wilp-hmp ~/wilp-hmp-pilot && ln -s ~/hmp-v1.1.0 ~/wilp-hmp && ls -l ~/wilp-hmp
@@ -323,6 +325,13 @@ DB="${DATABASE_URL%%\?*}?sslmode=require"
 for T in User HandoutRequest HandoutVersion; do echo "$T $(psql "$DB" -tAc "select count(*) from \"$T\"")"; done \
   | diff ~/pilot-backup/counts-before.txt - && echo "counts unchanged"
 ```
+
+**6c is judged by `migrate status`, not by what `migrate deploy` prints.** On a database that is
+already up to date — as the pilot's turned out to be on 3 Nov — `migrate deploy` says "No pending
+migrations to apply" instead of "successfully applied", and Prisma's update notice can bury either
+line. `migrate status` answering **"Database schema is up to date!"** is the one result that
+matters; anything else → stop and go back (§10). The release scripts in `C:\work\server-steps`
+check it the same way.
 
 If 6e doesn't come up: `journalctl -u hmp-web -n 100 --no-pager`; to go back, §10.
 
@@ -398,7 +407,8 @@ button is missing: `journalctl -u hmp-web --no-pager | grep saml` names the file
 
 Same pattern, same short downtime: clone the new tag into `~/hmp-<version>`, copy the settings
 (`cp -p ~/wilp-hmp/apps/web/.env.production ~/hmp-<version>/apps/web/`), install + build there,
-snapshot, `migrate deploy`, then `ln -sfn ~/hmp-<version> ~/wilp-hmp && sudo systemctl restart
+snapshot, `migrate deploy` — then `migrate status` must say "Database schema is up to date!" (with
+`PRISMA_HIDE_UPDATE_MESSAGE=1` set, as in 6c) — then `ln -sfn ~/hmp-<version> ~/wilp-hmp && sudo systemctl restart
 hmp-web`. Going back = point the link at the previous folder and restart.
 
 ## 10. Rollback

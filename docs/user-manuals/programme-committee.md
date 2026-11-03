@@ -34,3 +34,8 @@ After approval the request moves to HOG. You can still open it to see the final 
 ## Notifications
 
 Bell + email + SLA reminders, same as every other role. Full list at `/notifications`.
+
+## Handout Library (`/handouts`)
+
+Find, read, compare and download handouts — published, in progress and past BITS handouts — from
+**Handout Library** in the menu. See [handout-library.md](handout-library.md).
