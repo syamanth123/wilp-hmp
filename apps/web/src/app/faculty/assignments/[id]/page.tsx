@@ -174,7 +174,7 @@ export default async function FacultyAssignmentDetail({
             <CardTitle>Start editing</CardTitle>
           </CardHeader>
           <CardContent>
-            <StartEditingPanel requestId={request.id} />
+            <StartEditingPanel requestId={request.id} courseCode={request.offering.course.code} />
           </CardContent>
         </Card>
       )}
