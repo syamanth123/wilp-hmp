@@ -26,6 +26,10 @@ import { seesAllWork } from '@/lib/handout-access';
 import { LAST_VIEW_COOKIE, lastViewFor, loadLibraryFromAddress } from '@/lib/handout-library-load';
 import { LibraryFilters } from './library-filters';
 import { SaveViewButton, SavedViewChip } from './saved-views';
+import { BulkPublishBar } from './bulk-publish-bar';
+import { BULK_FORM_ID } from './bulk-form-id';
+import { defaultTaxilaSemesterCode } from '@hmp/integrations';
+import { taxilaSettings } from '@/lib/taxila-publish';
 
 export const dynamic = 'force-dynamic';
 
@@ -138,6 +142,8 @@ export default async function HandoutLibraryPage({
   const oversight = seesAllWork(user);
   const canCreateRequest =
     user.roles.includes(RoleName.INSTRUCTION_CELL) || user.roles.includes(RoleName.ADMIN);
+  // v1.3.0: tick approved handouts and publish them into Taxila in one run (IC / Admin).
+  const bulkPublish = canCreateRequest && f.tab === 'published' && !!taxilaSettings();
   const totalPages = Math.max(1, Math.ceil(lib.totalGroups / PAGE_SIZE));
   const here = (changes: Partial<LibraryFilter>) => libraryHref({ ...f, page: 1, ...changes });
   const query = libraryQuery({ ...f, page: 1 });
@@ -346,6 +352,11 @@ export default async function HandoutLibraryPage({
                     </a>
                   )}
                 </div>
+                {bulkPublish && (
+                  <BulkPublishBar
+                    defaultSemesterCode={defaultTaxilaSemesterCode(lib.currentTermName ?? '')}
+                  />
+                )}
               </div>
               {lib.groups.length === 0 ? (
                 <div
@@ -380,6 +391,11 @@ export default async function HandoutLibraryPage({
                   <table className="w-full text-sm">
                     <thead className="text-muted-foreground text-left text-xs uppercase tracking-wide">
                       <tr className="border-b">
+                        {bulkPublish && (
+                          <th className="w-8 px-2 py-2">
+                            <span className="sr-only">Tick to publish</span>
+                          </th>
+                        )}
                         <SortHead k="code">Course</SortHead>
                         {f.tab === 'past' ? (
                           <SortHead k="semester">Handout</SortHead>
@@ -404,6 +420,21 @@ export default async function HandoutLibraryPage({
                           data-testid="library-row"
                           data-kind={it.kind}
                         >
+                          {bulkPublish && (
+                            <td className="px-2 py-3 align-top">
+                              {it.kind === 'hmp' && it.status === 'APPROVED' && (
+                                <input
+                                  type="checkbox"
+                                  form={BULK_FORM_ID}
+                                  name="requestId"
+                                  value={it.id}
+                                  aria-label={`Tick ${codesText(it)} to publish`}
+                                  className="mt-1"
+                                  data-testid="bulk-select"
+                                />
+                              )}
+                            </td>
+                          )}
                           <td className="px-4 py-3 align-top">
                             <Link
                               href={itemHref(it)}

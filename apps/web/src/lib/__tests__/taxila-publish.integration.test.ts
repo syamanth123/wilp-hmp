@@ -13,6 +13,7 @@ vi.mock('@/lib/export/handout-pdf', () => ({
 
 import { emailsSettled } from '../notifications';
 import { loadPublishTarget, publishRequestToTaxila, checkRequestInTaxila } from '../taxila-publish';
+import { createTaxilaRun, loadRun, processNextItem, retryProblemItems } from '../taxila-runs';
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 const TAG = '__taxila_publish_test__';
@@ -182,6 +183,7 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
     await prisma.courseOffering.deleteMany({ where: { semesterId: ids.semester } });
     await prisma.course.deleteMany({ where: { bitsCourseNumber: { startsWith: 'QTX ' } } });
     await prisma.programme.deleteMany({ where: { code: 'QTX-PROG' } });
+    await prisma.taxilaPublishRun.deleteMany({ where: { createdById: actor?.id } });
     await prisma.notification.deleteMany({ where: { userId: actor?.id } });
     await prisma.user.deleteMany({ where: { email: `${TAG}@hmp.local` } });
   });
@@ -301,6 +303,72 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       'QTX ZG655 Course Handout Sem-I 2026-27.pdf',
       'QTX ZG655 Course Handout Sem-I 2026-27 v2.pdf',
     ]);
+  });
+
+  describe('bulk run (one course at a time, resumable)', () => {
+    it('check uploads nothing; publish goes on past a failure; a second tab resumes without double-publishing', async () => {
+      const a = await seedRequest('QTX ZG657', 11);
+      const b = await seedRequest('QTX ZG658', 12); // no Taxila folder
+      const c = await seedRequest('QTX ZG659', 13);
+      fake.courses.push(
+        {
+          id: 7011,
+          fullname: 'S1-26_QTXZG657 Bulk A',
+          folder: { name: 'Course Handout', contextid: 8011, files: [] },
+        },
+        { id: 7012, fullname: 'S1-26_QTXZG658 Bulk B (no folder)' },
+        {
+          id: 7013,
+          fullname: 'S1-26_QTXZG659 Bulk C',
+          folder: { name: 'Course Handout', contextid: 8013, files: [] },
+        },
+      );
+      const created = await createTaxilaRun({
+        actorId: actor.id,
+        semesterCode: 'S1-26',
+        requestIds: [a, b, c, ids.draft!],
+      });
+      expect(created.ok).toBe(true);
+      const runId = (created as { runId: string }).runId;
+      const run0 = (await loadRun(runId))!;
+      expect(run0.rows.map((r) => r.refNo)).toEqual([`${REF}0011`, `${REF}0012`, `${REF}0013`]); // the draft isn't approved
+
+      const searches = fake.calls.filter((x) => x.step === 'search').length;
+      const uploads = fake.calls.filter((x) => x.step === 'upload').length;
+      while (!(await processNextItem(runId, 'check', actor, client(), cfg)).done);
+      let rows = (await loadRun(runId))!.rows;
+      expect(rows.map((r) => r.status)).toEqual(['READY', 'FOLDER_MISSING', 'READY']);
+      expect(fake.calls.filter((x) => x.step === 'upload').length).toBe(uploads);
+      expect(fake.calls.filter((x) => x.step === 'search').length).toBe(searches + 1); // one search per run
+
+      // Publish one course, then "close the tab"; a second tab carries on.
+      await processNextItem(runId, 'publish', actor, client(), cfg);
+      expect((await loadRun(runId))!.rows[0]!.status).toBe('PUBLISHED');
+      while (!(await processNextItem(runId, 'publish', actor, client(), cfg)).done);
+      rows = (await loadRun(runId))!.rows;
+      expect(rows.map((r) => r.status)).toEqual(['PUBLISHED', 'FOLDER_MISSING', 'PUBLISHED']);
+      expect((await loadRun(runId))!.status).toBe('DONE');
+      expect(fake.courses.find((x) => x.id === 7011)!.folder!.files).toHaveLength(1);
+      expect(fake.courses.find((x) => x.id === 7013)!.folder!.files).toHaveLength(1);
+      expect(
+        await prisma.handoutRequest.count({
+          where: { id: { in: [a, c] }, status: HandoutStatus.PUBLISHED },
+        }),
+      ).toBe(2);
+
+      // IC creates the missing folder; "try the problem courses again" publishes just that one.
+      fake.courses.find((x) => x.id === 7012)!.folder = {
+        name: 'Course Handout',
+        contextid: 8012,
+        files: [],
+      };
+      expect(await retryProblemItems(runId)).toBe(1);
+      while (!(await processNextItem(runId, 'publish', actor, client(), cfg)).done);
+      rows = (await loadRun(runId))!.rows;
+      expect(rows.map((r) => r.status)).toEqual(['PUBLISHED', 'PUBLISHED', 'PUBLISHED']);
+      for (const id of [7011, 7012, 7013])
+        expect(fake.courses.find((x) => x.id === id)!.folder!.files).toHaveLength(1);
+    });
   });
 
   it('the token is in no database row HMP wrote', async () => {
