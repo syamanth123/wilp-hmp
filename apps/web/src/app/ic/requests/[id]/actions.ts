@@ -12,7 +12,19 @@ import {
 } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
-import { publishToLms, TaxilaPublishError, type PublishInput } from '@hmp/integrations';
+import {
+  publishToLms,
+  TaxilaError,
+  TaxilaPublishError,
+  type PublishInput,
+} from '@hmp/integrations';
+import {
+  checkRequestInTaxila,
+  loadPublishTarget,
+  publishRequestToTaxila,
+  taxilaClient,
+  taxilaSettings,
+} from '@/lib/taxila-publish';
 import { audit } from '@/lib/audit';
 import {
   notifyTransition,
@@ -293,4 +305,75 @@ export async function archiveAction(formData: FormData) {
 
   revalidate(parsed.data.requestId);
   return { ok: true };
+}
+
+// ── v1.3.0 "Mode C": publish into the course's Taxila folder (lib/taxila-publish.ts) ──────────
+
+const taxilaSchema = z.object({
+  requestId: z.string().cuid(),
+  semesterCode: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9-]{2,12}$/, 'Type the Taxila semester code, e.g. S1-26.'),
+  courseId: z.coerce.number().int().positive().optional(),
+  newVersion: z.enum(['0', '1']).optional(),
+});
+
+function parseTaxila(formData: FormData) {
+  return taxilaSchema.safeParse({
+    requestId: formData.get('requestId'),
+    semesterCode: formData.get('semesterCode') ?? '',
+    courseId: formData.get('courseId') || undefined,
+    newVersion: formData.get('newVersion') || undefined,
+  });
+}
+
+/** "Check in Taxila": finds the course and folder; uploads nothing. IC only. */
+export async function checkTaxilaAction(formData: FormData) {
+  requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
+  const parsed = parseTaxila(formData);
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'Check the semester code.' } as const;
+  const cfg = taxilaSettings();
+  if (!cfg) return { error: 'Publishing to Taxila isn’t set up on this server.' } as const;
+  const target = await loadPublishTarget(parsed.data.requestId);
+  if (!target) return { error: 'That request no longer exists.' } as const;
+  try {
+    const view = await checkRequestInTaxila(
+      target,
+      { semesterCode: parsed.data.semesterCode, courseId: parsed.data.courseId },
+      taxilaClient(cfg),
+      cfg,
+    );
+    return { ok: true, view, folderName: cfg.folderName } as const;
+  } catch (err) {
+    return {
+      error: err instanceof TaxilaError ? err.message : 'Taxila couldn’t be checked. Try again.',
+    } as const;
+  }
+}
+
+/** Publish: re-checks, uploads the PDF, moves it into the folder, marks it published. IC only. */
+export async function publishTaxilaAction(formData: FormData) {
+  const actor = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
+  const parsed = parseTaxila(formData);
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'Check the semester code.' } as const;
+  const cfg = taxilaSettings();
+  if (!cfg) return { error: 'Publishing to Taxila isn’t set up on this server.' } as const;
+  const target = await loadPublishTarget(parsed.data.requestId);
+  if (!target) return { error: 'That request no longer exists.' } as const;
+  const outcome = await publishRequestToTaxila(
+    target,
+    {
+      semesterCode: parsed.data.semesterCode,
+      courseId: parsed.data.courseId,
+      newVersion: parsed.data.newVersion === '1',
+      actor: { id: actor.id, name: actor.name, roles: actor.roles },
+    },
+    taxilaClient(cfg),
+    cfg,
+  );
+  revalidate(parsed.data.requestId);
+  return { ok: true, outcome } as const;
 }

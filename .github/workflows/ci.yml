@@ -252,6 +252,18 @@ jobs:
           AI_FEATURES_ENABLED: 'true'
         run: pnpm --filter @hmp/web exec playwright test m8-ai-layer.spec.ts ai-cost-dashboard.spec.ts
 
+      - name: e2e (Taxila on) — publish into a fake Taxila
+        # v1.3.0 "Mode C". The spec starts a fake Taxila (Moodle) on :4599 — no real Taxila call
+        # from CI, ever. LibreOffice makes the real PDFs. The main run leaves TAXILA_* unset, so
+        # the ZIP flow (m6a, m6c) stays covered there.
+        env:
+          TAXILA_URL: 'http://127.0.0.1:4599/webservice/'
+          TAXILA_TOKEN: 'ci-fake-taxila-token'
+          SOFFICE_BIN: soffice
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice-writer-nogui
+          pnpm --filter @hmp/web exec playwright test taxila-publish.spec.ts
+
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4

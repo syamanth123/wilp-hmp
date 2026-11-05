@@ -273,14 +273,18 @@ async function publishViaExport(input: PublishInput): Promise<PublishResult> {
 }
 
 /**
- * Publishes a handout to Taxila. Dispatches on TAXILA_API_URL:
- *   set   → Mode A (HTTP POST, retrying)
- *   unset → Mode B (export ZIP to object storage, presigned link)
+ * Publishes a handout as Mode B (export ZIP to object storage, presigned link). Mode A (HTTP POST
+ * to TAXILA_API_URL) is kept but unused since v1.3.0 — no screen offers it; it runs only when a
+ * caller passes `allowHttp` AND TAXILA_API_URL is set. Real publishing into Taxila is "Mode C"
+ * (taxila-moodle.ts).
  *
  * Throws TaxilaPublishError on failure; the caller persists an appropriate
  * LmsPublishLog and decides whether/how to advance the workflow.
  */
-export async function publishToLms(input: PublishInput): Promise<PublishResult> {
-  if (process.env.TAXILA_API_URL) return publishViaHttp(input);
+export async function publishToLms(
+  input: PublishInput,
+  opts: { allowHttp?: boolean } = {},
+): Promise<PublishResult> {
+  if (opts.allowHttp && process.env.TAXILA_API_URL) return publishViaHttp(input);
   return publishViaExport(input);
 }

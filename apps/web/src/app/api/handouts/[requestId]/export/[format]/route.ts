@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { prisma, BitsHandoutSchemaV1 } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
@@ -7,33 +5,11 @@ import { DRAFT_MARK_TEXT, canExportHandout, isDraftDownload } from '@/lib/export
 import { buildHandoutDocx } from '@/lib/export/build-docx';
 import { docxToPdf, SofficeError } from '@/lib/export/docx-to-pdf';
 import { exportErrorResponse } from '@/lib/export/error-response';
+import { getDraftDiagonal, getLogo, getWatermark } from '@/lib/export/assets';
 
 export const dynamic = 'force-dynamic';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const ASSETS = join(process.cwd(), 'src', 'lib', 'export', 'assets');
-const LOGO_PATH = join(ASSETS, 'bits-header.png');
-const WATERMARK_PATH = join(ASSETS, 'bits-watermark.png'); // pre-faded 12%-alpha crest
-const DRAFT_DIAGONAL_PATH = join(ASSETS, 'draft-diagonal.png'); // pre-faded 16%-alpha mark
-
-// Read the assets once per process (small PNGs; embedded server-side, not served).
-let logoCache: Buffer | null = null;
-let watermarkCache: Buffer | null = null;
-let draftDiagonalCache: Buffer | null = null;
-async function getLogo(): Promise<Buffer> {
-  if (!logoCache) logoCache = await readFile(LOGO_PATH);
-  return logoCache;
-}
-async function getWatermark(): Promise<Buffer> {
-  if (!watermarkCache) watermarkCache = await readFile(WATERMARK_PATH);
-  return watermarkCache;
-}
-
-async function getDraftDiagonal(): Promise<Buffer> {
-  if (!draftDiagonalCache) draftDiagonalCache = await readFile(DRAFT_DIAGONAL_PATH);
-  return draftDiagonalCache;
-}
-
 function safe(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
 }

@@ -154,7 +154,16 @@ Notes:
 - **No SMTP account → no email lines.** With no `SMTP_HOST` the app skips emails (it logs them)
   and works normally. To add an account later, add `SMTP_HOST`, `SMTP_PORT='587'`, `SMTP_USER`,
   `SMTP_PASS`, `SMTP_FROM='HMP <no-reply@wilp-connect.net>'` and restart (`sudo systemctl restart
-hmp-web`).
+hmp-web`). Since v1.3.0 emails are sent after the page has answered, and a slow mail server gives
+  up after 10 s (`SMTP_TIMEOUT_MS`, optional); failures are logged as `[email] failed …` without
+  the password.
+- **Publishing into Taxila (v1.3.0, "Mode C") stays off until IT's answers are in.** It is on only
+  when both `TAXILA_URL='https://taxila-aws.bits-pilani.ac.in/webservice/'` (trailing slash kept)
+  and `TAXILA_TOKEN` (the HMP-only token from IT) are set; `TAXILA_HANDOUT_FOLDER` defaults to
+  `Course Handout`. Without them the IC keeps the ZIP + "Mark as manually published" flow. The
+  token is never logged or shown; never paste it into a ticket or screenshot. First try one handout
+  on IT's test course (Check in Taxila, then Publish) before any bulk run. LibreOffice must be
+  installed (it already is for PDF downloads).
 - **No overwrites in the shared bucket:** attachments go under `attachments/<request>/<random id>`,
   Taxila exports under `lms-exports/<year>/<HMP-ref>.zip`; the check script writes only under
   `healthcheck/`.

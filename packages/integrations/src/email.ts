@@ -9,6 +9,16 @@ export interface SendMailInput {
 
 export type SendMailResult = { ok: true; id: string } | { ok: false; error: string };
 
+/**
+ * Short limits, so a slow or unreachable mail server fails fast instead of hanging for minutes
+ * (nodemailer's defaults: ~2 min to connect, 10 min idle). Callers send in the background anyway
+ * (apps/web lib/notifications.ts), but a stuck connection must still end.
+ */
+export function smtpTimeouts() {
+  const ms = Number(process.env.SMTP_TIMEOUT_MS) || 10_000;
+  return { connectionTimeout: ms, greetingTimeout: ms, socketTimeout: ms * 2 };
+}
+
 let cachedTransport: Transporter | null = null;
 let cachedFingerprint: string | null = null;
 
@@ -25,13 +35,15 @@ function readEnv() {
 function getTransport(): Transporter | null {
   const env = readEnv();
   if (!env.host) return null;
-  const fp = `${env.host}|${env.port}|${env.user}`;
+  const timeouts = smtpTimeouts();
+  const fp = `${env.host}|${env.port}|${env.user}|${timeouts.connectionTimeout}`;
   if (cachedTransport && cachedFingerprint === fp) return cachedTransport;
   cachedTransport = nodemailer.createTransport({
     host: env.host,
     port: env.port,
     secure: env.port === 465,
     auth: env.user ? { user: env.user, pass: env.pass } : undefined,
+    ...timeouts,
   });
   cachedFingerprint = fp;
   return cachedTransport;
@@ -51,6 +63,9 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
     });
     return { ok: true, id: info.messageId };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const error = err instanceof Error ? err.message : String(err);
+    // Never the password or the message body.
+    console.error('[email] failed', { to: input.to, subject: input.subject, error });
+    return { ok: false, error };
   }
 }

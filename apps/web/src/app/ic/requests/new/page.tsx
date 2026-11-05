@@ -132,7 +132,17 @@ export default async function NewRequestPage({
           >
             <p>{planMessage(plan)}</p>
             <p className="space-x-3">
-              {isAdmin && plan.kind !== 'not-in-dibba' && (
+              {isAdmin && plan.kind === 'not-set-up' && plan.unlinked.length > 0 && (
+                <Link href="/admin/dibba-codes" className="underline">
+                  Admin → Dibba programme codes
+                </Link>
+              )}
+              {isAdmin && plan.kind === 'not-set-up' && plan.noSemester.length > 0 && (
+                <Link href="/admin/import" className="underline">
+                  Admin → Import (programmes and semesters)
+                </Link>
+              )}
+              {isAdmin && plan.kind === 'invalid-code' && (
                 <Link href="/admin/programmes" className="underline">
                   Admin → Programmes
                 </Link>

@@ -83,3 +83,13 @@ describe('HOG bulk allocation template', () => {
     expect(parsed.rows[1]!.faculty_emails).toBe('a@hmp.local,b@hmp.local');
   });
 });
+
+describe('Dibba programme codes template (v1.3.0)', () => {
+  it('has exactly the columns the upload reads, and no live rows', async () => {
+    const { DIBBA_PROGRAMME_CODES_TEMPLATE } = await import('./bulk-templates');
+    const { DIBBA_CODE_CSV_COLUMNS } = await import('./dibba-programme-codes');
+    const parsed = parseCsv(DIBBA_PROGRAMME_CODES_TEMPLATE);
+    expect(parsed.header).toEqual([...DIBBA_CODE_CSV_COLUMNS]);
+    expect(parsed.rows).toEqual([]);
+  });
+});

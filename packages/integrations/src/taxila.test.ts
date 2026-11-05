@@ -75,7 +75,7 @@ describe('publishToLms — mode dispatch', () => {
       .mockResolvedValue(new Response(JSON.stringify({ id: 'tax-987' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await publishToLms(sampleInput);
+    const result = await publishToLms(sampleInput, { allowHttp: true });
 
     expect(result).toMatchObject({ mode: 'http', status: 'success', externalRef: 'tax-987' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -86,6 +86,16 @@ describe('publishToLms — mode dispatch', () => {
     expect(opts.headers.Authorization).toBe('Bearer tok-123');
     expect(JSON.parse(opts.body)).toEqual(buildTaxilaRequestBody(sampleInput));
     expect(uploadAndPresign).not.toHaveBeenCalled();
+  });
+
+  it('Mode A stays unused unless a caller asks for it (v1.3.0)', async () => {
+    process.env.TAXILA_API_URL = 'https://taxila.example.edu/api';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await publishToLms(sampleInput);
+    expect(result).toMatchObject({ mode: 'export', status: 'EXPORTED' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    delete process.env.TAXILA_API_URL;
   });
 
   it('uses Mode B (export) when TAXILA_API_URL is empty', async () => {
@@ -122,7 +132,7 @@ describe('publishToLms — Mode A retry/timeout/failure', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'tax-1' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const p = publishToLms(sampleInput);
+    const p = publishToLms(sampleInput, { allowHttp: true });
     await vi.runAllTimersAsync();
     const result = await p;
 
@@ -140,7 +150,7 @@ describe('publishToLms — Mode A retry/timeout/failure', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'tax-2' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const p = publishToLms(sampleInput);
+    const p = publishToLms(sampleInput, { allowHttp: true });
     await vi.runAllTimersAsync();
     const result = await p;
 
@@ -153,7 +163,7 @@ describe('publishToLms — Mode A retry/timeout/failure', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('still down', { status: 503 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const p = publishToLms(sampleInput);
+    const p = publishToLms(sampleInput, { allowHttp: true });
     const assertion = expect(p).rejects.toBeInstanceOf(TaxilaPublishError);
     await vi.runAllTimersAsync();
     await assertion;
@@ -166,7 +176,7 @@ describe('publishToLms — Mode A retry/timeout/failure', () => {
     const fetchMock = vi.fn().mockRejectedValue(abortErr);
     vi.stubGlobal('fetch', fetchMock);
 
-    const p = publishToLms(sampleInput);
+    const p = publishToLms(sampleInput, { allowHttp: true });
     const assertion = expect(p).rejects.toMatchObject({
       name: 'TaxilaPublishError',
       mode: 'http',
@@ -180,7 +190,9 @@ describe('publishToLms — Mode A retry/timeout/failure', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('bad request', { status: 400 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(publishToLms(sampleInput)).rejects.toBeInstanceOf(TaxilaPublishError);
+    await expect(publishToLms(sampleInput, { allowHttp: true })).rejects.toBeInstanceOf(
+      TaxilaPublishError,
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

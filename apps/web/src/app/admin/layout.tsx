@@ -7,6 +7,7 @@ const TABS = [
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/roles', label: 'Roles' },
   { href: '/admin/programmes', label: 'Programmes' },
+  { href: '/admin/dibba-codes', label: 'Dibba codes' },
   { href: '/admin/import', label: 'Import' },
   { href: '/admin/corpus-imports', label: 'Past handouts' },
   { href: '/admin/workflow', label: 'Workflow' },
