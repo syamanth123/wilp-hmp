@@ -140,7 +140,7 @@ test.describe('Create request from the Course Dibba', () => {
     const page = await as(browser, 'ic@hmp.local');
     await page.goto(href(['QZEC ZC902']));
     const note = page.getByTestId('prefill-note');
-    await expect(note).toHaveAttribute('data-reason', 'semester-missing');
+    await expect(note).toHaveAttribute('data-reason', 'not-set-up');
     await expect(note).toContainText(
       `Sem-I ${YEAR} isn't set up for programme ${PROG_B} yet — ask Admin to add it.`,
     );

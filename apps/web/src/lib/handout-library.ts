@@ -13,6 +13,7 @@ import { loadWorkflowConfig, slaHoursFor } from './sla';
 import type { ChangeSize } from './handout-compare';
 import { displayCourseTitle } from './course-title';
 import { formatDate } from './format-date';
+import { loadDibbaProgrammeLinks, resolveDibbaProgramme } from './dibba-programme-codes';
 
 /**
  * The Handout Library list (docs/plans/handout-library.md §2).
@@ -142,6 +143,8 @@ export interface LibraryItem {
   programmeCode: string | null;
   /** Course Dibba programme codes (scheduled courses with no handout). */
   programmes: string[];
+  /** Not started: the HMP programmes those Dibba codes stand for (Admin's links, v1.3.0). */
+  hmpProgrammes?: string[];
   discipline: string | null;
   faculty: string[];
   facultyIds: string[];
@@ -676,7 +679,10 @@ export function predicates(
   if (v('programme'))
     add(
       'programme',
-      (it) => it.programmeCode === f.programme || it.programmes.includes(f.programme),
+      (it) =>
+        it.programmeCode === f.programme ||
+        it.programmes.includes(f.programme) ||
+        !!it.hmpProgrammes?.includes(f.programme),
     );
   if (v('discipline')) add('discipline', (it) => it.discipline === f.discipline);
   if (v('faculty')) add('faculty', (it) => it.facultyIds.includes(f.faculty));
@@ -1130,9 +1136,23 @@ export async function loadAllItems(
     loadHmpItems(user, 'in-progress', schedule),
     loadPastItems(),
   ]);
-  const notStarted = seesAllWork(user)
-    ? notStartedItems(schedule, [...published, ...inProgress], termNameMap)
-    : [];
+  let notStarted: LibraryItem[] = [];
+  if (seesAllWork(user)) {
+    const links = await loadDibbaProgrammeLinks();
+    notStarted = notStartedItems(schedule, [...published, ...inProgress], termNameMap).map(
+      (it) => ({
+        ...it,
+        hmpProgrammes: [
+          ...new Set(
+            it.programmes.flatMap((dc) => {
+              const r = resolveDibbaProgramme(dc, links);
+              return r.programme ? [r.programme.code] : [];
+            }),
+          ),
+        ],
+      }),
+    );
+  }
   return { published, 'in-progress': [...inProgress, ...notStarted], past };
 }
 
@@ -1374,7 +1394,7 @@ export async function loadLibrary(
     ),
     programme: enumFacet(
       'programme',
-      (it) => [it.programmeCode, ...it.programmes],
+      (it) => [it.programmeCode, ...it.programmes, ...(it.hmpProgrammes ?? [])],
       (v) => v,
     ),
     discipline: enumFacet(

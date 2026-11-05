@@ -19,7 +19,8 @@ const input = (o: Partial<PlanInput> = {}): PlanInput => ({
   year: 2025,
   term: 'FIRST',
   rows: [row('ET ZC232', '18BT/18ET'), row('ENGG ZC232', '23NT')],
-  programmes: [{ id: 'p-18et', code: '18ET', semesters: [SEM] }],
+  programmes: [{ id: 'p-18et', code: '18ET', active: true, semesters: [SEM] }],
+  links: {},
   courses: [],
   offerings: [],
   semesterName: 'Sem-I 2025-26',
@@ -74,16 +75,23 @@ describe('Create request from the Course Dibba — the plan', () => {
 
   it('semester missing: never invents one; says which programme to set up', () => {
     const plan = planOffering(
-      input({ programmes: [{ id: 'p-18et', code: '18ET', semesters: [] }] }),
+      input({ programmes: [{ id: 'p-18et', code: '18ET', active: true, semesters: [] }] }),
     );
-    expect(plan).toMatchObject({ kind: 'semester-missing', programmes: ['18BT/18ET', '23NT'] });
+    expect(plan).toMatchObject({
+      kind: 'not-set-up',
+      unlinked: ['23NT'],
+      noSemester: ['18BT/18ET'],
+    });
     expect(planMessage(plan as never)).toBe(
-      "Sem-I 2025-26 isn't set up for programme 18BT/18ET, 23NT yet — ask Admin to add it.",
+      "Programme code 23NT isn't linked to an HMP programme yet — ask Admin (Admin → Dibba programme codes). Sem-I 2025-26 isn't set up for programme 18BT/18ET yet — ask Admin to add it.",
     );
   });
 
   it('a programme HMP doesn’t have counts as not set up', () => {
-    expect(planOffering(input({ programmes: [] }))).toMatchObject({ kind: 'semester-missing' });
+    expect(planOffering(input({ programmes: [] }))).toMatchObject({
+      kind: 'not-set-up',
+      unlinked: ['18BT/18ET', '23NT'],
+    });
   });
 
   it('codes not in the published Dibba for that term are refused', () => {
@@ -112,13 +120,48 @@ describe('Create request from the Course Dibba — the plan', () => {
     });
   });
 
-  it('matches a Dibba programme by its whole code or one of its parts', () => {
+  describe('which HMP programme a Dibba code means', () => {
     const ps = [
-      { id: 'a', code: 'HT15', semesters: [] },
-      { id: 'b', code: '18et', semesters: [] },
+      { id: 'a', code: 'HT15', active: true, semesters: [] },
+      { id: 'b', code: '18et', active: true, semesters: [] },
+      { id: 'c', code: 'MTECH-SE', active: true, semesters: [] },
+      { id: 'd', code: 'OLD-PROG', active: false, semesters: [] },
     ];
-    expect(matchProgramme('HT15', ps)?.id).toBe('a');
-    expect(matchProgramme('18BT/18ET', ps)?.id).toBe('b');
-    expect(matchProgramme('MB21/HB21', ps)).toBeNull();
+    it('exact code match, whole or one "/" part, without any link', () => {
+      expect(matchProgramme('HT15', { programmes: ps, links: {} })?.id).toBe('a');
+      expect(matchProgramme('18BT/18ET', { programmes: ps, links: {} })?.id).toBe('b');
+      expect(matchProgramme('MB21/HB21', { programmes: ps, links: {} })).toBeNull();
+    });
+    it("Admin's link wins over a matching code", () => {
+      expect(matchProgramme('HT15', { programmes: ps, links: { HT15: 'c' } })?.id).toBe('c');
+      expect(matchProgramme('MB21/HB21', { programmes: ps, links: { 'MB21/HB21': 'c' } })?.id).toBe(
+        'c',
+      );
+    });
+    it('an inactive programme is never used, linked or not', () => {
+      expect(
+        matchProgramme('MB21/HB21', { programmes: ps, links: { 'MB21/HB21': 'd' } }),
+      ).toBeNull();
+      expect(matchProgramme('OLD-PROG', { programmes: ps, links: {} })).toBeNull();
+    });
+    it('an unlinked code makes the plan say "ask Admin (Admin → Dibba programme codes)"', () => {
+      const plan = planOffering(input({ programmes: [] }));
+      expect(planMessage(plan as never)).toBe(
+        "Programme codes 18BT/18ET, 23NT aren't linked to an HMP programme yet — ask Admin (Admin → Dibba programme codes).",
+      );
+    });
+    it('a linked code is offered in its programme’s semester', () => {
+      const plan = planOffering(
+        input({
+          programmes: [{ id: 'p-mt', code: 'MTECH-ET', active: true, semesters: [SEM] }],
+          links: { '23NT': 'p-mt' },
+        }),
+      );
+      expect(plan).toMatchObject({
+        kind: 'ready',
+        choices: [{ programmeCode: 'MTECH-ET', dibbaProgramme: '23NT' }],
+        notSetUp: ['18BT/18ET'],
+      });
+    });
   });
 });

@@ -41,3 +41,11 @@ export const SME_BULK_REVIEW_TEMPLATE = `request_reference,action,comment
 # HMP-2026-0042,sme_approve,
 # HMP-2026-0043,sme_revert,Please add the experiential-learning component
 `;
+
+// Admin → Dibba codes (v1.3.0): link Course Dibba programme codes to HMP programmes.
+export const DIBBA_PROGRAMME_CODES_TEMPLATE = `code,programme_code
+# code = the programme code exactly as the Course Dibba shows it (e.g. 18BT/18ET, HT15).
+# programme_code = the HMP programme's code (Admin → Programmes). Lines starting with '#' are ignored.
+# 18BT/18ET,BTECH-ET
+# HT15,MTECH-SS
+`;

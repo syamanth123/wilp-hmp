@@ -32,61 +32,62 @@ enum FacultyType {
 }
 
 model User {
-  id                String              @id @default(cuid())
-  email             String              @unique
-  name              String
-  passwordHash      String?
-  ssoSubject        String?             @unique
-  facultyType       FacultyType?
-  active            Boolean             @default(true)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String?
+  ssoSubject   String?      @unique
+  facultyType  FacultyType?
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  roles             UserRole[]
-  initiatedRequests HandoutRequest[]    @relation("RequestInitiator")
-  assignments       FacultyAssignment[]
-  approvals         Approval[]
-  comments          Comment[]
-  notifications     Notification[]
-  auditLogs         AuditLog[]
-  versionsAuthored  HandoutVersion[]    @relation("VersionAuthor")
+  roles                    UserRole[]
+  initiatedRequests        HandoutRequest[]    @relation("RequestInitiator")
+  assignments              FacultyAssignment[]
+  approvals                Approval[]
+  comments                 Comment[]
+  notifications            Notification[]
+  auditLogs                AuditLog[]
+  versionsAuthored         HandoutVersion[]    @relation("VersionAuthor")
   // Prompt 12-b (SME approval workflow). The SME is assigned per handout at
   // allocation; these are the "SME for" and "assigner of" back-relations.
-  smeAssignmentsAsSme       SmeAssignment[] @relation("SmeAssignmentsAsSme")
-  smeAssignmentsAsAssigner  SmeAssignment[] @relation("SmeAssignmentsAsAssigner")
-  corpusImportsApproved     HandoutImport[] @relation("CorpusApprovedBy")
-  attachmentsUploaded       Attachment[]    @relation("AttachmentUploader")
-  aiUsage                   AiUsageLog[]    @relation("AiUsageActor")
+  smeAssignmentsAsSme      SmeAssignment[]     @relation("SmeAssignmentsAsSme")
+  smeAssignmentsAsAssigner SmeAssignment[]     @relation("SmeAssignmentsAsAssigner")
+  corpusImportsApproved    HandoutImport[]     @relation("CorpusApprovedBy")
+  attachmentsUploaded      Attachment[]        @relation("AttachmentUploader")
+  aiUsage                  AiUsageLog[]        @relation("AiUsageActor")
   // Course Dibba (Phase 1): term-wide schedule imports + instructor rows.
-  dibbaImportsUploaded      DibbaImport[]      @relation("DibbaUploader")
-  courseInstructorRows      CourseInstructor[] @relation("CourseInstructorUser")
+  dibbaImportsUploaded     DibbaImport[]       @relation("DibbaUploader")
+  courseInstructorRows     CourseInstructor[]  @relation("CourseInstructorUser")
   // Handout Library (v1.2.0): this person's named library views.
-  savedViews                SavedView[]
+  savedViews               SavedView[]
+  taxilaPublishRuns        TaxilaPublishRun[]
 
   @@index([email])
 }
 
 model Role {
-  id          String        @id @default(cuid())
-  name        RoleName      @unique
+  id          String           @id @default(cuid())
+  name        RoleName         @unique
   description String?
   permissions RolePermission[]
   users       UserRole[]
-  createdAt   DateTime      @default(now())
+  createdAt   DateTime         @default(now())
 }
 
 model Permission {
-  id        String           @id @default(cuid())
-  key       String           @unique // e.g. "user.create", "handout.approve"
-  label     String
-  roles     RolePermission[]
+  id    String           @id @default(cuid())
+  key   String           @unique // e.g. "user.create", "handout.approve"
+  label String
+  roles RolePermission[]
 }
 
 model UserRole {
   userId String
   roleId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
 }
@@ -105,21 +106,23 @@ model RolePermission {
 // =====================================================================
 
 model Programme {
-  id        String     @id @default(cuid())
-  code      String     @unique
-  name      String
-  active    Boolean    @default(true)
-  semesters Semester[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id         String               @id @default(cuid())
+  code       String               @unique
+  name       String
+  active     Boolean              @default(true)
+  semesters  Semester[]
+  // v1.3.0: Course Dibba programme codes ("18BT/18ET", "HT15") linked to this programme.
+  dibbaCodes DibbaProgrammeCode[]
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
 }
 
 model Semester {
   id          String           @id @default(cuid())
   programmeId String
-  name        String           // e.g. "Sem-I 2025-26"
+  name        String // e.g. "Sem-I 2025-26"
   year        Int
-  term        String           // FIRST | SECOND | SUMMER
+  term        String // FIRST | SECOND | SUMMER
   startDate   DateTime
   endDate     DateTime
   examDate    DateTime?
@@ -133,45 +136,45 @@ model Semester {
 }
 
 model Course {
-  id                String           @id @default(cuid())
+  id               String           @id @default(cuid())
   // Canonical BITS course identifier — one space between the discipline prefix
   // and the Z[CG]nnn cluster (e.g. "AE ZG631"). Validated/normalized via
   // @hmp/db's normalizeBitsCourseNumber(). Survey-driven (Prompt 11b): 92% of
   // corpus codes match this exact form; the rest are transcription quirks
   // (joined, run-split) collapsed to canonical on insert.
-  bitsCourseNumber  String           @unique
+  bitsCourseNumber String           @unique
   // Equivalent codes for cross-listed / theory+lab-paired courses. 33% of
   // sampled corpus files carry ≥2 codes (AE+AEL pairs, MBA+PDBA+PDFT,
   // CSI+ES+IS+SS cross-listings). Stored canonical-form too.
-  alternateCodes    String[]         @default([])
+  alternateCodes   String[]         @default([])
   // Legacy free-form code, kept @unique for back-compat with the CSV importer
   // and admin Course-create action during the transition. Populated equal to
   // bitsCourseNumber by every write path. To be dropped in a later cleanup PR
   // once all callers migrate.
-  code              String           @unique
-  title             String
+  code             String           @unique
+  title            String
   // Optional (matches the 11a optional-field discipline — real handouts often
   // leave the Credit Units cell blank; AEL ZG631 is the documented example).
-  credits           Int?
-  description       String?
-  active            Boolean          @default(true)
-  offerings         CourseOffering[]
+  credits          Int?
+  description      String?
+  active           Boolean          @default(true)
+  offerings        CourseOffering[]
   // Course Dibba (Phase 1): best-effort links from imported schedule rows.
-  dibbaEntries      DibbaEntry[]
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  dibbaEntries     DibbaEntry[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 }
 
 model CourseOffering {
-  id            String           @id @default(cuid())
-  courseId      String
-  semesterId    String
-  slotInfo      String?          // class slot
-  course        Course           @relation(fields: [courseId], references: [id])
-  semester      Semester         @relation(fields: [semesterId], references: [id])
-  requests      HandoutRequest[]
-  slotBookings  SlotBooking[]
-  createdAt     DateTime         @default(now())
+  id           String           @id @default(cuid())
+  courseId     String
+  semesterId   String
+  slotInfo     String? // class slot
+  course       Course           @relation(fields: [courseId], references: [id])
+  semester     Semester         @relation(fields: [semesterId], references: [id])
+  requests     HandoutRequest[]
+  slotBookings SlotBooking[]
+  createdAt    DateTime         @default(now())
 
   @@unique([courseId, semesterId])
   @@index([semesterId])
@@ -218,80 +221,81 @@ enum HandoutStatus {
 }
 
 model HandoutRequest {
-  id                  String             @id @default(cuid())
-  refNo               String             @unique // human-readable ref like HMP-2025-0001
-  courseOfferingId    String
-  initiatedById       String
-  status              HandoutStatus      @default(REQUESTED)
-  notes               String?
-  previousHandoutUrl  String?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  id                 String        @id @default(cuid())
+  refNo              String        @unique // human-readable ref like HMP-2025-0001
+  courseOfferingId   String
+  initiatedById      String
+  status             HandoutStatus @default(REQUESTED)
+  notes              String?
+  previousHandoutUrl String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  offering            CourseOffering     @relation(fields: [courseOfferingId], references: [id])
-  initiator           User               @relation("RequestInitiator", fields: [initiatedById], references: [id])
-  handout             Handout?
-  assignments         FacultyAssignment[]
-  approvals           Approval[]
-  attachments         Attachment[]
-  recommendations     AIRecommendation[]
-  auditLogs           AuditLog[]
-  smeAssignment       SmeAssignment?
+  offering           CourseOffering      @relation(fields: [courseOfferingId], references: [id])
+  initiator          User                @relation("RequestInitiator", fields: [initiatedById], references: [id])
+  handout            Handout?
+  assignments        FacultyAssignment[]
+  approvals          Approval[]
+  attachments        Attachment[]
+  recommendations    AIRecommendation[]
+  auditLogs          AuditLog[]
+  taxilaPublishItems TaxilaPublishItem[]
+  smeAssignment      SmeAssignment?
 
   @@index([status])
   @@index([courseOfferingId])
 }
 
 model Handout {
-  id           String           @id @default(cuid())
-  requestId    String           @unique
-  currentVersionId String?      @unique
-  status       HandoutStatus    @default(DRAFT)
-  templateId   String?
-  request      HandoutRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  template     Template?        @relation(fields: [templateId], references: [id])
-  versions     HandoutVersion[] @relation("HandoutVersions")
-  currentVersion HandoutVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
-  comments     Comment[]
-  qualityReports AIQualityReport[]
-  aiDraftLogs  AIDraftLog[]
-  aiUsage      AiUsageLog[]
-  publishLogs  LmsPublishLog[]
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id               String            @id @default(cuid())
+  requestId        String            @unique
+  currentVersionId String?           @unique
+  status           HandoutStatus     @default(DRAFT)
+  templateId       String?
+  request          HandoutRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  template         Template?         @relation(fields: [templateId], references: [id])
+  versions         HandoutVersion[]  @relation("HandoutVersions")
+  currentVersion   HandoutVersion?   @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  comments         Comment[]
+  qualityReports   AIQualityReport[]
+  aiDraftLogs      AIDraftLog[]
+  aiUsage          AiUsageLog[]
+  publishLogs      LmsPublishLog[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 }
 
 model HandoutVersion {
-  id           String   @id @default(cuid())
-  handoutId    String
-  versionNo    Int
-  contentJson  Json?    // TipTap JSON (legacy — pre-Prompt-11 freeform content). Nullable post-11d: structured handouts don't write this column (data is canonical).
-  contentHtml  String   @db.Text // legacy
-  partBJson    Json?    // legacy
-  evaluativeJson Json?  // legacy
+  id             String   @id @default(cuid())
+  handoutId      String
+  versionNo      Int
+  contentJson    Json? // TipTap JSON (legacy — pre-Prompt-11 freeform content). Nullable post-11d: structured handouts don't write this column (data is canonical).
+  contentHtml    String   @db.Text // legacy
+  partBJson      Json? // legacy
+  evaluativeJson Json? // legacy
   // Structured BITS handout content conforming to BitsHandoutSchemaV1
   // (@hmp/db handout-schema.ts). Nullable: pre-Prompt-11 rows keep their
   // legacy contentHtml/contentJson and leave this null. New source of truth.
-  data         Json?
-  authorId     String
-  notes        String?
-  createdAt    DateTime @default(now())
+  data           Json?
+  authorId       String
+  notes          String?
+  createdAt      DateTime @default(now())
 
-  handout      Handout  @relation("HandoutVersions", fields: [handoutId], references: [id], onDelete: Cascade)
-  current      Handout? @relation("CurrentVersion")
-  author       User     @relation("VersionAuthor", fields: [authorId], references: [id])
+  handout Handout  @relation("HandoutVersions", fields: [handoutId], references: [id], onDelete: Cascade)
+  current Handout? @relation("CurrentVersion")
+  author  User     @relation("VersionAuthor", fields: [authorId], references: [id])
 
   @@unique([handoutId, versionNo])
 }
 
 model Template {
-  id        String   @id @default(cuid())
-  name      String   @unique
+  id          String    @id @default(cuid())
+  name        String    @unique
   contentJson Json
-  active    Boolean  @default(true)
-  handouts  Handout[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  active      Boolean   @default(true)
+  handouts    Handout[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 // Corpus import (Prompt 11f-a). Each row represents one .docx file ingested
@@ -318,36 +322,36 @@ enum CorpusExtractionMethod {
 }
 
 model HandoutImport {
-  id                  String   @id @default(cuid())
+  id               String                 @id @default(cuid())
   // Canonical absolute path of the source file. @unique is the upsert key for
   // idempotency: re-running runCorpusImport on the same file with the same
   // (sourceFileBytes, sourceModifiedAt) is a no-op; a changed file forces
   // re-parse.
-  sourceFile          String   @unique
-  sourceFileBytes     Int
-  sourceModifiedAt    DateTime
+  sourceFile       String                 @unique
+  sourceFileBytes  Int
+  sourceModifiedAt DateTime
   // Extracted course code(s) when parsable. Null when the parser couldn't
   // identify the course (FAILED / SKIPPED_*). @index for the auto-fetch
   // Tier 2 lookup (Prompt 11f-b will read this).
-  bitsCourseNumber    String?
-  alternateCodes      String[] @default([])
+  bitsCourseNumber String?
+  alternateCodes   String[]               @default([])
   // BitsHandoutV1 JSON when parse succeeded. Null on FAILED or any SKIPPED_*.
-  data                Json?
+  data             Json?
   // Non-fatal extraction issues (e.g., "Modular Content section ignored;
   // will be addressed in a later prompt").
-  parseWarnings       String[] @default([])
+  parseWarnings    String[]               @default([])
   // Fatal parse failures (data is null). Specific reason per file.
-  parseErrors         String[] @default([])
-  extractionMethod    CorpusExtractionMethod
+  parseErrors      String[]               @default([])
+  extractionMethod CorpusExtractionMethod
   // 11f-b approval workflow. Tier 2 in handout-auto-fetch.ts will filter on
   // `approvedForReuse: true AND data IS NOT NULL` so admin review gates
   // surfacing. Stays default false in 11f-a; the approval UI lands in 11f-b.
-  approvedForReuse    Boolean  @default(false)
-  approvedById        String?
-  approvedAt          DateTime?
-  approvedBy          User?    @relation("CorpusApprovedBy", fields: [approvedById], references: [id])
-  importedAt          DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  approvedForReuse Boolean                @default(false)
+  approvedById     String?
+  approvedAt       DateTime?
+  approvedBy       User?                  @relation("CorpusApprovedBy", fields: [approvedById], references: [id])
+  importedAt       DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
   @@index([bitsCourseNumber])
   @@index([approvedForReuse])
@@ -355,16 +359,16 @@ model HandoutImport {
 }
 
 model FacultyAssignment {
-  id          String         @id @default(cuid())
+  id          String      @id @default(cuid())
   requestId   String
   facultyId   String
   facultyType FacultyType
-  active      Boolean        @default(true)
-  assignedAt  DateTime       @default(now())
+  active      Boolean     @default(true)
+  assignedAt  DateTime    @default(now())
   acceptedAt  DateTime?
 
-  request     HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  faculty     User           @relation(fields: [facultyId], references: [id])
+  request HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  faculty User           @relation(fields: [facultyId], references: [id])
 
   @@index([requestId])
   @@index([facultyId])
@@ -378,14 +382,14 @@ model FacultyAssignment {
 // carries no status or per-decision timestamps. (12-b dropped the earlier
 // advisory SmeNomination model this replaced.)
 model SmeAssignment {
-  id            String         @id @default(cuid())
-  requestId     String         @unique // one SME per handout
-  request       HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  smeUserId     String
-  smeUser       User           @relation("SmeAssignmentsAsSme", fields: [smeUserId], references: [id])
-  assignedById  String // the HOG who made the assignment
-  assignedBy    User           @relation("SmeAssignmentsAsAssigner", fields: [assignedById], references: [id])
-  assignedAt    DateTime       @default(now())
+  id           String         @id @default(cuid())
+  requestId    String         @unique // one SME per handout
+  request      HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  smeUserId    String
+  smeUser      User           @relation("SmeAssignmentsAsSme", fields: [smeUserId], references: [id])
+  assignedById String // the HOG who made the assignment
+  assignedBy   User           @relation("SmeAssignmentsAsAssigner", fields: [assignedById], references: [id])
+  assignedAt   DateTime       @default(now())
 
   @@index([smeUserId])
 }
@@ -419,23 +423,23 @@ model Approval {
   createdAt  DateTime         @default(now())
   decidedAt  DateTime?
 
-  request    HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  reviewer   User           @relation(fields: [reviewerId], references: [id])
+  request  HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  reviewer User           @relation(fields: [reviewerId], references: [id])
 
   @@index([requestId, stage])
 }
 
 model Comment {
-  id         String   @id @default(cuid())
-  handoutId  String
-  authorId   String
-  body       String
-  anchor     String?  // for inline anchoring in editor
-  resolved   Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  handoutId String
+  authorId  String
+  body      String
+  anchor    String? // for inline anchoring in editor
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
 
-  handout    Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
-  author     User     @relation(fields: [authorId], references: [id])
+  handout Handout @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id])
 
   @@index([handoutId])
 }
@@ -445,14 +449,14 @@ model Comment {
 // versions). The S3 object key is an opaque UUID (`attachments/<requestId>/<uuid>`);
 // the original filename lives here in the DB, never in the key.
 model Attachment {
-  id          String   @id @default(cuid())
-  requestId   String
-  uploaderId  String
-  filename    String
-  mimeType    String
-  size        Int
-  s3Key       String   @unique
-  uploadedAt  DateTime @default(now())
+  id               String    @id @default(cuid())
+  requestId        String
+  uploaderId       String
+  filename         String
+  mimeType         String
+  size             Int
+  s3Key            String    @unique
+  uploadedAt       DateTime  @default(now())
   // Set when the `archived=true` S3 tag is confirmed applied (Prompt 21).
   // NULL = not yet tagged. The reconciliation sweep detects ARCHIVED-request
   // attachments still NULL and re-tags them. Detection filters primarily on the
@@ -460,8 +464,8 @@ model Attachment {
   // index on this mostly-NULL column is needed.
   archivedTaggedAt DateTime?
 
-  request     HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  uploader    User           @relation("AttachmentUploader", fields: [uploaderId], references: [id])
+  request  HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  uploader User           @relation("AttachmentUploader", fields: [uploaderId], references: [id])
 
   @@index([requestId])
 }
@@ -495,33 +499,33 @@ model Notification {
   sentAt    DateTime?
   readAt    DateTime?
 
-  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
 }
 
 model NotificationTemplate {
-  id        String   @id @default(cuid())
-  key       String   @unique // e.g. "handout.submitted"
+  id        String                @id @default(cuid())
+  key       String                @unique // e.g. "handout.submitted"
   subject   String
-  body      String   @db.Text
+  body      String                @db.Text
   channels  NotificationChannel[]
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  active    Boolean               @default(true)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
 }
 
 model WorkflowConfig {
-  id              String   @id @default(cuid())
-  key             String   @unique
+  id                  String   @id @default(cuid())
+  key                 String   @unique
   // SLAs in hours
-  hogReviewSla    Int      @default(72)
-  pcReviewSla     Int      @default(72)
-  facultySubmitSla Int     @default(168)
-  hogFinalSla     Int      @default(48)
-  offCampusMaxCourses Int  @default(3)
-  matrixJson      Json     // approval matrix; configurable
-  updatedAt       DateTime @updatedAt
+  hogReviewSla        Int      @default(72)
+  pcReviewSla         Int      @default(72)
+  facultySubmitSla    Int      @default(168)
+  hogFinalSla         Int      @default(48)
+  offCampusMaxCourses Int      @default(3)
+  matrixJson          Json // approval matrix; configurable
+  updatedAt           DateTime @updatedAt
 }
 
 // =====================================================================
@@ -529,39 +533,39 @@ model WorkflowConfig {
 // =====================================================================
 
 model AIRecommendation {
-  id         String   @id @default(cuid())
-  requestId  String
-  kind       String   // "faculty" | "sme"
-  payload    Json     // top-N candidates with rationales/scores
-  model      String
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  requestId String
+  kind      String // "faculty" | "sme"
+  payload   Json // top-N candidates with rationales/scores
+  model     String
+  createdAt DateTime @default(now())
 
-  request    HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  request HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 }
 
 model AIQualityReport {
-  id         String   @id @default(cuid())
-  handoutId  String
-  score      Float
-  bloomsJson Json
+  id           String   @id @default(cuid())
+  handoutId    String
+  score        Float
+  bloomsJson   Json
   coverageJson Json
-  suggestions String   @db.Text
-  model      String
-  createdAt  DateTime @default(now())
+  suggestions  String   @db.Text
+  model        String
+  createdAt    DateTime @default(now())
 
-  handout    Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+  handout Handout @relation(fields: [handoutId], references: [id], onDelete: Cascade)
 }
 
 model AIDraftLog {
-  id         String   @id @default(cuid())
-  handoutId  String
-  versionNo  Int?     // null = pre-version (preview before Insert), else the version produced by Insert
-  source     String   @default("ai") // "ai" | "stub" (template fallback when provider unconfigured)
-  payload    Json     // { structured, tiptapJson, model, [promptTokens, completionTokens] }
-  model      String
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  handoutId String
+  versionNo Int? // null = pre-version (preview before Insert), else the version produced by Insert
+  source    String   @default("ai") // "ai" | "stub" (template fallback when provider unconfigured)
+  payload   Json // { structured, tiptapJson, model, [promptTokens, completionTokens] }
+  model     String
+  createdAt DateTime @default(now())
 
-  handout    Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+  handout Handout @relation(fields: [handoutId], references: [id], onDelete: Cascade)
 
   @@index([handoutId, createdAt])
 }
@@ -576,19 +580,19 @@ model AIDraftLog {
 // no actor) and a null handout for non-handout operations (recommendations,
 // corpus embeddings).
 enum AiOperation {
-  DRAFT_GENERATION        // generateHandoutDraft (legacy TipTap path)
-  STRUCTURED_DRAFT        // generateStructuredHandoutDraft (BitsHandoutV1)
-  QUALITY_REPORT          // runQualityReport
-  FACULTY_RECOMMENDATION  // embedding calls triggered BY a recommendation run
-  EMBEDDING               // embedding calls triggered by admin corpus refresh
+  DRAFT_GENERATION // generateHandoutDraft (legacy TipTap path)
+  STRUCTURED_DRAFT // generateStructuredHandoutDraft (BitsHandoutV1)
+  QUALITY_REPORT // runQualityReport
+  FACULTY_RECOMMENDATION // embedding calls triggered BY a recommendation run
+  EMBEDDING // embedding calls triggered by admin corpus refresh
 }
 
 model AiUsageLog {
   id           String      @id @default(cuid())
-  userId       String?     // nullable: worker + page-render paths have no actor
-  handoutId    String?     // nullable: recommendations/embeddings aren't handout-scoped
+  userId       String? // nullable: worker + page-render paths have no actor
+  handoutId    String? // nullable: recommendations/embeddings aren't handout-scoped
   operation    AiOperation
-  provider     String      // client.provider: 'anthropic' | 'openai'
+  provider     String // client.provider: 'anthropic' | 'openai'
   model        String
   tokensIn     Int         @default(0)
   tokensOut    Int         @default(0)
@@ -609,10 +613,10 @@ model AiUsageLog {
 
 model Embedding {
   id         String   @id @default(cuid())
-  ownerType  String   // "Course" | "User"
+  ownerType  String // "Course" | "User"
   ownerId    String
   model      String
-  vector     Json     // number[]
+  vector     Json // number[]
   sourceHash String
   createdAt  DateTime @default(now())
 
@@ -625,35 +629,37 @@ model Embedding {
 // =====================================================================
 
 model ErpSnapshot {
-  id        String   @id @default(cuid())
-  source    String   // "csv" | "api"
-  payload   Json
+  id         String   @id @default(cuid())
+  source     String // "csv" | "api"
+  payload    Json
   importedBy String?
-  createdAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 }
 
 model LmsPublishLog {
-  id        String   @id @default(cuid())
-  handoutId String
+  id           String          @id @default(cuid())
+  handoutId    String
   // Free string by convention (see LmsPublishLogStatus union in @hmp/integrations):
   // "success" | "failed" | "EXPORTED" | "MANUALLY_CONFIRMED". Kept as String so
   // pre-existing rows stay valid without a data migration.
-  status    String
+  status       String
   // mode/externalRef/s3Key added in Prompt 9a — all NULLABLE so legacy
   // (stub-era) rows remain valid as null.
   mode         LmsPublishMode?
-  externalRef  String?          // HTTP external id (Mode A) or presigned URL (Mode B)
-  s3Key        String?          // object key for the export ZIP (Mode B)
+  externalRef  String? // HTTP external id (Mode A) or presigned URL (Mode B)
+  s3Key        String? // object key for the export ZIP (Mode B)
   responseJson Json?
-  publishedAt DateTime @default(now())
+  publishedAt  DateTime        @default(now())
 
-  handout   Handout  @relation(fields: [handoutId], references: [id], onDelete: Cascade)
+  handout Handout @relation(fields: [handoutId], references: [id], onDelete: Cascade)
 }
 
 enum LmsPublishMode {
   HTTP
   EXPORT
   MANUALLY_CONFIRMED
+  // v1.3.0 "Mode C": PDF uploaded into the course's handout folder in Taxila (IT's QPM method).
+  TAXILA_FOLDER
 }
 
 // =====================================================================
@@ -661,20 +667,20 @@ enum LmsPublishMode {
 // =====================================================================
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  actorId    String?
-  action     String   // e.g. "user.create", "handout.transition"
-  entity     String   // entity name
-  entityId   String
-  before     Json?
-  after      Json?
-  requestId  String?
-  ip         String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String // e.g. "user.create", "handout.transition"
+  entity    String // entity name
+  entityId  String
+  before    Json?
+  after     Json?
+  requestId String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
 
-  actor      User?            @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  request    HandoutRequest?  @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  actor   User?           @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  request HandoutRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
 
   @@index([entity, entityId])
   @@index([actorId])
@@ -720,10 +726,10 @@ enum InstructorSource {
 }
 
 model AcademicTerm {
-  id          String   @id @default(cuid())
+  id          String             @id @default(cuid())
   // Globally unique because a term is term-wide — deliberately NOT the
   // per-programme Semester.name, which is only unique within a programme.
-  name        String   @unique // "2025-26 Sem 1"
+  name        String             @unique // "2025-26 Sem 1"
   year        Int
   // Same String vocabulary as Semester.term (FIRST | SECOND | SUMMER). There is
   // no term enum in this schema; introducing one only here would fork the vocab.
@@ -734,8 +740,8 @@ model AcademicTerm {
   slots       SlotTiming[]
   examDates   SlotExamDate[]
   instructors CourseInstructor[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt // IC edits the dates
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt // IC edits the dates
 
   // One real semester = one term (Phase 3): two differently named rows for the
   // same (year, term) would split a schedule. Added before any production term
@@ -879,4 +885,59 @@ model SavedView {
 
   @@unique([userId, name])
   @@index([userId])
+}
+
+// v1.3.0 — a Course Dibba programme code (exactly as imported: "18BT/18ET", "HT15", "MB21/HB21")
+// linked to an HMP programme, so "Create request" knows which semester to use. A code that equals
+// an HMP Programme.code works without a row; a row wins over that exact match.
+model DibbaProgrammeCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  programmeId String
+  programme   Programme @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  // Who last changed it (audit has the history); SetNull keeps the link if the user goes.
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([programmeId])
+}
+
+// v1.3.0 — a bulk "publish to Taxila" run, driven from the IC's browser one course at a time.
+// Progress lives in the items, so a closed tab only pauses the run and nothing is published twice.
+model TaxilaPublishRun {
+  id           String              @id @default(cuid())
+  createdById  String
+  createdBy    User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  // Taxila semester code used for the course search ("S1-26").
+  semesterCode String
+  // "RUNNING" | "DONE"
+  status       String              @default("RUNNING")
+  createdAt    DateTime            @default(now())
+  finishedAt   DateTime?
+  items        TaxilaPublishItem[]
+
+  @@index([createdById, createdAt])
+}
+
+model TaxilaPublishItem {
+  id             String           @id @default(cuid())
+  runId          String
+  run            TaxilaPublishRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  requestId      String
+  request        HandoutRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  position       Int
+  // "PENDING" | "PUBLISHED" | "ALREADY_THERE" | "NOT_FOUND" | "AMBIGUOUS" | "FOLDER_MISSING" |
+  // "FAILED" | "SKIPPED"
+  status         String           @default("PENDING")
+  // The step that decided it ("search", "folder", "upload", "move", "pdf", "status").
+  step           String?
+  message        String?
+  fileName       String?
+  courseFullname String?
+  taxilaCourseId Int?
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([runId, requestId])
+  @@index([runId, position])
 }

@@ -1,6 +1,7 @@
 import { prisma, normalizeBitsCourseNumber, type Prisma } from '@hmp/db';
 import { displayCourseTitle } from './course-title';
 import { mixedCourseNumbers, termLabel } from './handout-library';
+import { resolveDibbaProgramme } from './dibba-programme-codes';
 
 /**
  * "Create request" for a course in the published Course Dibba that has no course offering yet
@@ -9,8 +10,9 @@ import { mixedCourseNumbers, termLabel } from './handout-library';
  * semester, and opens the new-request page. Rules:
  * - the semester must already exist for that programme and term — never invented;
  * - create only: an existing course or offering is reused, never changed;
- * - a Dibba programme ("18BT/18ET") matches the HMP programme whose code is the whole string or
- *   one of its parts — there is no other mapping between the two.
+ * - a Dibba programme ("18BT/18ET") is the HMP programme Admin linked it to (Admin → Dibba
+ *   programme codes, v1.3.0), else the one whose code is the whole string or one of its parts
+ *   (lib/dibba-programme-codes.ts resolveDibbaProgramme).
  */
 
 export interface DibbaRow {
@@ -26,6 +28,7 @@ export interface DibbaRow {
 export interface ProgrammeRow {
   id: string;
   code: string;
+  active: boolean;
   semesters: { id: string; name: string; year: number; term: string }[];
 }
 
@@ -45,6 +48,8 @@ export interface PlanInput {
   /** The term's published Dibba rows for these codes. */
   rows: DibbaRow[];
   programmes: ProgrammeRow[];
+  /** Admin's links: Dibba programme code → HMP programme id. */
+  links: Record<string, string>;
   /** Catalogue courses carrying any of the codes. */
   courses: CourseRow[];
   offerings: { id: string; courseId: string; semesterId: string }[];
@@ -66,7 +71,15 @@ export interface ProgrammeChoice {
 export type OfferingPlan =
   | { kind: 'not-in-dibba'; codes: string[]; semesterName: string }
   | { kind: 'invalid-code'; codes: string[]; semesterName: string; code: string }
-  | { kind: 'semester-missing'; codes: string[]; semesterName: string; programmes: string[] }
+  | {
+      kind: 'not-set-up';
+      codes: string[];
+      semesterName: string;
+      /** Dibba codes not linked to any HMP programme. */
+      unlinked: string[];
+      /** Dibba codes whose HMP programme has no semester for this term. */
+      noSemester: string[];
+    }
   | {
       kind: 'ready';
       codes: string[];
@@ -78,7 +91,7 @@ export type OfferingPlan =
       newCourseCodes: string[];
       skippedCodes: string[];
       choices: ProgrammeChoice[];
-      /** Dibba programmes of the class with no semester for this term in HMP. */
+      /** Dibba programmes of the class that are unlinked or have no semester for this term. */
       notSetUp: string[];
       mixedNumbers: boolean;
       slotInfo: string | null;
@@ -94,10 +107,19 @@ const strict = (code: string): string | null => {
   }
 };
 
-/** The HMP programme a Dibba programme code stands for ("18BT/18ET" → 18BT or 18ET). */
-export function matchProgramme(dibbaCode: string, programmes: ProgrammeRow[]): ProgrammeRow | null {
-  const parts = [dibbaCode, ...dibbaCode.split('/')].map((p) => p.trim().toUpperCase());
-  return programmes.find((p) => parts.includes(p.code.trim().toUpperCase())) ?? null;
+/** The HMP programme a Dibba programme code stands for: Admin's link, else a matching code. */
+export function matchProgramme(
+  dibbaCode: string,
+  input: Pick<PlanInput, 'programmes' | 'links'>,
+): ProgrammeRow | null {
+  const byId = new Map(input.programmes.map((p) => [p.id, p]));
+  const mappings = new Map(
+    Object.entries(input.links).flatMap(([code, id]) =>
+      byId.has(id) ? [[code, byId.get(id)!] as const] : [],
+    ),
+  );
+  const r = resolveDibbaProgramme(dibbaCode, { mappings, programmes: input.programmes });
+  return r.programme ? byId.get(r.programme.id)! : null;
 }
 
 /** What "Create request" would do for this class — no database access (unit-tested). */
@@ -127,14 +149,14 @@ export function planOffering(input: PlanInput): OfferingPlan {
     ...new Set(input.rows.filter((r) => codes.includes(r.code)).map((r) => r.programmeCode)),
   ].sort();
   const choices: ProgrammeChoice[] = [];
-  const notSetUp: string[] = [];
+  const unlinked: string[] = [];
+  const noSemester: string[] = [];
   for (const dp of dibbaProgrammes) {
-    const p = matchProgramme(dp, input.programmes);
+    const p = matchProgramme(dp, input);
     const sem = p?.semesters.find((s) => s.year === input.year && s.term === input.term);
-    if (!p || !sem) {
-      notSetUp.push(dp);
-      continue;
-    }
+    if (!p) unlinked.push(dp);
+    else if (!sem) noSemester.push(dp);
+    if (!p || !sem) continue;
     if (choices.some((c) => c.semesterId === sem.id)) continue;
     choices.push({
       programmeId: p.id,
@@ -149,7 +171,7 @@ export function planOffering(input: PlanInput): OfferingPlan {
     });
   }
   if (choices.length === 0)
-    return { kind: 'semester-missing', codes, semesterName, programmes: dibbaProgrammes };
+    return { kind: 'not-set-up', codes, semesterName, unlinked, noSemester };
 
   const leadRow = input.rows.find((r) => r.code === lead)!;
   const catalogueTitle = input.rows.find(
@@ -164,7 +186,7 @@ export function planOffering(input: PlanInput): OfferingPlan {
     newCourseCodes,
     skippedCodes,
     choices,
-    notSetUp,
+    notSetUp: [...unlinked, ...noSemester].sort(),
     mixedNumbers: mixedCourseNumbers(codes),
     slotInfo:
       leadRow.slotNo > 0
@@ -180,7 +202,7 @@ export async function loadPlanInput(
   term: string,
 ): Promise<PlanInput> {
   const allCodes = [...new Set(codes)];
-  const [entries, programmes, courses, anySemester] = await Promise.all([
+  const [entries, programmes, courses, anySemester, links] = await Promise.all([
     prisma.dibbaEntry.findMany({
       where: {
         import: { status: 'PUBLISHED', term: { year, term } },
@@ -197,10 +219,10 @@ export async function loadPlanInput(
       },
     }),
     prisma.programme.findMany({
-      where: { active: true },
       select: {
         id: true,
         code: true,
+        active: true,
         semesters: {
           where: { year, term },
           select: { id: true, name: true, year: true, term: true },
@@ -222,6 +244,7 @@ export async function loadPlanInput(
       select: { name: true },
       orderBy: { name: 'asc' },
     }),
+    prisma.dibbaProgrammeCode.findMany({ select: { code: true, programmeId: true } }),
   ]);
   const offerings = courses.length
     ? await prisma.courseOffering.findMany({
@@ -243,6 +266,7 @@ export async function loadPlanInput(
       catalogueTitle: e.course?.title ?? null,
     })),
     programmes,
+    links: Object.fromEntries(links.map((l) => [l.code, l.programmeId])),
     courses,
     offerings,
     semesterName: anySemester?.name ?? termLabel(`${year}-${term}`),
@@ -353,7 +377,18 @@ export function planMessage(plan: Exclude<OfferingPlan, { kind: 'ready' }>): str
       return `${codes} isn't in the published Course Dibba for ${plan.semesterName}.`;
     case 'invalid-code':
       return `${plan.code} isn't a standard course number (projects and dissertations aren't), so it can't be added to the course catalogue automatically — ask Admin to add it.`;
-    case 'semester-missing':
-      return `${plan.semesterName} isn't set up for programme ${plan.programmes.join(', ')} yet — ask Admin to add it.`;
+    case 'not-set-up':
+      return [
+        plan.unlinked.length === 1
+          ? `Programme code ${plan.unlinked[0]} isn't linked to an HMP programme yet — ask Admin (Admin → Dibba programme codes).`
+          : plan.unlinked.length > 1
+            ? `Programme codes ${plan.unlinked.join(', ')} aren't linked to an HMP programme yet — ask Admin (Admin → Dibba programme codes).`
+            : '',
+        plan.noSemester.length
+          ? `${plan.semesterName} isn't set up for programme ${plan.noSemester.join(', ')} yet — ask Admin to add it.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
   }
 }
