@@ -160,6 +160,8 @@ export interface LibraryItem {
   mine: boolean;
   reviewedByMe: boolean;
   schedule: ScheduleSlot[];
+  /** Not started: cross-listed codes with different course numbers ("ET ZC232 / PE ZC234") — worth a check. */
+  mixedNumbers?: boolean;
   /** Worked out on demand only (decision D4). */
   changeSize?: ChangeSize | null;
 }
@@ -822,7 +824,12 @@ const linkKey = (title: string, s: Pick<ScheduleSlot, 'slot' | 'day' | 'session'
   `${title.trim().replace(/\s+/g, ' ').toUpperCase()}|${s.slot}|${s.day}|${s.session}`;
 
 /** The published Course Dibba schedules, by term × course code. */
-async function loadSchedule(): Promise<Map<string, ScheduledCourse>> {
+/** "ET ZC232", "ENGG ZC232" → same number; "PE ZC234" → a different one. */
+export function mixedCourseNumbers(codes: string[]): boolean {
+  return new Set(codes.map((c) => c.split(' ')[1]?.replace(/T$/, '') ?? c)).size > 1;
+}
+
+export async function loadSchedule(): Promise<Map<string, ScheduledCourse>> {
   const entries = await prisma.dibbaEntry.findMany({
     where: { import: { status: 'PUBLISHED' }, courseType: { not: DibbaCourseType.NOT_OFFERED } },
     select: {
@@ -1048,6 +1055,7 @@ export function notStartedItems(
       mine: false,
       reviewedByMe: false,
       schedule: slots,
+      mixedNumbers: mixedCourseNumbers(group.map((g) => g.code)),
     });
   }
   return out;

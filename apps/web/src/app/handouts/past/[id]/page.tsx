@@ -5,6 +5,7 @@ import { getSessionUser } from '@hmp/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@hmp/ui';
 import { AccessDenied } from '@/components/access-denied';
 import { HandoutViewer } from '@/components/handout-viewer';
+import { withPlainPlaceholders } from '@/lib/importer-placeholder';
 import { Pill } from '@/components/status-badge';
 import { formatDate } from '@/lib/format-date';
 import { PAST_HANDOUT_SCOPE } from '@/lib/handout-access';
@@ -42,7 +43,8 @@ export default async function PastHandoutPage({
   if (!row || !parsed?.success) {
     return <AccessDenied reason="This handout isn’t available to your account." />;
   }
-  const h = parsed.data;
+  // Old-file gaps read "Not found in the old handout file", not the importer's marker.
+  const h = withPlainPlaceholders(parsed.data);
   const code = row.bitsCourseNumber ?? h.partA.courseNumbers[0] ?? '—';
   const codes = [code, ...row.alternateCodes];
   const prev = await previousHandout(codes, termKeyFromText(h.metadata.semester), row.id);

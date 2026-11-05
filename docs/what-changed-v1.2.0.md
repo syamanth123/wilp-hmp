@@ -28,8 +28,10 @@ be found, read, compared and downloaded in one place, **Handout Library** in eve
 - **HOG / PC:** "Overdue" and "Changed a lot since last year" (worked out when you open it).
 - **Instruction Cell / Admin:** "Not started yet" — courses in the published Course Dibba with no
   handout request yet, cross-listed codes counted once ("ENGG ZC232 / ET ZC232"), each with a
-  **Create request** button that opens New request already filled in; "Approved, not yet
-  published"; **Export to Excel** of any filtered list.
+  **Create request** button that opens New request already filled in — after a confirmation it
+  first adds the course offering (and the course) from the Dibba when HMP doesn't have it yet, in
+  the programme's existing semester; "Approved, not yet published"; **Export to Excel** of any
+  filtered list.
 
 ## Also in this release
 

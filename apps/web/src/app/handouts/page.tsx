@@ -427,6 +427,15 @@ export default async function HandoutLibraryPage({
                                     Create request
                                   </Link>
                                 )}
+                                {canCreateRequest && it.mixedNumbers && (
+                                  <span
+                                    className="mt-1 block text-xs font-medium text-amber-800"
+                                    data-testid="mixed-numbers"
+                                    title="These codes share a title and a Dibba slot but not a course number. Check they are one class before creating a request."
+                                  >
+                                    Different course numbers — check
+                                  </span>
+                                )}
                               </>
                             ) : it.status ? (
                               it.group === 'published' && it.status !== 'PUBLISHED' ? (

@@ -5,6 +5,7 @@ import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { PAST_HANDOUT_SCOPE } from '@/lib/handout-access';
 import { buildHandoutDocx } from '@/lib/export/build-docx';
+import { withPlainPlaceholders } from '@/lib/importer-placeholder';
 import { docxToPdf, SofficeError } from '@/lib/export/docx-to-pdf';
 import { exportErrorResponse } from '@/lib/export/error-response';
 
@@ -41,7 +42,7 @@ export async function GET(
     readFile(join(ASSETS, 'bits-header.png')),
     readFile(join(ASSETS, 'bits-watermark.png')),
   ]);
-  const docx = await buildHandoutDocx(parsed.data, logo, watermark);
+  const docx = await buildHandoutDocx(withPlainPlaceholders(parsed.data), logo, watermark);
   const base = safe(`BITS-${row.bitsCourseNumber ?? 'handout'}-${parsed.data.metadata.semester}`);
 
   let body: Buffer = docx;

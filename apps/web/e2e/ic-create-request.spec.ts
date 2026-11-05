@@ -1,4 +1,26 @@
 import { test, expect } from '@playwright/test';
+import { prisma } from '@hmp/db';
+
+// Creates a real request, so it removes everything it made afterwards — the request (its handout,
+// assignments and approvals cascade), the notifications that link to it and its audit rows — and
+// can't leave data behind in a demo database, even when it fails half-way.
+let startedAt = new Date();
+
+test.beforeEach(() => {
+  startedAt = new Date();
+});
+
+test.afterEach(async () => {
+  const made = await prisma.handoutRequest.findMany({
+    where: { createdAt: { gte: startedAt }, initiator: { email: 'ic@hmp.local' } },
+    select: { id: true },
+  });
+  for (const { id } of made) {
+    await prisma.notification.deleteMany({ where: { link: { contains: id } } });
+    await prisma.auditLog.deleteMany({ where: { OR: [{ entityId: id }, { requestId: id }] } });
+    await prisma.handoutRequest.delete({ where: { id } });
+  }
+});
 
 test('IC creates a handout request end-to-end', async ({ page }) => {
   await page.goto('/login');
