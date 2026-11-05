@@ -27,13 +27,17 @@ beforeEach(async () => {
     url: fake.url,
     token: TOKEN,
     folderName: 'Course Handout',
-    timeoutMs: 300,
+    // Generous: the fake runs alongside every other package's tests (ci-local), and a slow answer
+    // would be retried and change the call list. Tests that wait for a timeout set SHORT below.
+    timeoutMs: 5_000,
     backoffMs: [0, 0],
   };
 });
 afterEach(() => fake.close());
 
 const client = () => createTaxilaClient(cfg);
+/** For tests where the fake deliberately never answers. */
+const SHORT = 300;
 const name = taxilaFileName(['SS ZG653'], 'Sem-I 2026-27');
 
 describe('settings', () => {
@@ -198,6 +202,7 @@ describe('Publish', () => {
 
   it('a move whose answer never comes, but which happened, counts as published — sent once', async () => {
     fake.failures.move = 'hang-after-move';
+    cfg.timeoutMs = SHORT;
     await publishFileToTaxila(client(), {
       courseId: 4101,
       contextid: 9101,
@@ -210,6 +215,7 @@ describe('Publish', () => {
 
   it('a move that times out without happening fails — and is not sent twice', async () => {
     fake.failures.move = 'hang';
+    cfg.timeoutMs = SHORT;
     await expect(
       publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, fileName: name, pdf: PDF }),
     ).rejects.toMatchObject({ step: 'move', kind: 'move-failed' });
@@ -237,6 +243,7 @@ describe('Publish', () => {
 describe('each step’s failure, in plain words', () => {
   it('search: timeout retried 3 times, then "didn’t answer"', async () => {
     fake.failures.search = 'hang';
+    cfg.timeoutMs = SHORT;
     await expect(client().searchCourses('S1-26')).rejects.toMatchObject({
       step: 'search',
       kind: 'timeout',
