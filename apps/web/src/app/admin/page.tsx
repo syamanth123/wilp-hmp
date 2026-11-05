@@ -4,6 +4,7 @@ import { statusLabel } from '@/components/status-badge';
 import { aiFeaturesEnabled } from '@/lib/features';
 import { actionSentence, entityLabel } from '@/lib/labels';
 import { SYSTEM_ACTIONS } from '@/lib/labels';
+import { DepartmentChecksPanel } from './department-checks';
 
 function StatCard({
   label,
@@ -272,8 +273,8 @@ export default async function AdminOverview() {
             System health, user management, and configuration.
           </p>
         </div>
-        <Link href="/admin/users" className="bits-btn bits-btn-primary text-sm">
-          Manage users
+        <Link href="/admin/people" className="bits-btn bits-btn-primary text-sm">
+          Manage people
         </Link>
       </div>
 
@@ -284,7 +285,7 @@ export default async function AdminOverview() {
           value={users}
           sub="Active accounts"
           icon={<UsersIcon />}
-          href="/admin/users?show=active"
+          href="/admin/people"
         />
         <StatCard label="Programmes" value={programmes} sub="Configured" icon={<ProgIcon />} />
         <StatCard
@@ -301,6 +302,9 @@ export default async function AdminOverview() {
           href="/ic/requests"
         />
       </div>
+
+      {/* v1.4.0: departments — what still has to be filled in */}
+      <DepartmentChecksPanel />
 
       {/* Two-column panels */}
       <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -385,11 +389,11 @@ export default async function AdminOverview() {
             <h3>Quick actions</h3>
           </div>
           <div className="panel-body grid grid-cols-2 gap-3">
-            <Link href="/admin/users" className="quick-action">
+            <Link href="/admin/people" className="quick-action">
               <span className="qa-icon">
                 <UsersIcon />
               </span>
-              Manage users
+              Manage people
             </Link>
             <Link href="/admin/import" className="quick-action">
               <span className="qa-icon">

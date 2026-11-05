@@ -79,8 +79,8 @@ test.describe('Dashboard cards match the lists they link to', () => {
         await page.goto(card.href);
         const total = Number((await page.getByTestId('list-total').innerText()).trim());
         expect(total, `${role.home} card → ${card.href}`).toBe(card.value);
-        // Request lists show 25 per page; the users list isn't paged.
-        const paged = !card.href.startsWith('/admin/users');
+        // Request lists show 25 per page; the people list isn't paged.
+        const paged = !card.href.startsWith('/admin/people');
         const rows = await page.locator('table tbody tr').count();
         expect(rows, `rows on ${card.href}`).toBe(
           paged ? Math.min(card.value, PAGE_SIZE) : card.value,

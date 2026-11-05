@@ -4,6 +4,6 @@ import { defaultRouteForUser } from '@/lib/routing';
 
 export default async function Home() {
   const user = await getSessionUser();
-  if (!user) redirect('/login');
+  if (!user) redirect('/api/session-ended'); // signed in, but switched off since (v1.4.0)
   redirect(defaultRouteForUser(user));
 }

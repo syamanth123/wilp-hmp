@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { loadText, openWork } from '@/lib/people';
+import { suggestDepartments, suggestionText } from '@/lib/departments';
 import { PersonForm } from '../person-form';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,11 @@ export default async function PersonPage({ params }: { params: { id: string } })
   ]);
   if (!u) notFound();
   const work = (await openWork([u.id])).get(u.id) ?? [];
+  // H6: no department yet → what the courses they taught suggest (applied only with "Use it").
+  const s = u.departmentId ? undefined : (await suggestDepartments([u.id])).get(u.id);
+  const suggestion = s
+    ? { departmentId: s.kind === 'one' ? s.departmentId : null, text: suggestionText(s) }
+    : null;
   return (
     <Card>
       <CardHeader>
@@ -45,6 +51,7 @@ export default async function PersonPage({ params }: { params: { id: string } })
       <CardContent>
         <PersonForm
           departments={departments}
+          suggestion={suggestion}
           person={{
             id: u.id,
             name: u.name,

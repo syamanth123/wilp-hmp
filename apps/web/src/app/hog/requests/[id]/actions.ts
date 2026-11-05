@@ -29,8 +29,6 @@ const allocateSchema = z.object({
   smeUserId: z
     .string({ required_error: 'Choose a subject expert.' })
     .cuid('Select a Subject Matter Expert'),
-  // v1.4 §C: the PC member who confirms (optional only while no PC accounts exist).
-  pcUserId: z.string().cuid().optional(),
 });
 
 const approvalSchema = z.object({
@@ -54,12 +52,10 @@ export async function allocateFacultyAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
   const facultyIds = formData.getAll('facultyIds').map(String).filter(Boolean);
   const smeUserId = String(formData.get('smeUserId') ?? '').trim() || undefined;
-  const pcUserId = String(formData.get('pcUserId') ?? '').trim() || undefined;
   const parsed = allocateSchema.safeParse({
     requestId: formData.get('requestId'),
     facultyIds,
     smeUserId,
-    pcUserId,
   });
   if (!parsed.success) return { error: formError(parsed.error) };
 
@@ -101,25 +97,6 @@ export async function allocateFacultyAction(formData: FormData) {
     return {
       error: "The chosen subject expert can't review handouts any more. Choose another one.",
     };
-  }
-
-  // v1.4 §C: the chosen PC must be an active PC; one is required once any PC account exists.
-  const pcWhere = {
-    ...ACTIVE_USER_FILTER,
-    roles: { some: { role: { name: RoleName.PROGRAMME_COMMITTEE } } },
-  };
-  if (parsed.data.pcUserId) {
-    const pc = await prisma.user.findFirst({
-      where: { id: parsed.data.pcUserId, ...pcWhere },
-      select: { id: true },
-    });
-    if (!pc) {
-      return {
-        error: "The chosen PC member can't confirm allocations any more. Choose another one.",
-      };
-    }
-  } else if (await prisma.user.count({ where: pcWhere })) {
-    return { error: 'Choose the Programme Committee member who confirms it.' };
   }
 
   try {
@@ -176,31 +153,6 @@ export async function allocateFacultyAction(formData: FormData) {
             smeUserId: parsed.data.smeUserId,
             assignedById: actor.id,
           },
-        });
-        // v1.4 §C: record who is responsible now — the faculty, SME and PC (a re-allocation after a
-        // PC rejection ends the previous ones). The HOG row was written when the IC created it.
-        await tx.requestAssignee.updateMany({
-          where: {
-            requestId: request.id,
-            endedAt: null,
-            role: { in: [RoleName.FACULTY, RoleName.SME, RoleName.PROGRAMME_COMMITTEE] },
-          },
-          data: { endedAt: new Date(), reason: 'Re-allocated' },
-        });
-        const assignee = (role: RoleName, userId: string) => ({
-          requestId: request.id,
-          role,
-          userId,
-          assignedById: actor.id,
-        });
-        await tx.requestAssignee.createMany({
-          data: [
-            ...faculties.map((f) => assignee(RoleName.FACULTY, f.id)),
-            assignee(RoleName.SME, parsed.data.smeUserId),
-            ...(parsed.data.pcUserId
-              ? [assignee(RoleName.PROGRAMME_COMMITTEE, parsed.data.pcUserId)]
-              : []),
-          ],
         });
       },
     });

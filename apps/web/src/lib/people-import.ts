@@ -1,14 +1,20 @@
+import ExcelJS from 'exceljs';
 import { prisma, RoleName, type Prisma } from '@hmp/db';
 import { parseCsv } from '@hmp/integrations';
 import { roleLabel } from './labels';
 import { impactOfChange, openWork } from './people';
 import { DEPARTMENT_ROLES } from './people-save';
+import { suggestDepartments, suggestionText, type DeptSuggestion } from './departments';
 
 /**
  * Bulk people upload (v1.4 §B, section 0): exactly four columns — email, name, roles, department.
  * Preview first (New / Changed / Unchanged / Error per row); Apply saves all rows or none. Upsert by
  * email (lower-case); never deletes anyone. A row that would take away a role or department while the
  * person still has open work is an error here — the Edit screen's impact check handles that safely.
+ *
+ * Decision H6: someone who has no department yet may stay blank in the file; the preview then shows
+ * the department their past courses suggest, which is saved only for the rows the Admin / IC ticks
+ * ("Accept all suggestions" ticks them all). Mixed history → "Needs a decision", never a guess.
  */
 
 export const PEOPLE_COLUMNS = ['email', 'name', 'roles', 'department'] as const;
@@ -54,19 +60,41 @@ export interface PreviewRow {
   changes: string[];
   error?: string;
   userId?: string;
+  /** Blank department, none yet: the department their past courses point to (saved only if accepted). */
+  suggestion?: { departmentId: string; departmentName: string; courses: number };
+  /** Blank department, none yet, no single suggestion: why. */
+  note?: string;
+  needsDecision?: boolean;
 }
+
+export type PreviewCounts = Record<RowStatus, number> & {
+  suggested: number;
+  needsDecision: number;
+};
 
 export interface Preview {
   rows: PreviewRow[];
-  counts: Record<RowStatus, number>;
+  counts: PreviewCounts;
   fileError?: string;
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function previewPeople(csv: string): Promise<Preview> {
-  const empty = { new: 0, changed: 0, unchanged: 0, error: 0 };
-  const { header, rows } = parseCsv(csv);
+  const empty: PreviewCounts = {
+    new: 0,
+    changed: 0,
+    unchanged: 0,
+    error: 0,
+    suggested: 0,
+    needsDecision: 0,
+  };
+  // Column names in any case ("Email", "EMAIL"); extra columns (e.g. "suggested department") are ignored.
+  const parsed = parseCsv(csv);
+  const header = parsed.header.map((h) => h.trim().toLowerCase());
+  const rows = parsed.rows.map((r) =>
+    Object.fromEntries(Object.entries(r).map(([k, v]) => [k.trim().toLowerCase(), v])),
+  );
   const missing = PEOPLE_COLUMNS.filter((c) => !header.includes(c));
   if (missing.length)
     return { rows: [], counts: empty, fileError: `Missing column(s): ${missing.join(', ')}.` };
@@ -152,8 +180,18 @@ export async function previewPeople(csv: string): Promise<Preview> {
       fail(`${dept.name} is inactive.`);
       continue;
     }
-    if (roles.some((x) => DEPARTMENT_ROLES.includes(x)) && !dept) {
-      fail('HOG, PC, faculty and SME need a department.');
+    const existingUser = userBy.get(email);
+    // A blank department is fine only for someone who has none yet (the preview suggests one).
+    if (
+      roles.some((x) => DEPARTMENT_ROLES.includes(x)) &&
+      !dept &&
+      (!existingUser || existingUser.departmentId)
+    ) {
+      fail(
+        existingUser
+          ? 'HOG, PC, faculty and SME need a department — the file leaves it empty.'
+          : 'HOG, PC, faculty and SME need a department.',
+      );
       continue;
     }
     if (roles.includes(RoleName.HOG) && dept) {
@@ -199,21 +237,72 @@ export async function previewPeople(csv: string): Promise<Preview> {
     }
     out.push({ ...row, status: row.changes.length ? 'changed' : 'unchanged' });
   }
+
+  // H6: suggestions for the rows that stay without a department.
+  const blank = out.filter(
+    (r) =>
+      r.status !== 'error' &&
+      r.userId &&
+      !r.departmentId &&
+      r.roles.some((x) => DEPARTMENT_ROLES.includes(x)),
+  );
+  const suggested = blank.length
+    ? await suggestDepartments(blank.map((r) => r.userId!))
+    : new Map<string, DeptSuggestion>();
+  for (const r of blank) {
+    const s = suggested.get(r.userId!);
+    if (r.roles.includes(RoleName.HOG)) {
+      r.needsDecision = true;
+      r.note = `No department yet. A Head of Group's department is chosen by hand (${suggestionText(s)}).`;
+    } else if (s?.kind === 'one') {
+      r.suggestion = {
+        departmentId: s.departmentId,
+        departmentName: s.departmentName,
+        courses: s.courses,
+      };
+    } else if (s?.kind === 'mixed') {
+      r.needsDecision = true;
+      r.note = suggestionText(s);
+    } else {
+      r.needsDecision = true;
+      r.note = `No department yet — ${suggestionText(s).toLowerCase()}. Type it in the file.`;
+    }
+  }
+
   const counts = { ...empty };
-  for (const r of out) counts[r.status]++;
+  for (const r of out) {
+    counts[r.status]++;
+    if (r.suggestion) counts.suggested++;
+    if (r.needsDecision) counts.needsDecision++;
+  }
   return { rows: out, counts };
 }
 
 export async function applyPeople(
   actorId: string,
   csv: string,
+  /** File lines whose suggested department the Admin / IC accepted (nothing else is ever taken). */
+  acceptLines: number[] = [],
 ): Promise<
-  { ok: true; created: number; changed: number } | { ok: false; error: string; preview?: Preview }
+  | { ok: true; created: number; changed: number; accepted: number }
+  | { ok: false; error: string; preview?: Preview }
 > {
   const preview = await previewPeople(csv);
   if (preview.fileError) return { ok: false, error: preview.fileError };
   if (preview.counts.error)
     return { ok: false, error: 'Fix the rows marked Error, then upload again.', preview };
+  const accept = new Set(acceptLines);
+  let accepted = 0;
+  for (const r of preview.rows) {
+    if (!r.suggestion || !accept.has(r.line)) continue;
+    r.departmentId = r.suggestion.departmentId;
+    r.departmentName = r.suggestion.departmentName;
+    r.changes.push(
+      `department: none → ${r.suggestion.departmentName} (suggested from ${r.suggestion.courses} past course${r.suggestion.courses === 1 ? '' : 's'}, accepted)`,
+    );
+    r.status = 'changed';
+    accepted++;
+  }
   const roleRows = await prisma.role.findMany();
   const roleId = new Map(roleRows.map((r) => [r.name, r.id]));
   let created = 0;
@@ -264,28 +353,94 @@ export async function applyPeople(
     },
     { timeout: 60_000 },
   );
-  return { ok: true, created, changed };
+  return { ok: true, created, changed, accepted };
 }
 
-/** The current people list in the upload format (edit in Excel, upload again). */
-export async function exportPeopleCsv(): Promise<string> {
-  const users = await prisma.user.findMany({
-    where: { active: true },
-    orderBy: { name: 'asc' },
-    select: {
-      email: true,
-      name: true,
-      department: { select: { code: true } },
-      roles: { select: { role: { select: { name: true } } } },
-    },
-  });
-  const cell = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  return [
-    PEOPLE_COLUMNS.join(','),
-    ...users.map((u) =>
-      [u.email, u.name, u.roles.map((r) => SHORT[r.role.name]).join(';'), u.department?.code ?? '']
-        .map(cell)
-        .join(','),
-    ),
-  ].join('\n');
+/**
+ * The current people list as an Excel file in the upload format (edit, upload again). For everyone
+ * without a department it adds the department their past courses suggest (H6) and why; mixed
+ * history says "Needs a decision". The department column offers the department codes as a list.
+ * The two extra columns are information only — the upload ignores them.
+ */
+export async function exportPeopleXlsx(): Promise<Buffer> {
+  const [users, departments] = await Promise.all([
+    prisma.user.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        departmentId: true,
+        department: { select: { code: true } },
+        roles: { select: { role: { select: { name: true } } } },
+      },
+    }),
+    prisma.department.findMany({ where: { active: true }, orderBy: { code: 'asc' } }),
+  ]);
+  const blank = users.filter(
+    (u) => !u.departmentId && u.roles.some((r) => DEPARTMENT_ROLES.includes(r.role.name)),
+  );
+  const suggestions = blank.length
+    ? await suggestDepartments(blank.map((u) => u.id))
+    : new Map<string, DeptSuggestion>();
+  const codeOf = new Map(departments.map((d) => [d.id, d.code]));
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'HMP';
+  const ws = wb.addWorksheet('People', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = [
+    { header: 'email', key: 'email', width: 40 },
+    { header: 'name', key: 'name', width: 32 },
+    { header: 'roles', key: 'roles', width: 18 },
+    { header: 'department', key: 'department', width: 14 },
+    { header: 'suggested department', key: 'suggested', width: 22 },
+    { header: 'why', key: 'why', width: 62 },
+  ];
+  ws.getRow(1).font = { bold: true };
+  const list = `"${departments.map((d) => d.code).join(',')}"`;
+  for (const u of users) {
+    const roles = u.roles.map((r) => r.role.name);
+    const needs = !u.departmentId && roles.some((r) => DEPARTMENT_ROLES.includes(r));
+    const s = needs ? suggestions.get(u.id) : undefined;
+    const isHog = roles.includes(RoleName.HOG);
+    const row = ws.addRow({
+      email: u.email,
+      name: u.name,
+      roles: roles.map((r) => SHORT[r]).join(';'),
+      department: u.department?.code ?? '',
+      suggested: s?.kind === 'one' && !isHog ? (codeOf.get(s.departmentId) ?? '') : '',
+      why: !needs
+        ? ''
+        : isHog
+          ? `Head of Group: choose the department by hand (${suggestionText(s)})`
+          : suggestionText(s),
+    });
+    row.getCell('department').dataValidation = { type: 'list', allowBlank: true, formulae: [list] };
+    if (needs)
+      row.getCell('why').font = {
+        color: { argb: s?.kind === 'one' && !isHog ? 'FF166534' : 'FF92400E' },
+      };
+  }
+
+  const help = wb.addWorksheet('How to fill');
+  help.columns = [{ width: 110 }];
+  for (const line of [
+    'HMP people list — edit the People sheet, then Admin → People → Upload people.',
+    '',
+    'email: their BITS email (how BITS sign-in finds them). One person, one email.',
+    'roles: any of ADMIN, IC, HOG, PC, FACULTY, SME, separated by ";" (e.g. HOG;FACULTY).',
+    `department: one of ${departments.map((d) => `${d.code} (${d.name})`).join(', ')}. Empty only for IC / Admin.`,
+    '',
+    'suggested department / why: from the courses each person taught. Information only — the upload',
+    'ignores these columns. Either copy a suggestion into "department", or leave "department" empty: the',
+    'upload preview then offers the same suggestion to accept (one by one, or "Accept all suggestions").',
+    '"Needs a decision" = they taught in more than one department; type the department yourself.',
+    '',
+    'Nobody is deleted by an upload. Nothing is saved until you press Apply after the preview.',
+  ])
+    help.addRow([line]);
+  help.getRow(1).font = { bold: true };
+
+  return Buffer.from(await wb.xlsx.writeBuffer());
 }

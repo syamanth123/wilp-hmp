@@ -14,7 +14,7 @@ export default async function NotificationsPage({
   searchParams?: { page?: string; filter?: string };
 }) {
   const me = await getSessionUser();
-  if (!me) redirect('/login');
+  if (!me) redirect('/api/session-ended'); // signed in, but switched off since (v1.4.0)
 
   const page = Math.max(1, Number(searchParams?.page ?? '1') || 1);
   const filter = searchParams?.filter === 'unread' ? 'unread' : 'all';

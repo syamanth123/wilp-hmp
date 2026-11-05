@@ -116,7 +116,7 @@ export default async function HandoutLibraryPage({
   searchParams: Record<string, string | undefined>;
 }) {
   const user = await getSessionUser();
-  if (!user) redirect('/login');
+  if (!user) redirect('/api/session-ended'); // signed in, but switched off since (v1.4.0)
 
   // Decision D3: a bare /handouts reopens the person's last view (a browser cookie).
   let sp = searchParams;

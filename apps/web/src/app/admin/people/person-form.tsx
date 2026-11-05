@@ -32,9 +32,12 @@ const ROLE_WORD: Record<WorkRole, string> = {
 export function PersonForm({
   person,
   departments,
+  suggestion,
 }: {
   person: Omit<PersonInput, 'replacements'>;
   departments: { id: string; name: string }[];
+  /** v1.4.0 (H6): no department yet — what their past courses suggest. */
+  suggestion?: { departmentId: string | null; text: string } | null;
 }) {
   const router = useRouter();
   const [p, setP] = useState(person);
@@ -137,6 +140,27 @@ export function PersonForm({
               </option>
             ))}
           </select>
+          {suggestion && !p.departmentId && (
+            <span
+              className={`mt-1 block text-xs ${suggestion.departmentId ? 'text-emerald-800' : 'text-amber-800'}`}
+              data-testid="person-department-suggestion"
+            >
+              From the courses they taught: {suggestion.text}
+              {suggestion.departmentId && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => setP({ ...p, departmentId: suggestion.departmentId })}
+                    data-testid="person-use-suggestion"
+                  >
+                    Use it
+                  </button>
+                </>
+              )}
+            </span>
+          )}
         </label>
         <label className="text-sm">
           <span className="mb-1 block font-medium">Faculty type</span>
@@ -175,8 +199,8 @@ export function PersonForm({
             without an owner
           </h2>
           <p>
-            Choose who takes each one over. They are moved in the same step as the change; the old
-            and new person are told, and the history keeps {p.name || 'this person'}’s name.
+            Choose who takes each one over. They are moved in the same step as the change, and the
+            request history keeps {p.name || 'this person'}’s name.
           </p>
           {(Object.keys(impact.candidates) as WorkRole[]).map((role) => (
             <label key={role} className="flex flex-wrap items-center gap-2">

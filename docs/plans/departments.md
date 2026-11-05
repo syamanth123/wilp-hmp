@@ -141,7 +141,7 @@ or removed; the old pools keep working for requests without assignees.
 
 Each PR: plan section → screenshots → build → ci-local → your OK → merge → tag.
 
-## Screenshots (this step)
+## Screenshots (plan step)
 
 Built as working first versions on this branch (dev data, four seeded departments):
 
@@ -172,19 +172,33 @@ only check; no request was created or allocated). Files in `C:\work\review-shots
 department. Until they are filled in, they sit behind "Show all departments" (search still finds them). Filling
 them is one round-trip: _Download the list_ → fill the `department` column in Excel → _Upload people_ (H6).
 
-## H. Decisions needed
+## H. Decisions (approved 5 Nov 2026)
 
-1. **H1 — one department per programme** (a column on Programme) instead of a programme ↔ department table?
-   Recommended: yes (simpler; a cross-listed course still gets one department through its offering's programme).
-2. **H2 — ship as three PRs** v1.4.0 / v1.4.1 / v1.4.2 (above) instead of one big v1.4.0? Recommended: yes.
-3. **H3 — departments: 4** (MBA/Management, Core Engineering, CSIS, EEE) — still to be confirmed with your sir.
-4. **H4 — existing requests at release**: assign the department HOG automatically where known (recommended), or
-   leave all existing requests visible to every HOG/PC until someone assigns them?
-5. **H5 — people CSV columns**: exactly `email, name, roles, department` (+ optional `faculty_type`, `active`)?
-6. **H6 — filling departments for the ~236 existing faculty**: the IC/Admin does it with Download → Excel →
-   Upload after v1.4.0 is released (recommended), or we pre-fill a guess from each faculty's past courses'
-   programmes for them to check in the upload preview?
-7. **H7 — the IC/HOG pickers built for these screenshots (section C)** ship in v1.4.1 as planned — together with
-   "only that HOG/PC is notified" and the department scoping — so v1.4.0 stays data-only (recommended); or ship
-   the pickers already in v1.4.0 (for a programme with no department everyone is shown; once a programme is
-   tagged, people without a department move behind "Show all departments")?
+1. **H1 — yes:** one department per programme, stored on the programme.
+2. **H2 — yes:** three releases — v1.4.0 data and people → v1.4.1 assignment and scoping → v1.4.2 emails and
+   automations.
+3. **H3 — 4 departments:** MBA / Management, Core Engineering, CSIS, EEE (added by the v1.4.0 migration; names
+   editable, so a later change is a rename). Still worth confirming with your sir that MBA and Management are one.
+4. **H4 — yes:** at release, existing requests get their department's HOG where the department is known; the ones
+   it couldn't assign are listed. This runs with **v1.4.1**, the release where the assignee is used.
+5. **H5 — yes:** `email, name, roles, department`.
+6. **H6 — both:**
+   - _Download the list_ (Excel) adds a **suggested department** column (and _why_), from each person's past
+     courses.
+   - In the upload preview, a blank department with a suggestion shows "Suggested: CSIS (from 5 past
+     courses) — accept?", with **Accept all suggestions**. Nothing is saved unless accepted.
+   - Mixed history (e.g. 3 CSIS, 2 EEE) gets no suggestion and shows **Needs a decision**.
+7. **H7 — yes:** the New request and Allocate pickers wait for v1.4.1 (kept on branch
+   `feature/department-assignment`); v1.4.0 is data and people only.
+
+### Built in v1.4.0 beyond the plan text
+
+- **A department for each Course Dibba programme code** (`DibbaProgrammeDepartment`). Past courses are recorded
+  against Dibba codes (HT15, MB22 …), and most of the 41 codes have no HMP programme to link to. Without this,
+  the H6 suggestions would need an HMP programme created for every Dibba code. A code linked to an HMP
+  programme (Admin → Dibba codes) still takes that programme's department. Each code gets a one-click
+  suggestion from its title, applied only when the Admin clicks.
+- **Switched off while signed in:** `/api/session-ended` clears the sign-in and shows "account is switched
+  off". Without it, the sign-in page and the app would redirect to each other forever.
+- **Admin → Users** stays (linked from People as "Password sign-in accounts") for password logins where BITS
+  sign-in isn't used.

@@ -15,8 +15,6 @@ const schema = z.object({
   courseOfferingId: z.string().cuid(),
   notes: z.string().max(2000).optional().default(''),
   previousHandoutUrl: z.string().url().optional().or(z.literal('')),
-  hogId: z.string().min(1, 'Pick the Head of Group who will allocate it.'),
-  hogReason: z.string().max(500).optional().default(''),
 });
 
 export async function createRequestAction(formData: FormData) {
@@ -25,8 +23,6 @@ export async function createRequestAction(formData: FormData) {
     courseOfferingId: formData.get('courseOfferingId'),
     notes: formData.get('notes') ?? '',
     previousHandoutUrl: formData.get('previousHandoutUrl') ?? '',
-    hogId: formData.get('hogId') ?? '',
-    hogReason: formData.get('hogReason') ?? '',
   });
   if (!parsed.success) {
     return { error: formError(parsed.error) };
@@ -34,39 +30,9 @@ export async function createRequestAction(formData: FormData) {
 
   const offering = await prisma.courseOffering.findUnique({
     where: { id: parsed.data.courseOfferingId },
-    include: { semester: { include: { programme: { select: { departmentId: true } } } } },
   });
   if (!offering)
     return { error: 'That course offering no longer exists. Refresh the page and choose again.' };
-
-  // v1.4 §C: the chosen HOG must be an active HOG; one outside the course's department needs a reason.
-  const hog = await prisma.user.findFirst({
-    where: {
-      id: parsed.data.hogId,
-      active: true,
-      roles: { some: { role: { name: RoleName.HOG } } },
-    },
-    select: { id: true, departmentId: true },
-  });
-  if (!hog)
-    return {
-      error: 'That Head of Group is no longer available. Refresh the page and choose again.',
-    };
-  const courseDept = offering.semester.programme.departmentId;
-  const deptHog = courseDept
-    ? await prisma.user.findFirst({
-        where: {
-          departmentId: courseDept,
-          active: true,
-          roles: { some: { role: { name: RoleName.HOG } } },
-        },
-        select: { id: true },
-      })
-    : null;
-  const outside = !!deptHog && deptHog.id !== hog.id;
-  const hogReason = parsed.data.hogReason.trim();
-  if (outside && hogReason.length < 5)
-    return { error: 'Say why it goes to a HOG outside the course’s department.' };
 
   let created: { id: string; refNo: string };
   try {
@@ -86,17 +52,8 @@ export async function createRequestAction(formData: FormData) {
           action: 'request.create',
           entity: 'HandoutRequest',
           entityId: req.id,
-          after: { refNo: req.refNo, courseOfferingId: offering.id, hogId: hog.id } as never,
+          after: { refNo: req.refNo, courseOfferingId: offering.id } as never,
           requestId: req.id,
-        },
-      });
-      await tx.requestAssignee.create({
-        data: {
-          requestId: req.id,
-          role: RoleName.HOG,
-          userId: hog.id,
-          assignedById: actor.id,
-          reason: outside ? hogReason : null,
         },
       });
       return req;

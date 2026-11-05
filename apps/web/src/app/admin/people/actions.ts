@@ -55,10 +55,21 @@ export async function previewPeopleAction(fd: FormData): Promise<Preview> {
   return previewPeople(await toCsv(fd));
 }
 
-/** Upload people: save every row (or none if any row has an error). */
+/**
+ * Upload people: save every row (or none if any row has an error). `accept` lists the file lines whose
+ * suggested department the Admin ticked; no other suggestion is saved.
+ */
 export async function applyPeopleAction(fd: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.ADMIN);
-  const r = await applyPeople(actor.id, await toCsv(fd));
+  let accept: number[] = [];
+  try {
+    const raw: unknown = JSON.parse(String(fd.get('accept') ?? '[]'));
+    if (Array.isArray(raw))
+      accept = raw.filter((n): n is number => Number.isInteger(n)).slice(0, 5000);
+  } catch {
+    accept = [];
+  }
+  const r = await applyPeople(actor.id, await toCsv(fd), accept);
   if (r.ok) revalidatePath('/admin/people');
   return r;
 }

@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/
 import { Pill } from '@/components/status-badge';
 import { facultyTypeLabel, roleLabel } from '@/lib/labels';
 import { loadPeople, loadText, type PeopleFilter } from '@/lib/people';
+import { suggestDepartments, suggestionText } from '@/lib/departments';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,10 +30,11 @@ export default async function PeoplePage({
           ? ''
           : 'active',
   };
-  const [people, departments, noDept] = await Promise.all([
+  const [people, departments, noDeptPeople] = await Promise.all([
     loadPeople(f),
     prisma.department.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
-    prisma.user.count({
+    prisma.user.findMany({
+      select: { id: true },
       where: {
         active: true,
         departmentId: null,
@@ -48,6 +50,10 @@ export default async function PeoplePage({
       },
     }),
   ]);
+  // H6: what each person without a department taught (suggestion / needs a decision).
+  const suggestions = await suggestDepartments(noDeptPeople.map((u) => u.id));
+  const noDept = noDeptPeople.length;
+  const withSuggestion = [...suggestions.values()].filter((s) => s.kind === 'one').length;
   const select = 'bg-background h-9 rounded-md border px-2 text-sm';
 
   return (
@@ -58,7 +64,15 @@ export default async function PeoplePage({
             <CardTitle>People</CardTitle>
             <CardDescription>
               Everyone who can sign in to HMP with their BITS ID — their roles, department and open
-              work. One person, one email, one department (Instruction Cell and Admin: all).
+              work. One person, one email, one department (Instruction Cell and Admin: all).{' '}
+              <Link
+                href="/admin/users"
+                className="underline"
+                data-testid="people-password-accounts"
+              >
+                Password sign-in accounts
+              </Link>{' '}
+              (only where BITS sign-in isn&apos;t used).
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -80,7 +94,7 @@ export default async function PeoplePage({
               className="hover:bg-accent inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium"
               download
             >
-              Download the list
+              Download the list (Excel)
             </a>
           </div>
         </CardHeader>
@@ -91,10 +105,27 @@ export default async function PeoplePage({
               data-testid="people-no-department"
             >
               {noDept} active {noDept === 1 ? 'person has' : 'people have'} a HOG, PC, faculty or
-              SME role but no department.{' '}
+              SME role but no department
+              {withSuggestion > 0 &&
+                ` — ${withSuggestion} of them have a suggested department from the courses they taught`}
+              .{' '}
               <Link href="/admin/people?department=none" className="underline">
                 Show them
               </Link>
+              {withSuggestion > 0 && (
+                <>
+                  {' '}
+                  · To fill them in one go:{' '}
+                  <a href="/admin/people/export" className="underline" download>
+                    download the list
+                  </a>
+                  , then{' '}
+                  <Link href="/admin/people/upload" className="underline">
+                    upload it
+                  </Link>{' '}
+                  and press <em>Accept all suggestions</em>.
+                </>
+              )}
             </p>
           )}
           <form className="flex flex-wrap items-end gap-2" method="get">
@@ -149,8 +180,9 @@ export default async function PeoplePage({
 
       <Card>
         <CardContent className="p-0">
-          <p className="text-muted-foreground border-b px-4 py-2 text-sm" data-testid="list-total">
-            {people.length} {people.length === 1 ? 'person' : 'people'}
+          <p className="text-muted-foreground border-b px-4 py-2 text-sm">
+            <span data-testid="list-total">{people.length}</span>{' '}
+            {people.length === 1 ? 'person' : 'people'}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -182,13 +214,27 @@ export default async function PeoplePage({
                       </div>
                     </td>
                     <td className="px-4 py-2">
-                      {p.departmentName ?? (
-                        <span className="text-muted-foreground">
-                          {p.roles.every((r) => r === 'ADMIN' || r === 'INSTRUCTION_CELL')
-                            ? 'All'
-                            : '— not set'}
-                        </span>
-                      )}
+                      {p.departmentName ??
+                        (p.roles.every((r) => r === 'ADMIN' || r === 'INSTRUCTION_CELL') ? (
+                          <span className="text-muted-foreground">All</span>
+                        ) : (
+                          <span>
+                            <span className="text-muted-foreground">— not set</span>
+                            {suggestions.has(p.id) && (
+                              <span
+                                className={`block text-xs ${
+                                  suggestions.get(p.id)!.kind === 'one'
+                                    ? 'text-emerald-800'
+                                    : 'text-amber-800'
+                                }`}
+                                data-testid="person-suggestion"
+                              >
+                                {suggestions.get(p.id)!.kind === 'one' ? 'Suggested: ' : ''}
+                                {suggestionText(suggestions.get(p.id))}
+                              </span>
+                            )}
+                          </span>
+                        ))}
                     </td>
                     <td className="px-4 py-2">
                       {p.facultyType ? facultyTypeLabel(p.facultyType as never) : '—'}

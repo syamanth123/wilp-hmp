@@ -138,8 +138,24 @@ model Department {
   active     Boolean     @default(true)
   users      User[]
   programmes Programme[]
+  // v1.4.0: Course Dibba programme codes tagged straight to this department (when not linked to an HMP programme).
+  dibbaCodes DibbaProgrammeDepartment[]
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
+}
+
+/// v1.4.0: the department of a Course Dibba programme code ("HT15", "MB21/HB21"). Used when the code is not
+/// linked to an HMP programme that has a department (that link wins). Feeds the people department suggestions.
+model DibbaProgrammeDepartment {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  updatedById  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([departmentId])
 }
 
 model Semester {

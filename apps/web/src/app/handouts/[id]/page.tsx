@@ -70,7 +70,7 @@ export default async function HandoutViewerPage({
   searchParams: Record<string, string | undefined>;
 }) {
   const user = await getSessionUser();
-  if (!user) redirect('/login');
+  if (!user) redirect('/api/session-ended'); // signed in, but switched off since (v1.4.0)
   if (!(await canViewHandout(user, params.id))) {
     return <AccessDenied reason="This handout isn’t available to your account." />;
   }
