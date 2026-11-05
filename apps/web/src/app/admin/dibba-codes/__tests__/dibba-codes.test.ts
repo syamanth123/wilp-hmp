@@ -51,7 +51,7 @@ describe.skipIf(!hasDb)('Admin → Dibba codes', () => {
     });
     const entry = (programmeCode: string, courseCode: string) => ({
       programmeCode,
-      programmeTitle: `${programmeCode} Test programme`,
+      programmeTitle: `${programmeCode} Quixotry programme`,
       slotNo: 1,
       slotDay: 'SAT',
       slotSession: 'FN',
@@ -78,7 +78,7 @@ describe.skipIf(!hasDb)('Admin → Dibba codes', () => {
         },
       },
     });
-    active = (await prisma.programme.create({ data: { code: 'QX-PROG', name: 'QX test' } })).id;
+    active = (await prisma.programme.create({ data: { code: 'QX-PROG', name: 'QX quixotry' } })).id;
     inactive = (
       await prisma.programme.create({ data: { code: 'QX-OLD', name: 'QX old', active: false } })
     ).id;
@@ -133,7 +133,8 @@ describe.skipIf(!hasDb)('Admin → Dibba codes', () => {
   it('unlinked codes get a suggestion by name; nothing is linked automatically', async () => {
     const rows = await loadDibbaCodeRows();
     const qx3 = rows.find((r) => r.code === 'QX3')!;
-    // "QX3 Test programme" → title "Test programme" looks like "QX test" (QX-PROG, active).
+    // "QX3 Quixotry programme" looks like "QX quixotry" (QX-PROG, active). A word no other test uses,
+    // so programmes other test files create at the same time can't compete for the suggestion.
     expect(qx3.suggestion?.code).toBe('QX-PROG');
     expect(qx3.linkedProgrammeId).toBeNull();
     expect(await resolve('QX3')).toBeNull();
