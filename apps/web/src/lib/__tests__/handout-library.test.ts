@@ -3,6 +3,7 @@ import { DibbaCourseType, HandoutStatus, RoleName } from '@hmp/db';
 import {
   EMPTY_FILTERS,
   applyPreds,
+  courseCount,
   groupByCourse,
   libraryQuery,
   matchesSearch,
@@ -16,6 +17,7 @@ import {
   termLabel,
   type LibraryFilter,
   type LibraryItem,
+  type ScheduledCourse,
   type ViewCtx,
 } from '../handout-library';
 
@@ -406,35 +408,88 @@ describe('address ↔ filter', () => {
 });
 
 describe('not started yet', () => {
+  const at = (slot: number, day = 'SAT', session = 'FN') => ({
+    slot,
+    day,
+    session,
+    type: DibbaCourseType.CORE,
+  });
+  const course = (
+    code: string,
+    title: string,
+    programme: string,
+    slot = at(1),
+    catalogueTitle: string | null = null,
+  ): ScheduledCourse => ({
+    term: '2025-FIRST',
+    code,
+    title,
+    catalogueTitle,
+    programmes: new Set([programme]),
+    at: NOW,
+    slots: [slot],
+    links: new Set([`${title}|${slot.slot}|${slot.day}|${slot.session}`]),
+  });
+  const sched = (...cs: ScheduledCourse[]) =>
+    new Map(cs.map((c) => [`${c.term}|${c.code}`, c] as const));
+
   it('lists scheduled courses that have no handout in that semester', () => {
-    const slot = { slot: 1, day: 'SAT', session: 'FN', type: DibbaCourseType.CORE };
-    const schedule = new Map([
-      [
-        '2025-FIRST|SS ZG653',
-        {
-          term: '2025-FIRST',
-          code: 'SS ZG653',
-          title: 'SA',
-          programmes: new Set(['HT01']),
-          at: NOW,
-          slots: [slot],
-        },
-      ],
-      [
-        '2025-FIRST|AE ZG511',
-        {
-          term: '2025-FIRST',
-          code: 'AE ZG511',
-          title: 'AE',
-          programmes: new Set(['HT02']),
-          at: NOW,
-          slots: [slot],
-        },
-      ],
-    ]);
+    const schedule = sched(
+      course('SS ZG653', 'SA', 'HT01'),
+      course('AE ZG511', 'AE', 'HT02', at(2)),
+    );
     const out = notStartedItems(schedule, [item({ codes: ['SS ZG653'] })], new Map());
     expect(out.map((x) => x.courseCode)).toEqual(['AE ZG511']);
     expect(out[0]).toMatchObject({ group: 'not-started', programmes: ['HT02'] });
+  });
+
+  it('cross-listed codes (same title, same slot) are one row, counted once', () => {
+    const schedule = sched(
+      course('ET ZC232', 'ENGINEERING MATERIALS', 'ET01'),
+      course('ENGG ZC232', 'ENGINEERING MATERIALS', 'EN01'),
+      course('ET ZC233', 'CALCULUS', 'ET01', at(2, 'SAT', 'AN')),
+      course('MATH ZC233', 'CALCULUS', 'MA01', at(2, 'SAT', 'AN')),
+      // Same title, another slot: a different class.
+      course('PE ZC233', 'CALCULUS', 'PE01', at(5, 'SUN', 'EV')),
+    );
+    const out = notStartedItems(schedule, [], new Map());
+    expect(out.map((x) => x.codes.join(' / ')).sort()).toEqual([
+      'ENGG ZC232 / ET ZC232',
+      'ET ZC233 / MATH ZC233',
+      'PE ZC233',
+    ]);
+    expect(courseCount(out)).toBe(3);
+    const mat = out.find((x) => x.codes.includes('ET ZC232'))!;
+    expect(mat.programmes).toEqual(['EN01', 'ET01']);
+    expect(mat.courseTitle).toBe('Engineering Materials');
+  });
+
+  it('a request for any cross-listed code covers the whole class', () => {
+    const schedule = sched(
+      course('ET ZC232', 'ENGINEERING MATERIALS', 'ET01'),
+      course('ENGG ZC232', 'ENGINEERING MATERIALS', 'EN01'),
+    );
+    expect(notStartedItems(schedule, [item({ codes: ['ET ZC232'] })], new Map())).toEqual([]);
+  });
+
+  it('the catalogue code and title lead', () => {
+    const schedule = sched(
+      course('ET ZC232', 'ENGG MATERIALS', 'ET01'),
+      course('MATH ZC232', 'ENGG MATERIALS', 'MA01', at(1), 'Engineering Materials Science'),
+    );
+    const [row] = notStartedItems(schedule, [], new Map());
+    expect(row).toMatchObject({
+      courseCode: 'MATH ZC232',
+      codes: ['MATH ZC232', 'ET ZC232'],
+      courseTitle: 'Engineering Materials Science',
+    });
+  });
+
+  it('shows no Updated date, so the Updated filters skip it', () => {
+    const [row] = notStartedItems(sched(course('AE ZG511', 'AE', 'HT02')), [], new Map());
+    expect(
+      run([row!], filter({ view: 'not-started', updated: 'today' }), [RoleName.INSTRUCTION_CELL]),
+    ).toEqual([]);
   });
 });
 

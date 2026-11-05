@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   wb.creator = 'HMP';
   const ws = wb.addWorksheet('Handouts');
   ws.columns = [
-    { header: 'Course code', key: 'code', width: 14 },
+    { header: 'Course code', key: 'code', width: 24 },
     { header: 'Course title', key: 'title', width: 40 },
     { header: 'Semester', key: 'semester', width: 22 },
     { header: 'Programme', key: 'programme', width: 14 },
@@ -43,7 +43,8 @@ export async function GET(req: Request) {
   ws.views = [{ state: 'frozen', ySplit: 1 }];
   for (const it of lib.items) {
     ws.addRow({
-      code: it.courseCode,
+      // Cross-listed codes together, as the list shows them.
+      code: [...new Set(it.codes.filter((c) => c && c !== '—'))].join(' / ') || it.courseCode,
       title: it.courseTitle,
       semester: it.semesterName,
       programme: it.programmeCode ?? it.programmes.join(', '),
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
       faculty: it.faculty.join(', '),
       sme: it.sme ?? '',
       due: it.dueAt ? formatDate(it.dueAt) : '',
-      updated: formatDate(it.updatedAt),
+      updated: it.kind === 'not-started' ? '' : formatDate(it.updatedAt),
       published: it.publishedAt ? formatDate(it.publishedAt) : '',
       ref: it.refNo ?? '',
     });

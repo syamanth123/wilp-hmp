@@ -11,6 +11,8 @@ import { libraryScope, seesAllWork, type LibraryTab } from './handout-access';
 import { VIEWS } from './request-views';
 import { loadWorkflowConfig, slaHoursFor } from './sla';
 import type { ChangeSize } from './handout-compare';
+import { displayCourseTitle } from './course-title';
+import { formatDate } from './format-date';
 
 /**
  * The Handout Library list (docs/plans/handout-library.md §2).
@@ -693,10 +695,13 @@ export function predicates(
   if (v('updated')) {
     const since =
       f.updated === 'today' ? istTodayStart(ctx.now) : now - (f.updated === '7d' ? 7 : 30) * DAY;
-    add('updated', (it) => it.updatedAt.getTime() >= since);
+    add('updated', (it) => it.kind !== 'not-started' && it.updatedAt.getTime() >= since);
   }
   if (v('updatedFrom') || v('updatedTo'))
-    add('updatedFrom', (it) => inRange(it.updatedAt, v('updatedFrom'), v('updatedTo')));
+    add(
+      'updatedFrom',
+      (it) => it.kind !== 'not-started' && inRange(it.updatedAt, v('updatedFrom'), v('updatedTo')),
+    );
 
   if (v('published')) {
     const since = now - Number(f.published.replace('d', '')) * DAY;
@@ -799,14 +804,22 @@ const PUBLISHED_LOG = ['success', 'EXPORTED', 'MANUALLY_CONFIRMED'];
 const disciplineOf = (code: string) => /^([A-Z]+) /.exec(code)?.[1] ?? null;
 const scheduleKey = (term: string | null, code: string) => `${term}|${code}`;
 
-interface ScheduledCourse {
+export interface ScheduledCourse {
   term: string;
   code: string;
+  /** The Dibba's title (often in capitals). */
   title: string;
+  /** The course catalogue's title, when the code is in the catalogue. */
+  catalogueTitle: string | null;
   programmes: Set<string>;
   at: Date;
   slots: ScheduleSlot[];
+  /** "TITLE|slot|day|session" for each taught slot — cross-listed codes share one. */
+  links: Set<string>;
 }
+
+const linkKey = (title: string, s: Pick<ScheduleSlot, 'slot' | 'day' | 'session'>) =>
+  `${title.trim().replace(/\s+/g, ' ').toUpperCase()}|${s.slot}|${s.day}|${s.session}`;
 
 /** The published Course Dibba schedules, by term × course code. */
 async function loadSchedule(): Promise<Map<string, ScheduledCourse>> {
@@ -820,7 +833,7 @@ async function loadSchedule(): Promise<Map<string, ScheduledCourse>> {
       slotDay: true,
       slotSession: true,
       courseType: true,
-      course: { select: { bitsCourseNumber: true } },
+      course: { select: { bitsCourseNumber: true, title: true } },
       import: {
         select: {
           publishedAt: true,
@@ -839,14 +852,18 @@ async function loadSchedule(): Promise<Map<string, ScheduledCourse>> {
       term,
       code,
       title: e.courseTitle,
+      catalogueTitle: e.course?.title ?? null,
       programmes: new Set<string>(),
       at: e.import.publishedAt ?? e.import.createdAt,
       slots: [],
+      links: new Set<string>(),
     };
     c.programmes.add(e.programmeCode);
-    if (!c.slots.some((s) => s.slot === e.slotNo && s.type === e.courseType)) {
-      c.slots.push({ slot: e.slotNo, day: e.slotDay, session: e.slotSession, type: e.courseType });
-    }
+    const slot = { slot: e.slotNo, day: e.slotDay, session: e.slotSession, type: e.courseType };
+    if (!c.slots.some((s) => s.slot === e.slotNo && s.type === e.courseType)) c.slots.push(slot);
+    // Projects and dissertations share titles ("PROJECT") without being one class.
+    if (e.courseType !== DibbaCourseType.PROJECT && e.slotNo > 0)
+      c.links.add(linkKey(e.courseTitle, slot));
     courses.set(k, c);
   }
   return courses;
@@ -917,7 +934,7 @@ async function loadHmpItems(
       courseKey: c.bitsCourseNumber,
       courseCode: c.bitsCourseNumber,
       codes,
-      courseTitle: c.title,
+      courseTitle: displayCourseTitle(c.title),
       refNo: r.refNo,
       status: r.status,
       group: statusGroupOf(r.status, published),
@@ -955,7 +972,38 @@ async function loadHmpItems(
   });
 }
 
-/** Courses in a published Course Dibba with no HMP request in that semester (oversight only). */
+/**
+ * Cross-listed codes, grouped: codes with the same title in the same slot of one semester's Dibba
+ * are one class ("ET ZC232 / ENGG ZC232"). Catalogue codes lead, then alphabetical.
+ */
+export function crossListedGroups(schedule: Map<string, ScheduledCourse>): ScheduledCourse[][] {
+  const parent = new Map<string, string>([...schedule.keys()].map((k) => [k, k]));
+  const root = (k: string): string => {
+    while (parent.get(k) !== k) k = parent.get(k)!;
+    return k;
+  };
+  const owner = new Map<string, string>();
+  for (const [k, c] of schedule) {
+    for (const l of c.links) {
+      const o = owner.get(`${c.term}|${l}`);
+      if (o) parent.set(root(k), root(o));
+      else owner.set(`${c.term}|${l}`, k);
+    }
+  }
+  const groups = new Map<string, ScheduledCourse[]>();
+  for (const [k, c] of schedule) groups.set(root(k), [...(groups.get(root(k)) ?? []), c]);
+  return [...groups.values()].map((g) =>
+    g.sort(
+      (a, b) =>
+        Number(!a.catalogueTitle) - Number(!b.catalogueTitle) || a.code.localeCompare(b.code),
+    ),
+  );
+}
+
+/**
+ * Courses in a published Course Dibba with no HMP request in that semester (oversight only),
+ * one row per class: a request for any cross-listed code covers the group.
+ */
 export function notStartedItems(
   schedule: Map<string, ScheduledCourse>,
   hmp: LibraryItem[],
@@ -963,22 +1011,27 @@ export function notStartedItems(
 ): LibraryItem[] {
   const started = new Set(hmp.flatMap((it) => it.codes.map((c) => scheduleKey(it.termKey, c))));
   const out: LibraryItem[] = [];
-  for (const [k, c] of schedule) {
-    if (started.has(k)) continue;
+  for (const group of crossListedGroups(schedule)) {
+    if (group.some((g) => started.has(scheduleKey(g.term, g.code)))) continue;
+    const c = group[0]!;
+    const slots: ScheduleSlot[] = [];
+    for (const s of group.flatMap((g) => g.slots)) {
+      if (!slots.some((x) => x.slot === s.slot && x.type === s.type)) slots.push(s);
+    }
     out.push({
       kind: 'not-started',
       id: `${c.term}:${c.code}`,
       courseKey: c.code,
       courseCode: c.code,
-      codes: [c.code],
-      courseTitle: c.title,
+      codes: group.map((g) => g.code),
+      courseTitle: displayCourseTitle(c.title, group.find((g) => g.catalogueTitle)?.catalogueTitle),
       refNo: null,
       status: null,
       group: 'not-started',
       termKey: c.term,
       semesterName: names.get(c.term) ?? termLabel(c.term),
       programmeCode: null,
-      programmes: [...c.programmes].sort(),
+      programmes: [...new Set(group.flatMap((g) => [...g.programmes]))].sort(),
       discipline: disciplineOf(c.code),
       faculty: [],
       facultyIds: [],
@@ -986,6 +1039,7 @@ export function notStartedItems(
       smeId: null,
       allocatedBy: null,
       allocatedById: null,
+      // Only a sort key: nothing has happened yet, so the list shows “—” for Updated and Due.
       updatedAt: c.at,
       dueAt: null,
       publishedAt: null,
@@ -993,7 +1047,7 @@ export function notStartedItems(
       sentBack: 0,
       mine: false,
       reviewedByMe: false,
-      schedule: c.slots,
+      schedule: slots,
     });
   }
   return out;
@@ -1027,7 +1081,7 @@ async function loadPastItems(): Promise<LibraryItem[]> {
       courseKey: r.code ?? `past:${r.id}`,
       courseCode: r.code ?? '—',
       codes: [r.code ?? '—', ...(r.alt ?? [])],
-      courseTitle: r.title ?? 'Untitled handout',
+      courseTitle: r.title ? displayCourseTitle(r.title) : 'Untitled handout',
       refNo: null,
       status: null,
       group: null,
@@ -1224,19 +1278,19 @@ export async function loadLibrary(
   const visible = sortItems(applyPreds(byTab[f.tab], preds), f.sort, f.dir);
   const groups = groupByCourse(visible, f.sort, f.dir);
 
-  // Tabs: the list a tab link opens — same filters; the view only on its own tab.
+  // Tabs: the list a tab link opens — the search and filters, but never a quick view or a status
+  // pick, so a tab's number stays put while the person moves between views. (Not-started courses
+  // are hidden by default, so they count only inside their own quick view.)
   const tabs = TABS.map((t) => {
-    const v = view?.tab === t ? view : undefined;
     const state: LibraryFilter = {
       ...f,
       ...EMPTY_FILTERS,
       ...carriedFilters(f, t),
-      status: v ? f.status : '',
       tab: t,
-      view: v?.key ?? '',
+      view: '',
       page: 1,
     };
-    return { tab: t, count: courseCount(listFor(state, v)), href: libraryHref(state) };
+    return { tab: t, count: courseCount(listFor(state, undefined)), href: libraryHref(state) };
   });
 
   // Quick views: what each chip opens — same filters, its own semester and status.
@@ -1437,17 +1491,17 @@ export function filterChipLabel(
     case 'changed':
       return `Since last year: ${preset ?? value}`;
     case 'dueFrom':
-      return `Due from ${value}`;
+      return `Due from ${formatDate(value)}`;
     case 'dueTo':
-      return `Due by ${value}`;
+      return `Due by ${formatDate(value)}`;
     case 'updatedFrom':
-      return `Updated from ${value}`;
+      return `Updated from ${formatDate(value)}`;
     case 'updatedTo':
-      return `Updated by ${value}`;
+      return `Updated by ${formatDate(value)}`;
     case 'publishedFrom':
-      return `Published from ${value}`;
+      return `Published from ${formatDate(value)}`;
     case 'publishedTo':
-      return `Published by ${value}`;
+      return `Published by ${formatDate(value)}`;
     default:
       return fromFacet ?? value;
   }

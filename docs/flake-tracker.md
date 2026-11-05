@@ -130,6 +130,16 @@ Also seen on `feature/lms-sso` @ `5842951`, unrelated to sign-in: the `packages/
 
 ---
 
+## dashboard-counts — a handout with the subject expert shows in every list
+
+`apps/web/e2e/dashboard-counts.spec.ts:92` "a handout with the subject expert shows in every list that covers it". Failed once because the Sign in button was still animating ("element is not stable") when the test clicked it, passed on retry. A timing problem on the login page, not a wrong count; not fixed yet.
+
+| Branch / commit                       | Run      |  Result   | Notes                                                                          |
+| ------------------------------------- | -------- | :-------: | ------------------------------------------------------------------------------ |
+| `feature/handout-library` @ `b562f16` | ci-local | **flaky** | first observation; job green (77 passed, 1 flaky, 9 skipped; m9 + AI-on green) |
+
+---
+
 ## How to update
 
 After every CI run on a feature branch, add a row above with:

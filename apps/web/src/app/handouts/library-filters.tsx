@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { Facet, FilterKey, Tab } from '@/lib/handout-library';
+import { DateField } from '@/components/date-field';
 
 interface Props {
   userId: string;
@@ -208,24 +209,22 @@ export function LibraryFilters(p: Props) {
         <label htmlFor={`f-${from}`} className="text-muted-foreground mb-1 block text-xs">
           {label} from
         </label>
-        <input
+        <DateField
           id={`f-${from}`}
-          type="date"
-          className={fieldCls}
           value={v(from)}
-          onChange={(e) => go({ [from]: e.target.value })}
+          onChange={(iso) => go({ [from]: iso })}
+          data-testid={`filter-${from}`}
         />
       </div>
       <div>
         <label htmlFor={`f-${to}`} className="text-muted-foreground mb-1 block text-xs">
           to
         </label>
-        <input
+        <DateField
           id={`f-${to}`}
-          type="date"
-          className={fieldCls}
           value={v(to)}
-          onChange={(e) => go({ [to]: e.target.value })}
+          onChange={(iso) => go({ [to]: iso })}
+          data-testid={`filter-${to}`}
         />
       </div>
     </div>

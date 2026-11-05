@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Input, Label } from '@hmp/ui';
+import { DateField } from '@/components/date-field';
 import { updateTermAction } from './actions';
 
 interface Props {
@@ -74,17 +75,11 @@ export function EditTermForm({ term }: Props) {
       </div>
       <div>
         <Label htmlFor="edit-term-start">Start date</Label>
-        <Input
-          id="edit-term-start"
-          name="startDate"
-          type="date"
-          defaultValue={term.startDate}
-          required
-        />
+        <DateField id="edit-term-start" name="startDate" defaultValue={term.startDate} required />
       </div>
       <div>
         <Label htmlFor="edit-term-end">End date</Label>
-        <Input id="edit-term-end" name="endDate" type="date" defaultValue={term.endDate} required />
+        <DateField id="edit-term-end" name="endDate" defaultValue={term.endDate} required />
       </div>
       <div className="flex flex-wrap items-center gap-3 md:col-span-6">
         <Button type="submit" disabled={pending} data-testid="dibba-term-edit-submit">

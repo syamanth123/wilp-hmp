@@ -12,7 +12,7 @@ export function parseDateLocal(s: string): Date {
   return new Date(y!, (m ?? 1) - 1, d ?? 1);
 }
 
-/** The inverse, for `<input type="date" defaultValue>` (local calendar day). */
+/** The inverse, for a date field's `defaultValue` (local calendar day). */
 export function toDateInputValue(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');

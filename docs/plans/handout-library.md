@@ -181,7 +181,21 @@ Admin).
 **Quick views are per role, not per tab** (the brief's table), shown on every tab; each opens its own tab. The
 first is the role's landing view. A bare `/handouts` opens the last view (D3) or the default; a tab link without
 a view shows that tab for the current semester. Tab and chip counts are the course counts of exactly the list
-the link opens (same filters carried; status and semester come from the view).
+the link opens (same filters carried; for a chip, status and semester come from the view). **A tab's count and
+link never include a quick view or a status pick** (review, 5 Nov), so the number stays put while the person
+moves between views; not-started courses are hidden by default and so count only inside "Not started yet".
+
+**Cross-listed courses (review, 5 Nov):** in "Not started yet", Dibba codes with the same title in the same slot
+(slot × day × session) of one semester are one row ("ENGG ZC232 / ET ZC232 / PE ZC234"), counted once; projects
+and dissertations (course type PROJECT) are never merged. A request for any code in the group covers it. Catalogue
+codes lead, then alphabetical. On the demo Dibba this takes the IC's count from 630 to 404. Titles: the catalogue
+title when the code is in the catalogue, else the Dibba title in title case with acronyms kept
+(`lib/course-title.ts`). Not-started rows show "—" for Updated and Due, and IC/Admin get **Create request**
+(`/ic/requests/new?courses=…&term=…`, which pre-selects the matching course offering or says none is loaded).
+
+**Dates (review, 5 Nov):** every date box in the app is `components/date-field.tsx` — dd/mm/yyyy typed (also
+accepts "05 Nov 2026" and YYYY-MM-DD) plus a small calendar, independent of the browser locale; forms still
+receive YYYY-MM-DD. Date filter chips read "Due from 05 Nov 2026".
 
 **Status filter = the brief's plain groups:** Not started · Being allocated · Being written · With subject expert
 · With reviewer (PC/HOG) · Sent back for changes · Approved – not yet published · Published · Archived (+ Draft

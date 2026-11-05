@@ -27,7 +27,15 @@ be found, read, compared and downloaded in one place, **Handout Library** in eve
 - **Programme Committee:** can now download handouts under review.
 - **HOG / PC:** "Overdue" and "Changed a lot since last year" (worked out when you open it).
 - **Instruction Cell / Admin:** "Not started yet" — courses in the published Course Dibba with no
-  handout request yet; "Approved, not yet published"; **Export to Excel** of any filtered list.
+  handout request yet, cross-listed codes counted once ("ENGG ZC232 / ET ZC232"), each with a
+  **Create request** button that opens New request already filled in; "Approved, not yet
+  published"; **Export to Excel** of any filtered list.
+
+## Also in this release
+
+- **Dates are typed day first (dd/mm/yyyy)** in every date box — the library filters, Course Dibba
+  terms and exam dates, semester dates — whatever language the browser uses, with a calendar to
+  pick from. (A browser set to US English used to show mm/dd/yyyy.)
 
 ## What did not change
 

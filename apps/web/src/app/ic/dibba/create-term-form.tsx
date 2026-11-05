@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from 'react';
 import { Button, Input, Label } from '@hmp/ui';
+import { DateField } from '@/components/date-field';
 import { createTermAction } from './actions';
 
 /**
@@ -67,11 +68,11 @@ export function CreateTermForm() {
       </div>
       <div>
         <Label htmlFor="term-start">Start date</Label>
-        <Input id="term-start" name="startDate" type="date" required />
+        <DateField id="term-start" name="startDate" required />
       </div>
       <div>
         <Label htmlFor="term-end">End date</Label>
-        <Input id="term-end" name="endDate" type="date" required />
+        <DateField id="term-end" name="endDate" required />
       </div>
       <div className="flex flex-wrap items-center gap-3 md:col-span-6">
         <Button type="submit" disabled={pending} data-testid="dibba-create-term-submit">

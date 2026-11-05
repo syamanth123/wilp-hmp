@@ -30,10 +30,18 @@ when picked in the **Status** filter.
 | Admin    | This semester         | as IC, plus Past BITS handouts awaiting approval (opens Admin → Corpus imports)               |
 
 Every quick view and tab shows how many courses it holds; the number is always the length of the
-list it opens. "Needs my action" is the same rule as the cards on your dashboard.
+list it opens. A tab's number counts everything in that tab under your search and filters, so it
+stays the same while you move between quick views. "Needs my action" is the same rule as the cards
+on your dashboard.
 
 **Not started yet** lists the courses in the published Course Dibba schedule that have no handout
-request for that semester.
+request for that semester. Cross-listed codes — the same title taught in the same Dibba slot — are
+one row, shown as "ENGG ZC232 / ET ZC232 / PE ZC234", and count once; a request for any one of the
+codes takes the course off the list. Updated and Due show "—" (nothing has happened yet). IC and
+Admin get a **Create request** button on each row: it opens New request with the course and
+semester filled in, or says so when the course has no course offering loaded for that semester
+yet. Course titles typed in capitals in the Dibba are shown in title case ("IoT in
+Manufacturing"), or as the course catalogue has them.
 
 The page remembers the view you used last (in this browser). "Back to …" under the title returns to
 your default.
@@ -49,6 +57,9 @@ your default.
   Taxila, sent back for changes, changed vs last year.
 - Every option shows its count; options with nothing are greyed. Results change as you pick — there
   is no Apply button.
+- **Dates** are typed day first, **dd/mm/yyyy** (e.g. 05/11/2026), whatever language your browser
+  uses — or pick one from the calendar button. A typed date applies when you press Enter or leave
+  the box. The same date boxes are used on the Course Dibba and semester pages.
 - Active filters show as chips above the list; ✕ removes one, **Clear all** removes them all.
 - The address holds everything, so you can bookmark a view or send it to a colleague (they still
   only see what their own role allows).

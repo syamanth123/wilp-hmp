@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { prisma, type RoleName } from '@hmp/db';
+import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { Card, CardContent } from '@hmp/ui';
 import { Pill, StatusBadge } from '@/components/status-badge';
@@ -47,6 +47,14 @@ const itemHref = (it: LibraryItem) =>
     : it.kind === 'not-started'
       ? `/handouts/course/${encodeURIComponent(it.courseCode)}`
       : `/handouts/${it.id}`;
+
+/** Every code the course goes by: "MBA ZC417 / PDBA ZC417", "ET ZC232 / ENGG ZC232". */
+const codesText = (it: LibraryItem) =>
+  [...new Set(it.codes.filter((c) => c && c !== '—'))].join(' / ') || it.courseCode;
+
+/** The new-request page, filled in with this not-started course and its semester. */
+const createRequestHref = (it: LibraryItem) =>
+  `/ic/requests/new?${new URLSearchParams({ courses: it.codes.join(','), term: it.termKey ?? '' })}`;
 
 const DAY_SHORT: Record<string, string> = { SAT: 'Sat', SUN: 'Sun', FRI: 'Fri' };
 
@@ -128,6 +136,8 @@ export default async function HandoutLibraryPage({
   ]);
   const f = lib.filter;
   const oversight = seesAllWork(user);
+  const canCreateRequest =
+    user.roles.includes(RoleName.INSTRUCTION_CELL) || user.roles.includes(RoleName.ADMIN);
   const totalPages = Math.max(1, Math.ceil(lib.totalGroups / PAGE_SIZE));
   const here = (changes: Partial<LibraryFilter>) => libraryHref({ ...f, page: 1, ...changes });
   const query = libraryQuery({ ...f, page: 1 });
@@ -400,13 +410,24 @@ export default async function HandoutLibraryPage({
                               className="font-medium text-[var(--bits-navy)] hover:underline"
                               data-testid="library-row-link"
                             >
-                              {it.courseCode}
+                              {codesText(it)}
                             </Link>
                             <div className="text-muted-foreground">{it.courseTitle}</div>
                           </td>
                           <td className="px-4 py-3 align-top">
                             {it.kind === 'not-started' ? (
-                              <Pill tone="gray">Not started</Pill>
+                              <>
+                                <Pill tone="gray">Not started</Pill>
+                                {canCreateRequest && (
+                                  <Link
+                                    href={createRequestHref(it)}
+                                    className="bg-background hover:bg-accent ml-2 inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
+                                    data-testid="create-request"
+                                  >
+                                    Create request
+                                  </Link>
+                                )}
+                              </>
                             ) : it.status ? (
                               it.group === 'published' && it.status !== 'PUBLISHED' ? (
                                 <Pill tone="navy">{groupMeta('published').label}</Pill>
@@ -455,7 +476,7 @@ export default async function HandoutLibraryPage({
                             )}
                           </td>
                           <td className="text-muted-foreground whitespace-nowrap px-4 py-3 align-top">
-                            {formatDate(it.updatedAt)}
+                            {it.kind === 'not-started' ? '—' : formatDate(it.updatedAt)}
                           </td>
                         </tr>
                       ))}

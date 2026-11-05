@@ -235,6 +235,45 @@ test.describe('Handout Library', () => {
     await expect(page.getByTestId('filter-chip')).toHaveCount(2);
   });
 
+  test('tab counts stay put across quick views; not-started rows offer "Create request"', async ({
+    browser,
+  }) => {
+    const page = await as(browser, 'ic@hmp.local');
+    const tabCounts = async () =>
+      (await page.getByTestId('tab-count').allInnerTexts()).map((t) => t.trim());
+    await page.goto('/handouts?tab=in-progress&view=this-term');
+    const before = await tabCounts();
+    await page.goto('/handouts?tab=in-progress&view=not-started');
+    expect(await tabCounts()).toEqual(before);
+    await page.goto('/handouts?tab=in-progress&view=overdue');
+    expect(await tabCounts()).toEqual(before);
+
+    await page.goto('/handouts?tab=in-progress&view=not-started');
+    const row = page.locator('[data-testid="library-row"][data-kind="not-started"]').first();
+    if (!(await row.count())) return; // no published Course Dibba in this database
+    await expect(row.locator('td').last()).toHaveText('—');
+    await row.getByTestId('create-request').click();
+    await page.waitForURL(/\/ic\/requests\/new\?/);
+    await expect(page.getByTestId('prefill-note')).toBeVisible();
+  });
+
+  test('date filters take dd/mm/yyyy whatever the browser locale', async ({ browser }) => {
+    const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+    await signIn(page, 'ic@hmp.local');
+    await page.goto('/handouts?tab=in-progress&term=all');
+    await page.getByTestId('filter-section-dates').locator('summary').click();
+    const from = page.locator('#f-dueFrom');
+    await expect(from).toHaveAttribute('placeholder', 'dd/mm/yyyy');
+    await from.fill('05/11/2026');
+    await from.press('Enter');
+    await page.waitForURL(/dueFrom=2026-11-05/);
+    await expect(
+      page.getByTestId('filter-chip').filter({ hasText: 'Due from 05 Nov 2026' }),
+    ).toBeVisible();
+    await expect(page.locator('#f-dueFrom')).toHaveValue('05/11/2026');
+    await page.context().close();
+  });
+
   test('Excel export: oversight roles only', async ({ browser }) => {
     const ic = await as(browser, 'ic@hmp.local');
     const ok = await ic.request.get('/api/handouts/library/export?tab=published&term=all');
