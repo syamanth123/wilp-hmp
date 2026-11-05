@@ -16,7 +16,11 @@ vi.mock('@hmp/auth', async () => {
 vi.mock('next/cache', () => ({ revalidatePath: () => undefined }));
 
 import { setDibbaCodeAction, uploadDibbaCodesAction } from '../actions';
-import { loadDibbaProgrammeLinks, resolveDibbaProgramme } from '@/lib/dibba-programme-codes';
+import {
+  loadDibbaCodeRows,
+  loadDibbaProgrammeLinks,
+  resolveDibbaProgramme,
+} from '@/lib/dibba-programme-codes';
 
 const form = (o: Record<string, string>) => {
   const fd = new FormData();
@@ -124,6 +128,17 @@ describe.skipIf(!hasDb)('Admin → Dibba codes', () => {
   it('unlinked → nothing; exact code match works without a link', async () => {
     expect(await resolve('QX3')).toBeNull();
     expect(await resolve('QXEXACT')).toBe('QXEXACT');
+  });
+
+  it('unlinked codes get a suggestion by name; nothing is linked automatically', async () => {
+    const rows = await loadDibbaCodeRows();
+    const qx3 = rows.find((r) => r.code === 'QX3')!;
+    // "QX3 Test programme" → title "Test programme" looks like "QX test" (QX-PROG, active).
+    expect(qx3.suggestion?.code).toBe('QX-PROG');
+    expect(qx3.linkedProgrammeId).toBeNull();
+    expect(await resolve('QX3')).toBeNull();
+    // A code that already resolves (exact match) gets no suggestion.
+    expect(rows.find((r) => r.code === 'QXEXACT')!.suggestion).toBeNull();
   });
 
   it('links and unlinks one code, audit-logged', async () => {

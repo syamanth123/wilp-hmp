@@ -31,6 +31,8 @@ course to. Pick the programme in the row's dropdown (saved at once), or upload a
 `code,programme_code` (template on the page; one bad row saves nothing and the rows to fix are
 listed). A Dibba code that equals an HMP programme code — or one part of it, e.g. 18ET in 18BT/18ET —
 works without a link. Inactive programmes can't be linked. Every change is in the audit log.
+Unlinked rows show **Looks like … — Link to …** when an HMP programme has a similar name (same degree
+and a shared subject word); it is only a suggestion — nothing is linked until you click it.
 
 ## CSV import (`/admin/import`)
 

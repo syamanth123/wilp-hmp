@@ -72,6 +72,9 @@ page works through them one at a time:
   press the button again. Nothing is published twice.
 - **Try the N problem courses again** after fixing them (e.g. creating a missing folder).
 - **Download as Excel**: one row per course with its result and reason.
+- When the last course is done the page says **Finished: 2 published, 1 needs attention** (for
+  example), and the person who started the run gets the same summary in HMP and by email.
+- With no Taxila settings on the server, none of this appears: the IC keeps the ZIP export.
 
 ## Importing academic data (`/admin/import`)
 

@@ -344,10 +344,26 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       // Publish one course, then "close the tab"; a second tab carries on.
       await processNextItem(runId, 'publish', actor, client(), cfg);
       expect((await loadRun(runId))!.rows[0]!.status).toBe('PUBLISHED');
-      while (!(await processNextItem(runId, 'publish', actor, client(), cfg)).done);
+      // The last course and "finished" come in the same answer — the page settles at once.
+      const last = await processNextItem(runId, 'publish', actor, client(), cfg);
+      expect(last.done).toBe(true);
+      expect(last.itemId).toBeTruthy();
       rows = (await loadRun(runId))!.rows;
       expect(rows.map((r) => r.status)).toEqual(['PUBLISHED', 'FOLDER_MISSING', 'PUBLISHED']);
       expect((await loadRun(runId))!.status).toBe('DONE');
+      // The IC who started it gets one summary (in HMP and by email).
+      const summaries = () =>
+        prisma.notification.findMany({
+          where: { userId: actor.id, link: `/ic/taxila-runs/${runId}` },
+          select: { channel: true, subject: true },
+        });
+      expect((await summaries()).map((n) => n.channel).sort()).toEqual(['EMAIL', 'IN_PORTAL']);
+      expect((await summaries())[0]!.subject).toBe(
+        'Bulk publish to Taxila finished: 2 published, 1 needs attention',
+      );
+      // Asking again changes nothing and sends nothing more.
+      expect((await processNextItem(runId, 'publish', actor, client(), cfg)).done).toBe(true);
+      expect(await summaries()).toHaveLength(2);
       expect(fake.courses.find((x) => x.id === 7011)!.folder!.files).toHaveLength(1);
       expect(fake.courses.find((x) => x.id === 7013)!.folder!.files).toHaveLength(1);
       expect(
@@ -366,6 +382,7 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       while (!(await processNextItem(runId, 'publish', actor, client(), cfg)).done);
       rows = (await loadRun(runId))!.rows;
       expect(rows.map((r) => r.status)).toEqual(['PUBLISHED', 'PUBLISHED', 'PUBLISHED']);
+      expect(await summaries()).toHaveLength(4); // a second finish, a second summary
       for (const id of [7011, 7012, 7013])
         expect(fake.courses.find((x) => x.id === id)!.folder!.files).toHaveLength(1);
     });

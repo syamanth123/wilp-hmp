@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@hmp/ui';
 import type { CsvResult } from '@/lib/dibba-programme-codes';
 import { setDibbaCodeAction, uploadDibbaCodesAction } from './actions';
@@ -69,6 +70,43 @@ export function CodeLinkSelect({
         </span>
       )}
     </div>
+  );
+}
+
+/** "Link to MTECH-SE" — one click, only when Admin presses it. */
+export function SuggestLink({ code, programme }: { code: string; programme: ProgrammeOption }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  return (
+    <p
+      className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2 text-xs"
+      data-testid="dibba-code-suggestion"
+    >
+      <span>
+        Looks like <strong>{programme.code}</strong> — {programme.name}
+      </span>
+      <button
+        type="button"
+        className="hover:bg-accent rounded border px-2 py-0.5 font-medium text-[var(--bits-navy)]"
+        disabled={pending}
+        onClick={() => {
+          setError(null);
+          const fd = new FormData();
+          fd.set('code', code);
+          fd.set('programmeId', programme.id);
+          startTransition(async () => {
+            const r = await setDibbaCodeAction(fd);
+            if (r.ok) router.refresh();
+            else setError(r.error);
+          });
+        }}
+        data-testid="dibba-code-suggestion-link"
+      >
+        {pending ? 'Linking…' : `Link to ${programme.code}`}
+      </button>
+      {error && <span className="text-destructive">{error}</span>}
+    </p>
   );
 }
 

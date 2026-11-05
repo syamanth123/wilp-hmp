@@ -30,7 +30,7 @@ export default async function TaxilaRunPage({ params }: { params: { id: string }
       </CardHeader>
       <CardContent>
         {cfg ? (
-          <RunConsole runId={run.id} initialRows={run.rows} />
+          <RunConsole runId={run.id} initialRows={run.rows} initialStatus={run.status} />
         ) : (
           <p className="text-sm">Publishing to Taxila isn’t set up on this server.</p>
         )}

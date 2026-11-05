@@ -1,7 +1,7 @@
 import { prisma } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { loadDibbaCodeRows } from '@/lib/dibba-programme-codes';
-import { CodeCsvUpload, CodeLinkSelect } from './forms';
+import { CodeCsvUpload, CodeLinkSelect, SuggestLink } from './forms';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +89,7 @@ export default async function DibbaCodesPage() {
                           linkedProgrammeId={r.linkedProgrammeId}
                           programmes={programmes}
                         />
+                        {r.suggestion && <SuggestLink code={r.code} programme={r.suggestion} />}
                         {!r.linkedProgrammeId && r.resolved.programme && (
                           <p className="text-muted-foreground mt-1 text-xs">
                             Matches {r.resolved.programme.code} by its code.

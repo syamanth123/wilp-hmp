@@ -174,6 +174,14 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
       await prisma.auditLog.deleteMany({ where: { OR: [{ requestId: id }, { entityId: id }] } });
     }
     await cleanupTestHandouts();
+    // A finished bulk run tells the IC who started it; remove those notes with the runs.
+    const runs = await prisma.taxilaPublishRun.findMany({
+      where: { createdAt: { gte: started } },
+      select: { id: true },
+    });
+    await prisma.notification.deleteMany({
+      where: { link: { in: runs.map((r) => `/ic/taxila-runs/${r.id}`) } },
+    });
     await prisma.taxilaPublishRun.deleteMany({ where: { createdAt: { gte: started } } });
   });
 
@@ -269,6 +277,15 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
     await expect(page.getByTestId('run-progress')).toContainText('3 of 3 done', {
       timeout: 120_000,
     });
+    // The run settles: a finished line, the buttons back to normal, the retry offered.
+    await expect(page.getByTestId('run-finished')).toContainText(
+      'Finished: 2 published, 1 needs attention',
+    );
+    await expect(page.getByTestId('run-progress')).not.toContainText('working');
+    // Nothing left to check or publish, so those buttons go; retry and Excel stay.
+    await expect(page.getByTestId('run-publish-all')).toHaveCount(0);
+    await expect(page.getByTestId('run-check-all')).toHaveCount(0);
+    await expect(page.getByTestId('run-retry')).toHaveText('Try the 1 problem course again');
     await expect(page.locator('[data-testid="run-row"][data-status="PUBLISHED"]')).toHaveCount(2);
     await expect(page.locator('[data-testid="run-row"][data-status="NOT_FOUND"]')).toContainText(
       'not found in Taxila',

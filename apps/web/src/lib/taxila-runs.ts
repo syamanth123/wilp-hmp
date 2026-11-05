@@ -1,4 +1,6 @@
-import { prisma, HandoutStatus, type RoleName } from '@hmp/db';
+import { prisma, HandoutStatus, NotificationChannel, RoleName } from '@hmp/db';
+import { deliver } from './notifications';
+import { PROBLEM_STATUSES, finishedLine, summariseRun } from './taxila-run-summary';
 import {
   TaxilaError,
   type TaxilaClient,
@@ -109,9 +111,35 @@ export interface StepResult {
 
 /**
  * Works on the next item of the run: 'check' finds the course and folder (no upload); 'publish'
- * publishes it. Returns done when nothing is left for this mode.
+ * publishes it. Returns done as soon as nothing is left for this mode — in the same answer as the
+ * last course, so the page settles at once. When a publish pass finishes, the run is marked DONE and
+ * the IC who started it gets a short summary (once per finish).
  */
 export async function processNextItem(
+  runId: string,
+  mode: 'check' | 'publish',
+  actor: { id: string; name: string; roles: RoleName[] },
+  client: TaxilaClient,
+  cfg: TaxilaConfig,
+): Promise<StepResult> {
+  const r = await processOneItem(runId, mode, actor, client, cfg);
+  if (!r.done && !r.itemId) return r; // another tab took the item; ask again
+  const left = await prisma.taxilaPublishItem.count({
+    where: { runId, status: { in: [...(mode === 'check' ? TO_CHECK : TO_PUBLISH), 'WORKING'] } },
+  });
+  if (left > 0) return r;
+  if (mode === 'publish') {
+    // Only the request that flips the run to DONE sends the summary.
+    const flipped = await prisma.taxilaPublishRun.updateMany({
+      where: { id: runId, status: { not: 'DONE' } },
+      data: { status: 'DONE', finishedAt: new Date() },
+    });
+    if (flipped.count === 1) await notifyRunFinished(runId);
+  }
+  return { ...r, done: true };
+}
+
+async function processOneItem(
   runId: string,
   mode: 'check' | 'publish',
   actor: { id: string; name: string; roles: RoleName[] },
@@ -131,14 +159,7 @@ export async function processNextItem(
     where: { runId, status: { in: wanted } },
     orderBy: { position: 'asc' },
   });
-  if (!next) {
-    if (mode === 'publish' && run.status !== 'DONE')
-      await prisma.taxilaPublishRun.update({
-        where: { id: runId },
-        data: { status: 'DONE', finishedAt: new Date() },
-      });
-    return { done: true };
-  }
+  if (!next) return { done: true };
   // Claim it — a second tab on the same run can't take the same item.
   const claimed = await prisma.taxilaPublishItem.updateMany({
     where: { id: next.id, status: next.status },
@@ -218,6 +239,40 @@ export async function processNextItem(
     });
     return { done: false, itemId: next.id };
   }
+}
+
+/** The IC who started the run hears how it ended (in HMP and by email). */
+async function notifyRunFinished(runId: string): Promise<void> {
+  const run = await loadRun(runId);
+  const creator = await prisma.taxilaPublishRun.findUnique({
+    where: { id: runId },
+    select: { createdBy: { select: { id: true, email: true } } },
+  });
+  if (!run || !creator) return;
+  const sum = summariseRun(run.rows);
+  const problems = run.rows.filter((r) => PROBLEM_STATUSES.includes(r.status));
+  const body = [
+    `Bulk publish to Taxila (${run.semesterCode}) has finished: ${finishedLine(sum)}.`,
+    ...problems
+      .slice(0, 10)
+      .map(
+        (p) => `${p.codes.join(' / ')} (${p.refNo}) — ${ITEM_LABEL[p.status]}: ${p.message ?? ''}`,
+      ),
+    problems.length > 10 ? `…and ${problems.length - 10} more (see the run page).` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  await deliver({
+    userId: creator.createdBy.id,
+    email: creator.createdBy.email,
+    role: RoleName.INSTRUCTION_CELL,
+    subject: `Bulk publish to Taxila finished: ${finishedLine(sum)}`,
+    body,
+    link: `/ic/taxila-runs/${runId}`,
+    channels: [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL],
+    metaKind: 'taxila_run_finished',
+    extraMeta: { runId },
+  });
 }
 
 /** "Try these again": problem items go back to waiting (published ones never do). */

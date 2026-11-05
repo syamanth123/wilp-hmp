@@ -53,16 +53,22 @@ export interface DibbaCodeRow {
   linkedProgrammeId: string | null;
   /** How it resolves today: through the link, by matching an HMP code, or not at all. */
   resolved: ResolvedProgramme;
+  /** Unlinked codes only: an HMP programme with a similar name (Admin decides). */
+  suggestion: { id: string; code: string; name: string } | null;
 }
 
 /** Every programme code in the published Course Dibbas, for the Admin page. */
 export async function loadDibbaCodeRows(): Promise<DibbaCodeRow[]> {
-  const [entries, links] = await Promise.all([
+  const [entries, links, named] = await Promise.all([
     prisma.dibbaEntry.findMany({
       where: { import: { status: 'PUBLISHED' } },
       select: { programmeCode: true, programmeTitle: true, courseCode: true },
     }),
     loadDibbaProgrammeLinks(),
+    prisma.programme.findMany({
+      where: { active: true },
+      select: { id: true, code: true, name: true },
+    }),
   ]);
   const by = new Map<string, { title: string; courses: Set<string> }>();
   for (const e of entries) {
@@ -71,13 +77,18 @@ export async function loadDibbaCodeRows(): Promise<DibbaCodeRow[]> {
     by.set(e.programmeCode, r);
   }
   return [...by]
-    .map(([code, r]) => ({
-      code,
-      title: plainTitle(code, r.title),
-      courses: r.courses.size,
-      linkedProgrammeId: links.mappings.get(code)?.id ?? null,
-      resolved: resolveDibbaProgramme(code, links),
-    }))
+    .map(([code, r]) => {
+      const title = plainTitle(code, r.title);
+      const resolved = resolveDibbaProgramme(code, links);
+      return {
+        code,
+        title,
+        courses: r.courses.size,
+        linkedProgrammeId: links.mappings.get(code)?.id ?? null,
+        resolved,
+        suggestion: resolved.programme ? null : (suggestProgramme(title, named)?.programme ?? null),
+      };
+    })
     .sort((a, b) => a.code.localeCompare(b.code));
 }
 
@@ -210,4 +221,71 @@ export async function applyDibbaCodeCsv(actorId: string, csv: string): Promise<C
   if (errors.length) return { ok: false, errors };
   const changed = await writeMappings(actorId, changes, { source: 'csv' });
   return { ok: true, changed, rows: changes.length };
+}
+
+// ── Suggestions by name (Admin still decides; nothing is linked automatically) ─────────────────
+
+const DEGREES: [RegExp, string][] = [
+  [/\bm\.?\s*tech\b\.?/g, ' mtech '],
+  [/\bb\.?\s*tech\b\.?/g, ' btech '],
+  [/\bm\.?\s*sc\b\.?/g, ' msc '],
+  [/\bb\.?\s*sc\b\.?/g, ' bsc '],
+  [/\bm\.?\s*e\b\.(?=\s)/g, ' me '],
+  [/\bpg\s*diploma\b/g, ' pgdiploma '],
+  [/\bm\.?\s*b\.?\s*a\b\.?/g, ' mba '],
+];
+const DEGREE_WORDS = new Set(['mtech', 'btech', 'msc', 'bsc', 'me', 'pgdiploma', 'mba']);
+/** Words that say nothing about the subject ("No Admission from last 3 semesters", "Backlog only"…). */
+const NOISE = new Set(
+  'and of in the for with wilp programme program new revised structure backlog only no batch admission from last semesters semester'.split(
+    ' ',
+  ),
+);
+
+/** Subject words too common to show two programmes are related on their own. */
+const GENERIC = new Set(
+  'engineering management technology technologies systems system science sciences studies design operations'.split(
+    ' ',
+  ),
+);
+
+function nameParts(name: string): { degree: string | null; words: Set<string> } {
+  let t = ` ${name.toLowerCase()} `;
+  for (const [re, w] of DEGREES) t = t.replace(re, w);
+  const tokens = t
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter(Boolean);
+  const degree = tokens.find((w) => DEGREE_WORDS.has(w)) ?? null;
+  const words = new Set(
+    tokens.filter((w) => !DEGREE_WORDS.has(w) && !NOISE.has(w) && !/^\d+$/.test(w)),
+  );
+  return { degree, words };
+}
+
+/**
+ * The HMP programme whose name looks most like a Dibba programme title — same degree (M.Tech, MBA…)
+ * and at least half the subject words in common (Dice ≥ 0.5), one of them specific (not just
+ * "engineering" or "management"). Null when nothing is close enough.
+ */
+export function suggestProgramme<P extends { code: string; name: string }>(
+  dibbaTitle: string,
+  programmes: P[],
+): { programme: P; score: number } | null {
+  const a = nameParts(dibbaTitle);
+  let best: { programme: P; score: number } | null = null;
+  for (const p of programmes) {
+    const b = nameParts(p.name);
+    if (a.degree && b.degree && a.degree !== b.degree) continue;
+    if (!a.words.size || !b.words.size) continue;
+    const common = [...a.words].filter((w) => b.words.has(w));
+    // At least one shared word must be specific ("software", "data") — not just "engineering" —
+    // unless the subjects are exactly the same ("Engineering Technology" = "Engineering Technology").
+    const identical = common.length === a.words.size && common.length === b.words.size;
+    if (!identical && !common.some((w) => !GENERIC.has(w))) continue;
+    const shared = common.length;
+    const score = (2 * shared) / (a.words.size + b.words.size);
+    if (score >= 0.5 && (!best || score > best.score)) best = { programme: p, score };
+  }
+  return best;
 }

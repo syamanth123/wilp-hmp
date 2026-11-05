@@ -237,3 +237,15 @@ untested until IT answers §C.
 - **CI:** new step "e2e (Taxila on)" (ci.yml + ci-local) installs `libreoffice-writer-nogui`, sets
   `TAXILA_URL=http://127.0.0.1:4599/webservice/` and a fake token, and runs `taxila-publish.spec.ts`;
   the spec starts the fake Taxila itself. The main e2e run (no Taxila settings) skips it.
+
+### Review of PR #49 (5 Nov) — done
+
+1. **A bulk run settles when it finishes:** the server answers "done" together with the last course;
+   the page shows "Finished: 2 published, 1 needs attention", hides Check all / Publish all, offers
+   "Try the N problem courses again"; the IC who started it gets the summary in HMP and by email (once
+   per finish — only the request that marks the run DONE sends it). e2e asserts the finished state.
+2. **Programme-code suggestions:** unlinked Dibba codes show "Looks like MTECH-SE — Link to MTECH-SE"
+   when an active HMP programme has the same degree and a similar subject (Dice ≥ 0.5 on subject words,
+   at least one specific shared word unless the subjects are identical). Never linked automatically.
+3. **No TAXILA_TOKEN → no Taxila anywhere:** unit test (every action refuses, no network call) and an
+   e2e in the main run (no panel, no bulk bar, the ZIP export offered).
