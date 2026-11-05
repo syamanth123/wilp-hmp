@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Button, Input, Label } from '@hmp/ui';
+import { Button, Label } from '@hmp/ui';
 import { updateSemesterDatesAction } from '../actions';
 import { formatTime } from '@/lib/format-date';
+import { DateField } from '@/components/date-field';
 
 interface Props {
   semesterId: string;
@@ -37,16 +38,11 @@ export function SemesterDatesForm({ semesterId, examDate, ec1Deadline }: Props) 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label htmlFor="examDate">Exam date</Label>
-          <Input id="examDate" type="date" value={exam} onChange={(e) => setExam(e.target.value)} />
+          <DateField id="examDate" value={exam} onChange={setExam} />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="ec1Deadline">EC1 deadline</Label>
-          <Input
-            id="ec1Deadline"
-            type="date"
-            value={ec1}
-            onChange={(e) => setEc1(e.target.value)}
-          />
+          <DateField id="ec1Deadline" value={ec1} onChange={setEc1} />
         </div>
       </div>
       {error && <p className="text-destructive text-sm">{error}</p>}

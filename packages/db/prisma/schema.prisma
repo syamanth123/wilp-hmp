@@ -60,6 +60,8 @@ model User {
   // Course Dibba (Phase 1): term-wide schedule imports + instructor rows.
   dibbaImportsUploaded      DibbaImport[]      @relation("DibbaUploader")
   courseInstructorRows      CourseInstructor[] @relation("CourseInstructorUser")
+  // Handout Library (v1.2.0): this person's named library views.
+  savedViews                SavedView[]
 
   @@index([email])
 }
@@ -857,4 +859,24 @@ model CourseInstructor {
 
   @@unique([termId, courseCode, userId])
   @@index([userId, termId])
+}
+
+// =====================================================================
+// Handout Library (v1.2.0) — saved views
+// =====================================================================
+// A named library address ("MBA overdue") for one person. `query` is the
+// library's own query string, re-validated on every use (parseLibraryFilter),
+// so an old or hand-edited row can never widen what the person sees.
+// Additive: a new table only; User gains a back-relation (no SQL).
+model SavedView {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  query     String
+  createdAt DateTime @default(now())
+  // Cascade: a saved view means nothing without its owner.
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
 }

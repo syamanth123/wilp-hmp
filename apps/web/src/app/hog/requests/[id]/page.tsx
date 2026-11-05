@@ -12,7 +12,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { DownloadMenu } from '@/components/download-menu';
-import { PRIVILEGED_STATUSES } from '@/lib/export/access';
+import { PUBLISHED_DOWNLOAD_STATUSES } from '@/lib/export/access';
 import { StatusTimeline } from '@/components/status-timeline';
 import { ApprovalsList } from '@/components/approvals-list';
 import { FacultyAssignmentsList } from '@/components/faculty-assignments-list';
@@ -124,7 +124,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={request.status} />
-            {PRIVILEGED_STATUSES.includes(request.status) && (
+            {PUBLISHED_DOWNLOAD_STATUSES.includes(request.status) && (
               <DownloadMenu requestId={request.id} />
             )}
           </div>

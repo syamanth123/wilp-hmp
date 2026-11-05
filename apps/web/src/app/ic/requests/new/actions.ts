@@ -9,6 +9,7 @@ import { transition } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { createRequestWithRefNo, RefNoRetryExhausted } from './ref-no';
 import { formError } from '@/lib/form-error';
+import { setUpOfferingFromDibba } from '@/lib/dibba-offering';
 
 const schema = z.object({
   courseOfferingId: z.string().cuid(),
@@ -79,4 +80,50 @@ export async function createRequestAction(formData: FormData) {
 
   revalidatePath('/ic/requests');
   redirect(`/ic/requests/${created.id}`);
+}
+
+const setUpSchema = z.object({
+  courses: z
+    .string()
+    .min(1)
+    .max(200)
+    .transform((s) =>
+      s
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean),
+    ),
+  term: z.string().regex(/^\d{4}-(FIRST|SECOND|SUMMER)$/),
+  semesterId: z.string().cuid(),
+});
+
+/**
+ * "Create request" from a not-started Course Dibba row with no course offering yet: adds the
+ * course (if needed) and the offering in the programme's existing semester, then reopens New
+ * request filled in. IC / Admin only; create-only; audit-logged (lib/dibba-offering.ts).
+ */
+export async function setUpOfferingAction(formData: FormData) {
+  const actor = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
+  const parsed = setUpSchema.safeParse({
+    courses: formData.get('courses'),
+    term: formData.get('term'),
+    semesterId: formData.get('semesterId'),
+  });
+  if (!parsed.success) return { error: 'Pick a programme, then confirm.' };
+  const [year, term] = parsed.data.term.split('-');
+  const r = await setUpOfferingFromDibba(actor.id, {
+    codes: parsed.data.courses,
+    year: Number(year),
+    term: term!,
+    semesterId: parsed.data.semesterId,
+  });
+  if (!r.ok) return { error: r.error };
+  revalidatePath('/handouts');
+  const q = new URLSearchParams({
+    courses: parsed.data.courses.join(','),
+    term: parsed.data.term,
+    offering: r.offeringId,
+    added: r.createdOffering ? '1' : '0',
+  });
+  redirect(`/ic/requests/new?${q}`);
 }

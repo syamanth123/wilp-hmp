@@ -66,3 +66,8 @@ Click the bell in the top bar:
 - Full paginated list at `/notifications`.
 
 Every workflow transition also sends an email (Mailhog locally at `http://localhost:8025`).
+
+## Handout Library (`/handouts`)
+
+Find, read, compare and download handouts — published, in progress and past BITS handouts — from
+**Handout Library** in the menu. See [handout-library.md](handout-library.md).

@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Input } from '@hmp/ui';
+import { DateField } from '@/components/date-field';
 import { saveExamDatesAction } from './actions';
 
 export interface ExamCell {
@@ -97,12 +98,11 @@ export function ExamDatesForm({ termId, slots }: { termId: string; slots: ExamSl
                   return (
                     <>
                       <td key={`${base}-date`} className="py-2 pr-3">
-                        <Input
+                        <DateField
                           id={`${idBase}-date`}
                           name={`${base}-date`}
-                          type="date"
                           defaultValue={cell.date}
-                          className="h-8 w-40"
+                          className="w-44"
                           aria-label={`Slot ${s.slotNo} ${k.label} date`}
                         />
                       </td>

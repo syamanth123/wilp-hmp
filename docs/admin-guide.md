@@ -66,3 +66,12 @@ The portal reads its config from `.env` (see `.env.example`). Key vars:
 - `CRON_SECRET` — required for `/api/cron/reminders`
 - `AI_PROVIDER` (`openai` | `anthropic`) + `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Empty keys → heuristic-only fallback.
 - `S3_ENDPOINT`/`S3_BUCKET`/`S3_ACCESS_KEY`/`S3_SECRET_KEY` — MinIO locally.
+
+## Handout Library (`/handouts`, v1.2.0)
+
+Every role has **Handout Library** in its menu — see
+[user-manuals/handout-library.md](user-manuals/handout-library.md). Admin-specific: the quick view
+"Past BITS handouts awaiting approval" opens Admin → Corpus imports (only approved imports appear
+in the library); every download (`handout.export`, `handout.past_export`) and Excel export
+(`library.export`) is in the audit log. Saved views live in the `SavedView` table (one row per
+person and name).

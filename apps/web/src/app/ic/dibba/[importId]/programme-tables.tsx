@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { DibbaEntry } from '@hmp/db';
 import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@hmp/ui';
 import { slotLabel } from '../format';
@@ -101,9 +102,14 @@ export function ProgrammeTables({
                         {slotLabel(r.slotNo, r.slotDay, r.slotSession)}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs">
-                        <span className="font-mono" title={r.rawCell}>
+                        <Link
+                          href={`/handouts/course/${encodeURIComponent(r.courseCode)}`}
+                          className="font-mono text-[var(--bits-navy)] hover:underline"
+                          title={`${r.rawCell} — open the course history`}
+                          data-testid="dibba-course-history"
+                        >
                           {r.courseCode}
-                        </span>
+                        </Link>
                         {!linked.has(r.courseCode) && (
                           <Badge variant="outline" className="ml-1 font-normal">
                             not in catalogue

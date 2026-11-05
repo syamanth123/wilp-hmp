@@ -150,6 +150,13 @@ const NAV: NavItem[] = [
     icon: <EditIcon />,
   },
   { href: '/sme', label: 'SME', roles: [RoleName.SME, RoleName.ADMIN], icon: <AdvisorIcon /> },
+  // Every role: what each person sees inside is limited by lib/handout-access.ts.
+  {
+    href: '/handouts',
+    label: 'Handout Library',
+    roles: Object.values(RoleName),
+    icon: <BookIcon />,
+  },
 ];
 
 function initials(name: string) {
@@ -177,7 +184,7 @@ export async function AppShell({
   area,
   children,
 }: {
-  area: '/admin' | '/ic' | '/hog' | '/pc' | '/faculty' | '/sme';
+  area: '/admin' | '/ic' | '/hog' | '/pc' | '/faculty' | '/sme' | '/handouts';
   children: React.ReactNode;
 }) {
   const user = await getSessionUser();

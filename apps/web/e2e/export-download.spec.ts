@@ -154,12 +154,15 @@ test.describe('Word/PDF export download', () => {
     expect(body.subarray(0, 2).toString('latin1')).toBe('PK');
   });
 
-  test('PC sees NO download menu and is forbidden via the route', async ({ page }) => {
+  // Handout Library decision D1: anything in the Published tab (approved / published / archived)
+  // may be downloaded by everyone who can see it — PC included (it was 403 before v1.2.0). The
+  // in-progress refusals (another faculty member's or SME's draft) are in handout-library.spec.ts.
+  test('PC may download an approved handout (D1), from the library viewer', async ({ page }) => {
     await signIn(page, 'pc@hmp.local');
-    await page.goto(`/pc/requests/${requestId}`);
-    await expect(page.getByTestId('download-menu')).toHaveCount(0);
+    await page.goto(`/handouts/${requestId}`);
+    await expect(page.getByTestId('download-menu')).toBeVisible();
     const res = await page.request.get(`/api/handouts/${requestId}/export/docx`);
-    expect(res.status()).toBe(403);
+    expect(res.status()).toBe(200);
   });
 
   test('PDF export: 200 (LibreOffice present) or 503 (missing) — never 500', async ({ page }) => {

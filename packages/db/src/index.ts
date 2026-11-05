@@ -26,7 +26,12 @@ export {
   type BitsHandoutV1,
   type BitsHandout,
 } from './handout-schema';
-export { normalizeBitsCourseNumber, bitsCourseNumberSchema, getDiscipline } from './course-code';
+export {
+  normalizeBitsCourseNumber,
+  normalizeDibbaCourseCode,
+  bitsCourseNumberSchema,
+  getDiscipline,
+} from './course-code';
 export { renderBitsHandout, BITS_HANDOUT_CSS, type RenderOptions } from './handout-renderer';
 export { resolveHandoutHtml } from './handout-display';
 export {

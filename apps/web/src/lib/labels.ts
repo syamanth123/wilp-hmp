@@ -118,6 +118,8 @@ const ACTION_SENTENCE: Record<string, string> = {
   'handout.autofetch.reset_to_empty': 'Restarted from a blank handout',
   'handout.manually_confirmed': 'Confirmed it was published on Taxila',
   'handout.export': 'Downloaded the handout',
+  'handout.past_export': 'Downloaded a past BITS handout',
+  'library.export': 'Exported a Handout Library list to Excel',
   'handout.exported': 'Prepared the Taxila file',
   'comment.added': 'Added a comment',
   'attachment.uploaded': 'Uploaded an attachment',
@@ -126,6 +128,8 @@ const ACTION_SENTENCE: Record<string, string> = {
   'semester.dates.updated': 'Updated semester dates',
   'programme.create': 'Added a programme',
   'course.create': 'Added a course',
+  'course.create_from_dibba': 'Added a course from the Course Dibba',
+  'offering.create_from_dibba': 'Added a course offering from the Course Dibba',
   'user.create': 'Added a user',
   'workflow.update': 'Changed the time limits',
   'corpus.import.run': 'Imported past handouts',
@@ -180,6 +184,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   User: 'User',
   Programme: 'Programme',
   Course: 'Course',
+  CourseOffering: 'Course offering',
   Semester: 'Semester',
   WorkflowConfig: 'Time limits',
   DibbaImport: 'Course Dibba',
@@ -195,6 +200,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   RateLimit: 'Sign-in protection',
   Auth: 'Sign-in',
   Reconciliation: 'Taxila check',
+  HandoutLibrary: 'Handout Library',
 };
 export const entityLabel = (e: string | null | undefined) => pick(ENTITY_LABEL, e);
 

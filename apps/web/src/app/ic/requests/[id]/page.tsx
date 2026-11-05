@@ -4,7 +4,7 @@ import { getPresignedDownloadUrl } from '@hmp/integrations';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { DownloadMenu } from '@/components/download-menu';
-import { PRIVILEGED_STATUSES } from '@/lib/export/access';
+import { PUBLISHED_DOWNLOAD_STATUSES } from '@/lib/export/access';
 import { StatusTimeline } from '@/components/status-timeline';
 
 // Workflow detail pages MUST be force-dynamic. Without it, Next.js production
@@ -81,7 +81,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={request.status} />
-            {PRIVILEGED_STATUSES.includes(request.status) && (
+            {PUBLISHED_DOWNLOAD_STATUSES.includes(request.status) && (
               <DownloadMenu requestId={request.id} />
             )}
           </div>

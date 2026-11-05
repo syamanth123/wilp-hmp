@@ -281,45 +281,68 @@ function importantNotes(
   return out;
 }
 
-function buildHeader(m: BitsHandoutV1['metadata'], logo: Buffer, watermark?: Buffer): Header {
+/** Marks a download that isn't from the Published tab (Handout Library decision D1). */
+export interface DraftMark {
+  /** Shown as a red line at the top of every page ("DRAFT – not for circulation"). */
+  text: string;
+  /** Optional pre-faded diagonal PNG placed behind the text on every page (PDF downloads). */
+  diagonal?: Buffer;
+}
+
+// A floating image anchored to the PAGE centre and placed BEHIND the text.
+// Declared in the header, so it repeats on every page. Assets are pre-faded
+// (docx has no image-opacity), so no extra transparency handling is needed.
+function behindTextAtPageCentre(data: Buffer, width: number, height: number): ImageRun {
+  return new ImageRun({
+    type: 'png',
+    data,
+    transformation: { width, height },
+    floating: {
+      horizontalPosition: {
+        relative: HorizontalPositionRelativeFrom.PAGE,
+        align: HorizontalPositionAlign.CENTER,
+      },
+      verticalPosition: {
+        relative: VerticalPositionRelativeFrom.PAGE,
+        align: VerticalPositionAlign.CENTER,
+      },
+      behindDocument: true,
+      allowOverlap: true,
+    },
+  });
+}
+
+function buildHeader(
+  m: BitsHandoutV1['metadata'],
+  logo: Buffer,
+  watermark?: Buffer,
+  draft?: DraftMark,
+): Header {
   const titleLine = (text: string, bold = false, size = 22) =>
     new Paragraph({
       alignment: AlignmentType.CENTER,
       children: [new TextRun({ text, bold, font: ARIAL, size })],
     });
-  // The watermark is a floating image anchored to the PAGE centre and placed
-  // BEHIND the text. Declared in the header, so it repeats on every page. The
-  // asset is pre-faded to 12% alpha (docx has no image-opacity), so no extra
-  // transparency handling is needed here.
-  const watermarkChildren = watermark
+  const behind = [
+    ...(watermark ? [behindTextAtPageCentre(watermark, 360, 180)] : []),
+    ...(draft?.diagonal ? [behindTextAtPageCentre(draft.diagonal, 480, 480)] : []),
+  ];
+  const draftLine = draft
     ? [
-        new ImageRun({
-          type: 'png',
-          data: watermark,
-          transformation: { width: 360, height: 180 },
-          floating: {
-            horizontalPosition: {
-              relative: HorizontalPositionRelativeFrom.PAGE,
-              align: HorizontalPositionAlign.CENTER,
-            },
-            verticalPosition: {
-              relative: VerticalPositionRelativeFrom.PAGE,
-              align: VerticalPositionAlign.CENTER,
-            },
-            behindDocument: true,
-            allowOverlap: true,
-          },
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [
+            new TextRun({ text: draft.text, bold: true, font: ARIAL, size: 20, color: 'B91C1C' }),
+          ],
         }),
       ]
     : [];
   return new Header({
     children: [
+      ...draftLine,
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [
-          ...watermarkChildren,
-          new ImageRun({ type: 'png', data: logo, transformation: LOGO }),
-        ],
+        children: [...behind, new ImageRun({ type: 'png', data: logo, transformation: LOGO })],
       }),
       titleLine(m.institutionHeader, true, 24),
       titleLine(m.divisionHeader),
@@ -358,11 +381,14 @@ function buildFooter(m: BitsHandoutV1['metadata'], partA: BitsHandoutV1['partA']
  * @param logo PNG bytes of the multi-campus BITS banner (read by the caller)
  * @param watermark optional pre-faded (12% alpha) crest PNG — placed behind
  *   text, page-centred, repeating per page via the header. Read by the caller.
+ * @param draft optional "DRAFT – not for circulation" mark, for downloads that
+ *   aren't from the library's Published tab.
  */
 export async function buildHandoutDocx(
   data: BitsHandoutV1,
   logo: Buffer,
   watermark?: Buffer,
+  draft?: DraftMark,
 ): Promise<Buffer> {
   const body: (Paragraph | Table)[] = [];
 
@@ -416,7 +442,7 @@ export async function buildHandoutDocx(
             margin: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
           },
         },
-        headers: { default: buildHeader(data.metadata, logo, watermark) },
+        headers: { default: buildHeader(data.metadata, logo, watermark, draft) },
         footers: { default: buildFooter(data.metadata, data.partA) },
         children: body,
       },

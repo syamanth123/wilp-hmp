@@ -56,3 +56,33 @@ export function StatusBadge({ status }: { status: HandoutStatus }) {
     </span>
   );
 }
+
+/** A pill in the same shape as StatusBadge, for labels that aren't a workflow status. */
+export function Pill({
+  tone,
+  children,
+  className,
+  testId,
+}: {
+  tone: 'gray' | 'navy' | 'gold' | 'green' | 'red';
+  children: React.ReactNode;
+  className?: string;
+  testId?: string;
+}) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: 999,
+        fontSize: 11.5,
+        fontWeight: 600,
+      }}
+      className={`badge-${tone}${className ? ` ${className}` : ''}`}
+      data-testid={testId}
+    >
+      {children}
+    </span>
+  );
+}

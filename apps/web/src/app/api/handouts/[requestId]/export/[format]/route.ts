@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { prisma, BitsHandoutSchemaV1 } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
-import { canExportHandout } from '@/lib/export/access';
+import { DRAFT_MARK_TEXT, canExportHandout, isDraftDownload } from '@/lib/export/access';
 import { buildHandoutDocx } from '@/lib/export/build-docx';
 import { docxToPdf, SofficeError } from '@/lib/export/docx-to-pdf';
 import { exportErrorResponse } from '@/lib/export/error-response';
@@ -14,10 +14,12 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 const ASSETS = join(process.cwd(), 'src', 'lib', 'export', 'assets');
 const LOGO_PATH = join(ASSETS, 'bits-header.png');
 const WATERMARK_PATH = join(ASSETS, 'bits-watermark.png'); // pre-faded 12%-alpha crest
+const DRAFT_DIAGONAL_PATH = join(ASSETS, 'draft-diagonal.png'); // pre-faded 16%-alpha mark
 
 // Read the assets once per process (small PNGs; embedded server-side, not served).
 let logoCache: Buffer | null = null;
 let watermarkCache: Buffer | null = null;
+let draftDiagonalCache: Buffer | null = null;
 async function getLogo(): Promise<Buffer> {
   if (!logoCache) logoCache = await readFile(LOGO_PATH);
   return logoCache;
@@ -27,6 +29,11 @@ async function getWatermark(): Promise<Buffer> {
   return watermarkCache;
 }
 
+async function getDraftDiagonal(): Promise<Buffer> {
+  if (!draftDiagonalCache) draftDiagonalCache = await readFile(DRAFT_DIAGONAL_PATH);
+  return draftDiagonalCache;
+}
+
 function safe(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
 }
@@ -34,7 +41,9 @@ function safe(s: string): string {
 /**
  * Word/PDF export (Prompt 23-b). A Route Handler — binary streaming + a forced
  * download with `Content-Disposition`. Role × status × ownership gate per
- * `canExportHandout` (the 1F matrix). `docx` is built in-process; `pdf` runs the
+ * `canExportHandout` (Handout Library decision D1). Anything not from the
+ * Published tab carries a "DRAFT – not for circulation" mark (header line; the
+ * PDF also gets a diagonal mark behind the text). Every download is audited. `docx` is built in-process; `pdf` runs the
  * docx through LibreOffice headless (EC2 prerequisite).
  */
 export async function GET(
@@ -56,6 +65,7 @@ export async function GET(
       status: true,
       handout: { select: { currentVersion: { select: { versionNo: true, data: true } } } },
       assignments: { where: { facultyId: me.id, active: true }, select: { id: true } },
+      smeAssignment: { select: { smeUserId: true } },
     },
   });
   if (!request) return exportErrorResponse(req, 404, 'request_not_found');
@@ -65,6 +75,7 @@ export async function GET(
       roles: me.roles,
       status: request.status,
       isOwnerFaculty: request.assignments.length > 0,
+      isAssignedSme: request.smeAssignment?.smeUserId === me.id,
     })
   ) {
     return exportErrorResponse(req, 403, 'forbidden');
@@ -80,8 +91,18 @@ export async function GET(
     return exportErrorResponse(req, 422, 'unparseable_handout');
   }
 
-  const [logo, watermark] = await Promise.all([getLogo(), getWatermark()]);
-  const docx = await buildHandoutDocx(parsed.data, logo, watermark);
+  const draft = isDraftDownload(request.status);
+  const [logo, watermark, diagonal] = await Promise.all([
+    getLogo(),
+    getWatermark(),
+    draft && format === 'pdf' ? getDraftDiagonal() : undefined,
+  ]);
+  const docx = await buildHandoutDocx(
+    parsed.data,
+    logo,
+    watermark,
+    draft ? { text: DRAFT_MARK_TEXT, diagonal } : undefined,
+  );
 
   const courseCode = parsed.data.partA.courseNumbers[0] ?? 'handout';
   // refNo already carries the `HMP-YYYY-####` prefix — don't double it.
@@ -114,7 +135,7 @@ export async function GET(
     entity: 'HandoutRequest',
     entityId: requestId,
     requestId,
-    after: { format, versionNo: version.versionNo },
+    after: { format, versionNo: version.versionNo, draft },
   });
 
   return new Response(new Uint8Array(body), {

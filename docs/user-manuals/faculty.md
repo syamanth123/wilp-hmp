@@ -76,3 +76,8 @@ The **Comment thread** at the bottom of every detail page is shared with IC/HOG/
 ## Notifications
 
 Bell + email + SLA reminders. `/notifications` for the full list.
+
+## Handout Library (`/handouts`)
+
+Find, read, compare and download handouts — published, in progress and past BITS handouts — from
+**Handout Library** in the menu. See [handout-library.md](handout-library.md).

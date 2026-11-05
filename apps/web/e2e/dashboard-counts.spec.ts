@@ -109,6 +109,27 @@ test.describe('Dashboard cards match the lists they link to', () => {
     }
   });
 
+  // Handout Library (v1.2.0): each tab's count equals the list it opens (courses), per role.
+  for (const role of ROLES) {
+    test(`Handout Library tabs for ${role.email}: every tab count equals its list`, async ({
+      page,
+    }) => {
+      await signIn(page, role.email);
+      for (const tab of ['published', 'in-progress', 'past']) {
+        await page.goto('/handouts?tab=published');
+        const link = page.getByTestId(`library-tab-${tab}`);
+        const count = Number((await link.getByTestId('tab-count').innerText()).trim());
+        await link.click();
+        await expect(page.getByTestId(`library-tab-${tab}`)).toHaveAttribute(
+          'aria-current',
+          'page',
+        );
+        const total = (await page.getByTestId('list-total').innerText()).trim();
+        expect(Number(/^(\d+)/.exec(total)![1]), `${role.email} ${tab}`).toBe(count);
+      }
+    });
+  }
+
   test('an unknown filter in the address is ignored, with a note', async ({ page }) => {
     await signIn(page, 'pc@hmp.local');
     await page.goto('/pc/requests?status=NOT_A_STATUS');
