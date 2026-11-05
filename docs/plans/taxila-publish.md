@@ -201,10 +201,17 @@ untouched.
 Screenshots before review: admin mapping page, Check in Taxila (found / folder missing / already there),
 publish result, bulk run in progress and finished, Excel report.
 
-## H. Decisions needed from you
+## H. Decisions (approved 5 Nov 2026)
 
-1. **Bulk publish runs in the browser, one course at a time, pausable** (recommended) — or a background job?
-2. **Semester code default** `Sem-I 2026-27 → S1-26`, `Sem-II 2026-27 → S2-26`; Summer → ask IT. OK to prefill
-   and let the IC edit?
-3. **Mode A** (generic HTTP) hidden from the UI and left unused — OK?
-4. **File name** `SS ZG653 Course Handout Sem-I 2026-27.pdf` — OK, or does the IC want the HMP reference in it?
+1. **Bulk publish runs in the IC's browser, one course at a time**, saved per course and resumable. No background
+   workers.
+2. **Semester code:** Sem-I 2026-27 → `S1-26`, Sem-II 2026-27 → `S2-26`, prefilled and editable. **Summer is left
+   blank** (the IC types it) until IT confirms the format.
+3. **Mode A** is hidden from every screen and left unused.
+4. **File name** `SS ZG653 Course Handout Sem-I 2026-27.pdf` — no HMP reference. Merged courses join codes with
+   `" _ "` (`MBA ZC417 _ PDBA ZC417 Course Handout Sem-I 2026-27.pdf`), never `/`. "Publish as new version" adds
+   ` v2`, ` v3`… The HMP reference and the Taxila course id go into the publish log (`responseJson`).
+
+Screenshots for review: Check in Taxila (found / folder missing / already there), a single publish, bulk publish
+part-way through, the programme-code mapping page. Push after ci-local is green; **don't merge**. Real Taxila stays
+untested until IT answers §C.

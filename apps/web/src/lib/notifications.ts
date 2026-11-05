@@ -360,7 +360,42 @@ export function absoluteEmailLink(link: string): string {
   return `${base}${link.startsWith('/') ? '' : '/'}${link}`;
 }
 
-async function deliver(params: {
+/**
+ * Emails are sent in the background of the server process: the page that triggered them answers
+ * as soon as the in-portal row is written, and a slow mail server can never hold it up. Each send
+ * records SENT / FAILED on its notification row when it finishes. `emailsSettled()` waits for the
+ * sends in flight — for the background worker (so a job ends after its emails) and for tests.
+ */
+const emailsInFlight = new Set<Promise<void>>();
+
+export async function emailsSettled(): Promise<void> {
+  while (emailsInFlight.size) await Promise.allSettled([...emailsInFlight]);
+}
+
+function sendEmailInBackground(
+  rowId: string,
+  input: { to: string; subject: string; html: string; text: string },
+  meta: Record<string, unknown>,
+) {
+  const p = (async () => {
+    try {
+      const result = await sendMail(input);
+      await prisma.notification.update({
+        where: { id: rowId },
+        data: result.ok
+          ? { status: NotificationStatus.SENT, sentAt: new Date() }
+          : { status: NotificationStatus.FAILED, meta: { ...meta, error: result.error } as never },
+      });
+    } catch (err) {
+      console.error('[notify] email delivery failed', { rowId, err });
+    }
+  })();
+  emailsInFlight.add(p);
+  void p.finally(() => emailsInFlight.delete(p));
+}
+
+/** Exported for tests. */
+export async function deliver(params: {
   userId: string;
   email: string;
   role: RoleName;
@@ -392,21 +427,11 @@ async function deliver(params: {
         });
       } else if (channel === NotificationChannel.EMAIL) {
         const html = `<p>${body}</p><p><a href="${absoluteEmailLink(link)}">Open in HMP</a></p>`;
-        const result = await sendMail({ to: email, subject, html, text: body });
-        if (result.ok) {
-          await prisma.notification.update({
-            where: { id: row.id },
-            data: { status: NotificationStatus.SENT, sentAt: new Date() },
-          });
-        } else {
-          await prisma.notification.update({
-            where: { id: row.id },
-            data: {
-              status: NotificationStatus.FAILED,
-              meta: { kind: metaKind, error: result.error, ...(extraMeta ?? {}) },
-            },
-          });
-        }
+        sendEmailInBackground(
+          row.id,
+          { to: email, subject, html, text: body },
+          { kind: metaKind, ...(extraMeta ?? {}) },
+        );
       }
     } catch (err) {
       console.error('[notify] delivery failed', { userId, channel, err });

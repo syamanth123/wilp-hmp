@@ -17,7 +17,12 @@ import { aiFeaturesEnabled } from '../lib/features';
  * which BullMQ then retries. See docs/dev-handoff-audit.md §1.
  */
 export async function processNotification(job: Job<NotifyJob>): Promise<void> {
-  const d = job.data;
+  await dispatchNotification(job.data);
+  // Emails go out in the background (lib/notifications.ts); the job ends once they have.
+  await notify.emailsSettled();
+}
+
+async function dispatchNotification(d: NotifyJob): Promise<void> {
   switch (d.kind) {
     case 'transition':
       return notify.dispatchTransition({
