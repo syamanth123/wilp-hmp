@@ -32,6 +32,30 @@ export type {
 } from './erp';
 export { publishToLms, buildTaxilaRequestBody, buildExportZip, TaxilaPublishError } from './taxila';
 export type { PublishInput, PublishResult, LmsPublishLogStatus } from './taxila';
+// v1.3.0 "Mode C": publish into the course's Taxila folder (IT's QPM method).
+export {
+  TaxilaError,
+  checkInTaxila,
+  createTaxilaClient,
+  defaultTaxilaSemesterCode,
+  findHandoutFolder,
+  matchTaxilaCourse,
+  nextFreeFileName,
+  publishFileToTaxila,
+  redact,
+  taxilaConfigFromEnv,
+  taxilaCourseUrl,
+  taxilaFileName,
+} from './taxila-moodle';
+export type {
+  CheckResult,
+  CourseMatch,
+  TaxilaClient,
+  TaxilaConfig,
+  TaxilaCourse,
+  TaxilaFolder,
+  TaxilaStep,
+} from './taxila-moodle';
 export {
   getS3Client,
   ensureBucket,
