@@ -30,6 +30,13 @@ export async function DepartmentChecksPanel() {
       href: '/admin/departments',
       action: 'Departments',
     });
+  if (c.badEmails)
+    items.push({
+      key: 'emails',
+      text: `${c.badEmails} account${c.badEmails === 1 ? ' has' : 's have'} an email that isn't a single address (BITS sign-in can't match it)`,
+      href: '/admin/people?q=%2C',
+      action: 'People',
+    });
   if (c.departmentsWithoutHog.length)
     items.push({
       key: 'hog',

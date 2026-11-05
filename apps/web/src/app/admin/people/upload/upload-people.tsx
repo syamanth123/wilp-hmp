@@ -40,7 +40,7 @@ function WhatHappens({
   const base =
     r.status === 'new'
       ? 'Account created; they sign in with their BITS ID'
-      : r.changes.join('; ') || (r.suggestion || r.note ? '' : 'Nothing to change');
+      : r.changes.join('; ') || (r.suggestion || r.note || r.warning ? '' : 'Nothing to change');
   return (
     <div className="space-y-1">
       {base && <div>{base}</div>}
@@ -64,6 +64,11 @@ function WhatHappens({
             past course{r.suggestion.courses === 1 ? '' : 's'}) — accept?
           </span>
         </label>
+      )}
+      {r.warning && (
+        <div className="font-medium text-amber-800" data-testid="people-warning">
+          {r.warning}
+        </div>
       )}
       {r.needsDecision && (
         <div className="font-medium text-amber-800" data-testid="people-needs-decision">

@@ -65,6 +65,8 @@ export interface PreviewRow {
   /** Blank department, none yet, no single suggestion: why. */
   note?: string;
   needsDecision?: boolean;
+  /** Something to fix on Edit person that doesn't block the upload (e.g. an existing bad email). */
+  warning?: string;
 }
 
 export type PreviewCounts = Record<RowStatus, number> & {
@@ -151,8 +153,14 @@ export async function previewPeople(csv: string): Promise<Preview> {
     };
     const fail = (error: string) => out.push({ ...row, status: 'error', error });
     if (!EMAIL.test(email)) {
-      fail('Not a valid email.');
-      continue;
+      // The account already exists with this exact email (e.g. two addresses joined by a comma by an
+      // older import): let HMP's own download upload back, and say what to fix.
+      if (!userBy.has(email)) {
+        fail('Not a valid email.');
+        continue;
+      }
+      row.warning =
+        'Their email in HMP isn’t a single address — fix it with Edit person (BITS sign-in matches their BITS email).';
     }
     if (seen.has(email)) {
       fail('This email is in the file twice.');

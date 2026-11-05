@@ -14,6 +14,8 @@ export interface DepartmentChecks {
   dibbaCodes: number;
   peopleWithoutDepartment: number;
   peopleWithSuggestion: number;
+  /** Active accounts whose email isn't one address (BITS sign-in can't match them). */
+  badEmails: number;
 }
 
 export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
@@ -43,6 +45,16 @@ export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
       select: { id: true },
     }),
   ]);
+  const badEmails = await prisma.user.count({
+    where: {
+      active: true,
+      OR: [
+        { email: { contains: ',' } },
+        { email: { contains: ' ' } },
+        { email: { contains: ';' } },
+      ],
+    },
+  });
   const withHog = new Set(hogs.map((h) => h.departmentId));
   const suggestions = noDept.length ? await suggestDepartments(noDept.map((u) => u.id)) : new Map();
   return {
@@ -53,5 +65,6 @@ export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
     dibbaCodes: dibbaRows.length,
     peopleWithoutDepartment: noDept.length,
     peopleWithSuggestion: [...suggestions.values()].filter((s) => s.kind === 'one').length,
+    badEmails,
   };
 }
