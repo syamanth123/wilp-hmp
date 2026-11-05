@@ -27,7 +27,8 @@ import { listVersions } from '@/lib/handout-versioning';
 import { recommendFaculty, type RecommendationResult } from '@hmp/ai';
 import { QualityReportCard } from '@/components/quality-report-card';
 import { aiFeaturesEnabled } from '@/lib/features';
-import { AllocationPanel, type FacultyChoice, type SmeChoice } from './allocation-panel';
+import { AllocationPanel, type FacultyChoice, type PersonChoice } from './allocation-panel';
+import { loads, loadText } from '@/lib/people';
 import { FinalApprovalPanel } from './approval-panel';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
@@ -44,7 +45,16 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
   const request = await prisma.handoutRequest.findUnique({
     where: { id: params.id },
     include: {
-      offering: { include: { course: true, semester: { include: { programme: true } } } },
+      offering: {
+        include: {
+          course: true,
+          semester: {
+            include: {
+              programme: { include: { department: { select: { id: true, name: true } } } },
+            },
+          },
+        },
+      },
       initiator: { select: { name: true, email: true } },
       handout: { include: { currentVersion: true } },
     },
@@ -60,7 +70,9 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
     3;
 
   let facultyChoices: FacultyChoice[] = [];
-  let smeChoices: SmeChoice[] = [];
+  let smeChoices: PersonChoice[] = [];
+  let pcChoices: PersonChoice[] = [];
+  const department = request.offering.semester.programme.department;
   let recommendation: RecommendationResult | null = null;
   // Prompt 22: if a prior allocation was rejected by PC, surface the reason so
   // HOG re-allocates informed. The reject writes a PC_REVIEW/REWORK Approval.
@@ -79,24 +91,64 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
     allocationRejectReason = lastReject?.comments ?? null;
   }
   if (request.status === HandoutStatus.REQUESTED) {
-    const [list, smeUsers] = await Promise.all([
+    // v1.4 §C: everyone with the role, their department and open-work load; the panel puts the
+    // course's department first and hides the rest behind "Show all departments".
+    const people = (role: RoleName) =>
+      prisma.user.findMany({
+        where: { ...ACTIVE_USER_FILTER, roles: { some: { role: { name: role } } } },
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          departmentId: true,
+          department: { select: { name: true } },
+        },
+      });
+    const [list, smeUsers, pcUsers] = await Promise.all([
       listFacultyForAllocation(request.offering.semesterId),
       // Prompt 12-b: HOG designates the (mandatory) SME at allocation.
-      prisma.user.findMany({
-        where: { ...ACTIVE_USER_FILTER, roles: { some: { role: { name: RoleName.SME } } } },
-        orderBy: { name: 'asc' },
-        select: { id: true, name: true, email: true },
-      }),
+      people(RoleName.SME),
+      people(RoleName.PROGRAMME_COMMITTEE),
     ]);
-    facultyChoices = list.map((f) => ({
-      id: f.id,
-      name: f.name,
-      email: f.email,
-      facultyType: f.facultyType,
-      loadInSemester: f.loadInSemester,
-      capped: CAPPED_TYPES.has(f.facultyType) && f.loadInSemester >= cap,
-    }));
-    smeChoices = smeUsers;
+    const facultyDept = new Map(
+      (
+        await prisma.user.findMany({
+          where: { id: { in: list.map((f) => f.id) } },
+          select: { id: true, departmentId: true, department: { select: { name: true } } },
+        })
+      ).map((u) => [u.id, u]),
+    );
+    const load = await loads([...new Set([...list, ...smeUsers, ...pcUsers].map((u) => u.id))]);
+    const choice = (u: {
+      id: string;
+      name: string;
+      email: string;
+      departmentId: string | null;
+      department: { name: string } | null;
+    }): PersonChoice => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      departmentName: u.department?.name ?? null,
+      sameDepartment: !department || u.departmentId === department.id,
+      load: loadText(load.get(u.id)),
+    });
+    facultyChoices = list.map((f) => {
+      const d = facultyDept.get(f.id);
+      return {
+        ...choice({
+          ...f,
+          departmentId: d?.departmentId ?? null,
+          department: d?.department ?? null,
+        }),
+        facultyType: f.facultyType,
+        loadInSemester: f.loadInSemester,
+        capped: CAPPED_TYPES.has(f.facultyType) && f.loadInSemester >= cap,
+      };
+    });
+    smeChoices = smeUsers.map(choice);
+    pcChoices = pcUsers.map(choice);
     // AI suggestions only when AI is switched on; otherwise the recommender
     // isn't called at all and the suggestions list stays hidden.
     if (aiFeaturesEnabled()) {
@@ -153,6 +205,8 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
               requestId={request.id}
               faculties={facultyChoices}
               smes={smeChoices}
+              pcs={pcChoices}
+              departmentName={department?.name ?? null}
               cap={cap}
               recommendation={recommendation}
             />

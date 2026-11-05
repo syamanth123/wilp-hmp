@@ -151,6 +151,27 @@ Built as working first versions on this branch (dev data, four seeded department
 3. **IC → New request** — department HOG pre-selected, "other HOG" needs a reason.
 4. **HOG → Allocate** — PC / faculty / SME pickers, own department first with load, "Show all departments".
 
+Taken on a local production build against the dev database (read-only: the impact check and the upload preview
+only check; no request was created or allocated). Files in `C:\work\review-shots\departments\`:
+
+| File                                        | Shows                                                                         |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
+| `01-admin-people-list.png`                  | People list (249 people) and the "236 have no department" warning             |
+| `01b-admin-people-search-demo-accounts.png` | The 13 demo accounts: roles, department ("All" for IC/Admin), open work       |
+| `02-admin-people-no-department-filter.png`  | "Show them" — people with a department role but no department                 |
+| `03-admin-person-add.png`                   | Add person: name, BITS email, roles (multi-select), department, faculty type  |
+| `04-admin-person-edit.png`                  | Edit person                                                                   |
+| `05-admin-person-impact-check.png`          | Deactivating a faculty with an open, overdue handout → pick who takes it over |
+| `06-admin-people-upload-preview.png`        | Upload preview: 1 new, 2 changed, 4 errors (second HOG, no department, …)     |
+| `07-ic-new-request-hog-preselected.png`     | New request: CSIS course → CSIS HOG pre-selected with load                    |
+| `08-ic-new-request-other-hog-reason.png`    | Another department's HOG chosen → reason required                             |
+| `09-hog-allocate-department-first.png`      | Allocate: CSIS faculty / SME / PC only, PC pre-selected, load per person      |
+| `10-hog-allocate-show-all-departments.png`  | "Show all departments": everyone else, marked _other dept_ / _no department_  |
+
+**What the screenshots showed:** the dev database (like the server) has ~236 imported faculty with no
+department. Until they are filled in, they sit behind "Show all departments" (search still finds them). Filling
+them is one round-trip: _Download the list_ → fill the `department` column in Excel → _Upload people_ (H6).
+
 ## H. Decisions needed
 
 1. **H1 — one department per programme** (a column on Programme) instead of a programme ↔ department table?
@@ -160,3 +181,10 @@ Built as working first versions on this branch (dev data, four seeded department
 4. **H4 — existing requests at release**: assign the department HOG automatically where known (recommended), or
    leave all existing requests visible to every HOG/PC until someone assigns them?
 5. **H5 — people CSV columns**: exactly `email, name, roles, department` (+ optional `faculty_type`, `active`)?
+6. **H6 — filling departments for the ~236 existing faculty**: the IC/Admin does it with Download → Excel →
+   Upload after v1.4.0 is released (recommended), or we pre-fill a guess from each faculty's past courses'
+   programmes for them to check in the upload preview?
+7. **H7 — the IC/HOG pickers built for these screenshots (section C)** ship in v1.4.1 as planned — together with
+   "only that HOG/PC is notified" and the department scoping — so v1.4.0 stays data-only (recommended); or ship
+   the pickers already in v1.4.0 (for a programme with no department everyone is shown; once a programme is
+   tagged, people without a department move behind "Show all departments")?
