@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { prisma, HandoutStatus, LmsPublishMode, resolveHandoutHtml } from '@hmp/db';
-import { getPresignedDownloadUrl } from '@hmp/integrations';
+import { defaultTaxilaSemesterCode, getPresignedDownloadUrl } from '@hmp/integrations';
+import { taxilaSettings } from '@/lib/taxila-publish';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { DownloadMenu } from '@/components/download-menu';
@@ -25,6 +26,7 @@ import { listVersions } from '@/lib/handout-versioning';
 import { QualityReportCard } from '@/components/quality-report-card';
 import Link from 'next/link';
 import { PublishPanel } from './publish-panel';
+import { TaxilaPanel } from './taxila-panel';
 import { ArchivePanel } from './archive-panel';
 import { formatDateTime } from '@/lib/format-date';
 
@@ -48,9 +50,9 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   // Mode B "awaiting manual confirmation" state: an EXPORTED publish log exists
   // while the request is still APPROVED. Regenerate the download URL fresh from
   // the durable s3Key each render — the presigned URL is ephemeral, so we never
-  // persist/serve a stale one. taxilaConfigured is a boolean only; the URL value
-  // never crosses to the client.
-  const taxilaConfigured = Boolean(process.env.TAXILA_API_URL);
+  // persist/serve a stale one. Mode C (v1.3.0): only whether it's set up and the folder name
+  // reach the client — never the URL or the token.
+  const taxila = taxilaSettings();
   let exportDownloadUrl: string | null = null;
   if (handout && request.status === HandoutStatus.APPROVED) {
     const exportLog = await prisma.lmsPublishLog.findFirst({
@@ -151,11 +153,16 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                 . You can still publish, but Taxila won't show these dates.
               </div>
             )}
-            <PublishPanel
-              requestId={request.id}
-              taxilaConfigured={taxilaConfigured}
-              exportDownloadUrl={exportDownloadUrl}
-            />
+            {taxila && !exportDownloadUrl ? (
+              <TaxilaPanel
+                requestId={request.id}
+                defaultSemesterCode={defaultTaxilaSemesterCode(request.offering.semester.name)}
+                semesterName={request.offering.semester.name}
+                folderName={taxila.folderName}
+              />
+            ) : (
+              <PublishPanel requestId={request.id} exportDownloadUrl={exportDownloadUrl} />
+            )}
           </CardContent>
         </Card>
       )}

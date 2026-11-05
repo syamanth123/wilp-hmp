@@ -5,13 +5,15 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@hmp/ui';
 import { publishAction, confirmManualPublishAction } from './actions';
 
+/**
+ * Mode B: the handout becomes a file the IC uploads to Taxila, then "Mark as manually published".
+ * Shown when Mode C (publishing straight into Taxila, taxila-panel.tsx) isn't set up.
+ */
 export function PublishPanel({
   requestId,
-  taxilaConfigured,
   exportDownloadUrl,
 }: {
   requestId: string;
-  taxilaConfigured: boolean;
   /** Present when a Mode B export exists and the request awaits manual
    *  confirmation. Freshly presigned by the server on each render. */
   exportDownloadUrl: string | null;
@@ -30,8 +32,7 @@ export function PublishPanel({
       if (r?.error) {
         setError(r.error);
       } else {
-        // Re-fetch the server component so the panel reflects the new state:
-        // Mode A → PUBLISHED (Archive card), Mode B → awaiting-confirmation.
+        // Re-fetch the server component so the panel shows the awaiting-confirmation state.
         router.refresh();
       }
     });
@@ -116,14 +117,8 @@ export function PublishPanel({
   return (
     <div className="space-y-3">
       <p className="text-muted-foreground text-sm">
-        {taxilaConfigured
-          ? 'Publishes the approved handout to Taxila for students.'
-          : "Automatic publishing to Taxila isn't set up, so you'll get a file to upload to Taxila yourself."}
-      </p>
-      <p className="text-muted-foreground text-xs">
-        {taxilaConfigured
-          ? 'Publishes to Taxila automatically.'
-          : "You'll download a file and upload it to Taxila yourself."}
+        Automatic publishing to Taxila isn&apos;t set up, so you&apos;ll get a file to upload to
+        Taxila yourself.
       </p>
       {error && <p className="text-destructive text-sm">{error}</p>}
       <Button onClick={() => run(publishAction)} disabled={pending}>
