@@ -258,21 +258,23 @@ export async function startFakeMoodle(opts: {
 
 /** A small Taxila for demos and tests: S1-26 courses, one without the folder, one already holding the file. */
 export function sampleTaxilaCourses(folderName = 'Course Handout'): FakeCourse[] {
+  // Real Taxila name shapes (taxila-discover.log, 5 Nov 2026).
   return [
     {
       id: 4101,
-      fullname: 'S1-26_SSZG653 Software Architectures',
+      fullname: 'Software Architectures (S1-26_SSZG653)',
       folder: { name: folderName, contextid: 9101, files: [] },
     },
     {
       id: 4102,
-      fullname: 'S1-26_SEZG501 Software Engineering',
+      fullname: 'Software Engineering (S1-26_SEZG501)',
       folder: { name: folderName, contextid: 9102, files: [] },
     },
-    { id: 4103, fullname: 'S1-26_CCZG501 Cloud Computing' },
+    { id: 4103, fullname: 'Introduction to Parallel and Distributed Programming (S1-26_CCZG501)' },
     {
       id: 4104,
-      fullname: 'S1-26_MBAZC417/PDBAZC417/PDFTZC417 Business Statistics',
+      fullname:
+        'Quantitative Methods | Business Statistics (Merged - MBAZC417/PDBAZC417/PDFTZC417)(S1-26)',
       folder: { name: folderName, contextid: 9104, files: [] },
     },
   ];

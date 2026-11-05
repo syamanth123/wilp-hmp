@@ -92,11 +92,15 @@ export type CourseMatch =
   | { kind: 'ambiguous'; courses: TaxilaCourse[] };
 
 /**
- * IT's rule, case-insensitive on `fullname`:
- * - a course under one code: the fullname contains "<SEMESTER>_<CODE without spaces>" (S1-26_SSZG653);
- * - a merged course (several codes): the fullname contains the semester and the course code.
- * Each code is tried the first way; only if none matches is the merged rule used. More than one
- * match is never guessed — the IC picks.
+ * IT's rule, case-insensitive on `fullname`, on Taxila's real names (taxila-discover.log, 5 Nov):
+ * - a course under one code: "Software Architectures (S1-25_SSZG653)" — the fullname contains
+ *   "<SEMESTER>_<CODE without spaces>";
+ * - a merged course: "Software Architectures (Merged - SEZG651/SSZG653)(S1-25)" — "Merged", the
+ *   semester and the course code. Merged lists change by semester, so any one of the codes counts.
+ * A handout with several codes (cross-listed) looks for the merged course first; one with a single
+ * code looks for its own course first. Either falls back to the other way. Codes must stand alone
+ * (CCZG501 never matches MBACCZG501, SSZG653 never SSZG6531 or SSZG653T). More than one match is
+ * never guessed — the IC picks.
  */
 export function matchTaxilaCourse(
   courses: TaxilaCourse[],
@@ -105,26 +109,29 @@ export function matchTaxilaCourse(
 ): CourseMatch {
   const sem = squash(semesterCode);
   const wanted = [...new Set(codes.map(squash))];
-  // Spaces are removed from both sides, so only a following digit can extend a code
-  // (SSZG653 must not match SSZG6531).
-  const boundary = (hay: string, needle: string) => {
+  // Names keep their spaces (codes in them are written without); only codes are squashed.
+  const norm = (name: string) => name.toUpperCase().replace(/\s+/g, ' ');
+  const alone = (hay: string, needle: string) => {
     for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + 1)) {
-      const next = hay[i + needle.length];
-      if (!next || !/[0-9]/.test(next)) return true;
+      const before = hay[i - 1];
+      const after = hay[i + needle.length];
+      if ((!before || !/[A-Z0-9]/.test(before)) && (!after || !/[A-Z0-9]/.test(after))) return true;
     }
     return false;
   };
-  const pick = (test: (name: string) => boolean): TaxilaCourse[] =>
-    courses.filter((c) => test(squash(c.fullname)));
+  const single = (name: string) => wanted.some((code) => alone(name, `${sem}_${code}`));
+  const merged = (name: string) =>
+    /\bMERGED\b/.test(name) && alone(name, sem) && wanted.some((code) => alone(name, code));
+  const pick = (test: (name: string) => boolean): TaxilaCourse[] => [
+    ...new Map(courses.filter((c) => test(norm(c.fullname))).map((c) => [c.id, c])).values(),
+  ];
 
-  let hits = pick((name) => wanted.some((code) => boundary(name, `${sem}_${code}`)));
-  if (hits.length === 0 && wanted.length > 1) {
-    hits = pick((name) => name.includes(sem) && wanted.some((code) => boundary(name, code)));
-  }
-  const unique = [...new Map(hits.map((c) => [c.id, c])).values()];
-  if (unique.length === 0) return { kind: 'none' };
-  if (unique.length === 1) return { kind: 'found', course: unique[0]! };
-  return { kind: 'ambiguous', courses: unique };
+  const [first, second] = wanted.length > 1 ? [merged, single] : [single, merged];
+  let hits = pick(first);
+  if (hits.length === 0) hits = pick(second);
+  if (hits.length === 0) return { kind: 'none' };
+  if (hits.length === 1) return { kind: 'found', course: hits[0]! };
+  return { kind: 'ambiguous', courses: hits };
 }
 
 /** Finds General → the handout folder in a course's contents (exact names, as IT's QPM does). */

@@ -138,13 +138,13 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
       courses: [
         {
           id: 501,
-          fullname: `${SEM}_SEZG501 Software Engineering`,
+          fullname: `Software Engineering (${SEM}_SEZG501)`,
           folder: { name: 'Course Handout', contextid: 9501, files: [] },
         },
-        { id: 503, fullname: `${SEM}_SEZG503 Software Testing` }, // no handout folder
+        { id: 503, fullname: `Software Testing (${SEM}_SEZG503)` }, // no handout folder
         {
           id: 504,
-          fullname: `${SEM}_SEZG504 Agile`,
+          fullname: `Agile (${SEM}_SEZG504)`,
           folder: {
             name: 'Course Handout',
             contextid: 9504,
@@ -153,14 +153,16 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
         },
         {
           id: 601,
-          fullname: `${SEM}_CCZG501 Cloud`,
+          fullname: `Introduction to Parallel and Distributed Programming (${SEM}_CCZG501)`,
           folder: { name: 'Course Handout', contextid: 9601, files: [] },
         },
         {
           id: 417,
-          fullname: `${SEM}_MBAZC417/PDBAZC417/PDFTZC417 Business Statistics`,
+          fullname: `Quantitative Methods | Business Statistics (Merged - MBAZC417/PDBAZC417/PDFTZC417/MBAZG501)(${SEM})`,
           folder: { name: 'Course Handout', contextid: 9417, files: [] },
         },
+        // Taxila also keeps a single-code shell; a cross-listed handout must go to the merged one.
+        { id: 418, fullname: `Quantitative Methods (${SEM}_MBAZC417)` },
         // MATH ZC222 deliberately has no Taxila course.
       ],
     });
@@ -196,7 +198,7 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
     await page.getByTestId('taxila-check').click();
     const result = page.getByTestId('taxila-check-result');
     await expect(result).toHaveAttribute('data-status', 'ready');
-    await expect(result).toContainText(`${SEM}_SEZG501 Software Engineering`);
+    await expect(result).toContainText(`Software Engineering (${SEM}_SEZG501)`);
     await expect(result).toContainText('SE ZG501 Course Handout Sem-I 2025-26.pdf');
     expect(fake.calls.some((c) => c.step === 'upload')).toBe(false);
 

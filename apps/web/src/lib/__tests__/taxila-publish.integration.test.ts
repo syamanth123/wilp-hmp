@@ -138,13 +138,13 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       courses: [
         {
           id: 7001,
-          fullname: 'S1-26_QTXZG653 Taxila Test',
+          fullname: 'Taxila Test (S1-26_QTXZG653)',
           folder: { name: 'Course Handout', contextid: 8001, files: [] },
         },
-        { id: 7002, fullname: 'S1-26_QTXZG654 No Folder' },
+        { id: 7002, fullname: 'No Folder (S1-26_QTXZG654)' },
         {
           id: 7003,
-          fullname: 'S1-26_QTXZG655 Has File',
+          fullname: 'Has File (S1-26_QTXZG655)',
           folder: { name: 'Course Handout', contextid: 8003, files: [] },
         },
       ],
@@ -313,13 +313,13 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       fake.courses.push(
         {
           id: 7011,
-          fullname: 'S1-26_QTXZG657 Bulk A',
+          fullname: 'Bulk A (S1-26_QTXZG657)',
           folder: { name: 'Course Handout', contextid: 8011, files: [] },
         },
-        { id: 7012, fullname: 'S1-26_QTXZG658 Bulk B (no folder)' },
+        { id: 7012, fullname: 'Bulk B, no folder (S1-26_QTXZG658)' },
         {
           id: 7013,
-          fullname: 'S1-26_QTXZG659 Bulk C',
+          fullname: 'Bulk C (S1-26_QTXZG659)',
           folder: { name: 'Course Handout', contextid: 8013, files: [] },
         },
       );

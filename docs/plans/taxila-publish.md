@@ -249,3 +249,19 @@ untested until IT answers §C.
    at least one specific shared word unless the subjects are identical). Never linked automatically.
 3. **No TAXILA_TOKEN → no Taxila anywhere:** unit test (every action refuses, no network call) and an
    e2e in the main run (no panel, no bulk bar, the ZIP export offered).
+
+### Real Taxila names (new IT token, `taxila-discover.log`, 5 Nov)
+
+- Course search works with the new token (1,419–1,629 courses per semester code).
+- **Names put the code at the end:** `Software Quality Assurance and Testing (S1-25_SEZG501)`; **merged
+  courses:** `Software Architectures (Merged - SEZG651/SSZG653)(S1-25)`, and the single-code course
+  often exists alongside (`Software Architectures (S1-25_SSZG653)`). Merged lists differ by semester
+  (`MBAZC417/MBAZG501/PDBAZG501` in S1-26). Look-alike codes exist (`MBACCZG501` next to `CCZG501`).
+- **Matching now:** one code → its own course `(<SEM>_<CODE>)` first; several codes (cross-listed) →
+  the `Merged` course of that semester first, by any shared code; each falls back to the other; codes
+  must stand alone on both sides. Tests and the fake Taxila use these real shapes.
+- **Not yet confirmed:** `core_webservice_get_site_info` is refused for this token, so the discovery
+  couldn't list its functions; and its section 3 (folders) didn't run because it looked for names
+  _starting_ with `S1-25_`. Upload (`upload.php`), `core_course_get_contents` and
+  `local_move_file_from_draft` are therefore untested with the real token — the first real publish on
+  one test course is the check.

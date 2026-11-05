@@ -51,29 +51,77 @@ describe('settings', () => {
   });
 });
 
-describe('course matching (IT’s rule)', () => {
+describe('course matching (IT’s rule, on Taxila’s real names — taxila-discover.log)', () => {
+  // Shapes copied from the real S1-25 / S1-26 search results.
   const courses = [
-    { id: 1, fullname: 'S1-26_SSZG653 Software Architectures', shortname: '' },
-    { id: 2, fullname: 's1-26_sszg6531 Something Else', shortname: '' },
-    { id: 3, fullname: 'S1-26_MBAZC417/PDBAZC417 Business Statistics', shortname: '' },
-    { id: 4, fullname: 'S2-26_SSZG653 Software Architectures', shortname: '' },
+    { id: 1, fullname: 'Software Quality Assurance and Testing (S1-25_SEZG501)', shortname: '' },
+    { id: 2, fullname: 'Software Architectures (Merged - SEZG651/SSZG653)(S1-25)', shortname: '' },
+    { id: 3, fullname: 'Software Architectures (S1-25_SSZG653)', shortname: '' },
+    {
+      id: 4,
+      fullname:
+        'Quantitative Methods | Business Statistics (Merged - MBAZC417/PDBAZC417/PDFTZC417/MBAZG501)(S1-25)',
+      shortname: '',
+    },
+    { id: 5, fullname: 'Quantitative Methods (S1-25_MBAZC417)', shortname: '' },
+    {
+      id: 6,
+      fullname: 'Introduction to Parallel and Distributed Programming (S1-25_CCZG501)',
+      shortname: '',
+    },
+    { id: 7, fullname: 'Business Statistics (S1-25_MBACCZG501)', shortname: '' },
+    { id: 8, fullname: 'Dissertation (S1-25_SSZG628T)', shortname: '' },
+    { id: 9, fullname: 'Software Architectures (S2-25_SSZG653)', shortname: '' },
   ];
-  it('one code: "<SEM>_<CODE without spaces>", case-insensitive, whole code only', () => {
-    expect(matchTaxilaCourse(courses, 'S1-26', ['SS ZG653'])).toEqual({
-      kind: 'found',
-      course: courses[0],
-    });
-    expect(matchTaxilaCourse(courses, 'S1-26', ['SS ZG999'])).toEqual({ kind: 'none' });
+  const id = (sem: string, codes: string[]) => {
+    const m = matchTaxilaCourse(courses, sem, codes);
+    return m.kind === 'found' ? m.course.id : m.kind;
+  };
+
+  it('one code: its own course "(<SEM>_<CODE>)", case-insensitive', () => {
+    expect(id('S1-25', ['SE ZG501'])).toBe(1);
+    expect(id('s1-25', ['SS ZG653'])).toBe(3); // its own course, not the merged one
+    expect(id('S2-25', ['SS ZG653'])).toBe(9); // the semester matters
+    expect(id('S1-25', ['SS ZG999'])).toBe('none');
   });
-  it('merged course: matched by any of its codes', () => {
-    expect(matchTaxilaCourse(courses, 'S1-26', ['PDBA ZC417', 'MBA ZC417'])).toMatchObject({
+  it('codes stand alone: CCZG501 is not MBACCZG501; SSZG628 is not SSZG628T', () => {
+    expect(id('S1-25', ['CC ZG501'])).toBe(6);
+    expect(id('S1-25', ['SS ZG628'])).toBe('none');
+  });
+  it('several codes (cross-listed): the merged course first, by any of its codes', () => {
+    expect(id('S1-25', ['MBA ZC417', 'PDBA ZC417', 'PDFT ZC417'])).toBe(4);
+    expect(id('S1-25', ['SE ZG651', 'SS ZG653'])).toBe(2);
+  });
+  it('merged lists change by semester — one shared code is enough', () => {
+    const s126 = [
+      {
+        id: 10,
+        fullname:
+          'Quantitative Methods | Business Statistics (Merged - MBAZC417/MBAZG501/PDBAZG501)(S1-26)',
+        shortname: '',
+      },
+    ];
+    expect(matchTaxilaCourse(s126, 'S1-26', ['MBA ZC417', 'PDBA ZC417'])).toMatchObject({
       kind: 'found',
-      course: { id: 3 },
+      course: { id: 10 },
+    });
+  });
+  it('falls back: one code with only a merged course, several codes with no merged course', () => {
+    expect(matchTaxilaCourse([courses[1]!], 'S1-25', ['SS ZG653'])).toMatchObject({
+      kind: 'found',
+      course: { id: 2 },
+    });
+    expect(matchTaxilaCourse([courses[0]!], 'S1-25', ['SE ZG501', 'XX ZG501'])).toMatchObject({
+      kind: 'found',
+      course: { id: 1 },
     });
   });
   it('several matches are never guessed', () => {
-    const twice = [...courses, { id: 5, fullname: 'S1-26_SSZG653 (old copy)', shortname: '' }];
-    expect(matchTaxilaCourse(twice, 'S1-26', ['SS ZG653'])).toMatchObject({ kind: 'ambiguous' });
+    const twice = [
+      ...courses,
+      { id: 11, fullname: 'Software Architectures - old copy (S1-25_SSZG653)', shortname: '' },
+    ];
+    expect(matchTaxilaCourse(twice, 'S1-25', ['SS ZG653'])).toMatchObject({ kind: 'ambiguous' });
   });
 });
 
