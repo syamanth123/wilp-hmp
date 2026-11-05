@@ -215,3 +215,25 @@ publish result, bulk run in progress and finished, Excel report.
 Screenshots for review: Check in Taxila (found / folder missing / already there), a single publish, bulk publish
 part-way through, the programme-code mapping page. Push after ci-local is green; **don't merge**. Real Taxila stays
 untested until IT answers §C.
+
+## I. As built (v1.3.0)
+
+- **Commits:** email/stream/badges → Dibba codes (+ the one migration
+  `20261105120000_add_taxila_publish`) → Moodle client + fake Taxila → single publish → bulk publish →
+  CI step + docs.
+- **Moodle client** `packages/integrations/src/taxila-moodle.ts`; fake Taxila
+  `packages/integrations/src/testing/fake-moodle.ts` (also used for the review screenshots). Matching:
+  the one-code rule `<SEM>_<CODE>` with spaces removed on both sides, where only a following digit can
+  extend a code; merged courses by any of their codes; several matches → the IC picks.
+- **Publish** `apps/web/src/lib/taxila-publish.ts`; **bulk** `lib/taxila-runs.ts` (items claimed before
+  work; a WORKING item older than 3 min is freed; one course search per run, cached 15 min in the
+  server process; 1 s between courses, paced by the browser). Pages `/ic/taxila-runs`, report
+  `/api/taxila-runs/[id]/report`.
+- **On success the request page reloads into its Published state**; the publish log names the file
+  and links the course.
+- **PDF on the server:** `lib/export/handout-pdf.ts` (LibreOffice). On a Windows laptop a conversion
+  can occasionally exceed the 30 s limit; the item is then "Failed — couldn't make the PDF" and "Try
+  the problem courses again" publishes it. Linux (EC2, CI) converts in a few seconds.
+- **CI:** new step "e2e (Taxila on)" (ci.yml + ci-local) installs `libreoffice-writer-nogui`, sets
+  `TAXILA_URL=http://127.0.0.1:4599/webservice/` and a fake token, and runs `taxila-publish.spec.ts`;
+  the spec starts the fake Taxila itself. The main e2e run (no Taxila settings) skips it.
