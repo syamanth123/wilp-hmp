@@ -159,8 +159,9 @@ hmp-web`). Since v1.3.0 emails are sent after the page has answered, and a slow 
   the password.
 - **Publishing into Taxila (v1.3.0, "Mode C") stays off until IT's answers are in.** It is on only
   when both `TAXILA_URL='https://taxila-aws.bits-pilani.ac.in/webservice/'` (trailing slash kept)
-  and `TAXILA_TOKEN` (the HMP-only token from IT) are set; `TAXILA_HANDOUT_FOLDER` defaults to
-  `Course Handout`. Without them the IC keeps the ZIP + "Mark as manually published" flow. The
+  and `TAXILA_TOKEN` (the HMP-only token from IT) are set. HMP publishes into each course's
+  "Course Handout" File item as `Course Handout.pdf` (fixed since v1.3.1; `TAXILA_HANDOUT_FOLDER`
+  is no longer read). Without them the IC keeps the ZIP + "Mark as manually published" flow. The
   token is never logged or shown; never paste it into a ticket or screenshot. First try one handout
   on IT's test course (Check in Taxila, then Publish) before any bulk run. LibreOffice must be
   installed (it already is for PDF downloads).

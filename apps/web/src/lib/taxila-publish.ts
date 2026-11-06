@@ -10,15 +10,15 @@ import {
   type RoleName,
 } from '@hmp/db';
 import {
+  TAXILA_HANDOUT_FILE,
+  TAXILA_HANDOUT_ITEM,
   TaxilaError,
   checkInTaxila,
   createTaxilaClient,
   defaultTaxilaSemesterCode,
-  nextFreeFileName,
   publishFileToTaxila,
   redact,
   taxilaConfigFromEnv,
-  taxilaFileName,
   type CheckResult,
   type TaxilaClient,
   type TaxilaConfig,
@@ -29,9 +29,11 @@ import { buildApprovedHandoutPdf } from './export/handout-pdf';
 import { notifyTransition } from './notifications';
 
 /**
- * Publishing an approved handout into its Taxila course folder — "Mode C", v1.3.0
- * (docs/plans/taxila-publish.md §B2). Used by the IC's request page (one handout) and the bulk run
- * (one item at a time). Every publish re-checks Taxila first; nothing is uploaded twice.
+ * Publishing an approved handout into its Taxila course's "Course Handout" File item — "Mode C"
+ * (docs/plans/taxila-publish.md §B2; fixed-name rule v1.3.1). Used by the IC's request page (one
+ * handout) and the bulk run (one item at a time). Every publish re-checks Taxila first, always
+ * uploads "Course Handout.pdf" (replacing the one there) and reads the item back before the
+ * handout counts as published.
  */
 
 export interface PublishTarget {
@@ -87,10 +89,8 @@ export async function loadPublishTarget(requestId: string): Promise<PublishTarge
 
 export interface CheckView {
   check: CheckResult;
-  /** The name the file gets (the plain one). */
+  /** Always "Course Handout.pdf". */
   fileName: string;
-  /** When it's already there: the name "Publish as new version" would use. */
-  newVersionName: string | null;
 }
 
 /** "Check in Taxila" for one handout — nothing is uploaded. */
@@ -100,27 +100,18 @@ export async function checkRequestInTaxila(
   client: TaxilaClient,
   cfg: TaxilaConfig,
 ): Promise<CheckView> {
-  const fileName = taxilaFileName(target.codes, target.semesterName);
   const check = await checkInTaxila(client, cfg, {
     semesterCode: input.semesterCode,
     codes: target.codes,
-    fileName,
     courses: input.courses,
     courseId: input.courseId,
   });
-  return {
-    check,
-    fileName,
-    newVersionName:
-      check.status === 'already-there'
-        ? nextFreeFileName(target.codes, target.semesterName, check.folder.files)
-        : null,
-  };
+  return { check, fileName: TAXILA_HANDOUT_FILE };
 }
 
 export type PublishOutcome =
   | {
-      status: 'published' | 'already-there';
+      status: 'published';
       message: string;
       fileName: string;
       course: TaxilaCourse;
@@ -130,7 +121,8 @@ export type PublishOutcome =
       status:
         | 'not-found'
         | 'ambiguous'
-        | 'folder-missing'
+        | 'item-missing'
+        | 'other-files'
         | 'failed'
         | 'not-approved'
         | 'no-content';
@@ -176,15 +168,15 @@ async function logFailure(
 }
 
 /**
- * Publish one approved handout: re-check → PDF → upload → move → PUBLISHED (+ log, approval, audit)
- * → faculty notified. Already there and no new version asked → nothing is uploaded.
+ * Publish one approved handout: re-check → PDF → upload "Course Handout.pdf" → move (replaces the
+ * one there) → read back → PUBLISHED (+ log, approval, audit) → faculty notified. Blocked while the
+ * item holds any other file; nothing is uploaded then.
  */
 export async function publishRequestToTaxila(
   target: PublishTarget,
   input: {
     semesterCode: string;
     courseId?: number;
-    newVersion?: boolean;
     courses?: TaxilaCourse[];
     actor: Actor;
   },
@@ -222,29 +214,21 @@ export async function publishRequestToTaxila(
       ? { status: 'ambiguous', message: check.message, courses: check.courses }
       : { status: 'not-found', message: check.message };
   }
-  if (check.status === 'folder-missing') {
+  if (check.status === 'item-missing' || check.status === 'other-files') {
     await logFailure(target, {
-      step: 'folder',
+      step: 'item',
       message: check.message,
       semesterCode,
       course: check.course,
     });
     return {
-      status: 'folder-missing',
+      status: check.status,
       message: check.message,
       course: check.course,
       courseUrl: check.courseUrl,
     };
   }
-  if (check.status === 'already-there' && !input.newVersion)
-    return {
-      status: 'already-there',
-      message: 'Already in Taxila.',
-      fileName: view.fileName,
-      course: check.course,
-      courseUrl: check.courseUrl,
-    };
-  const fileName = check.status === 'already-there' ? view.newVersionName! : view.fileName;
+  const fileName = TAXILA_HANDOUT_FILE;
 
   let pdf: Buffer;
   try {
@@ -264,8 +248,7 @@ export async function publishRequestToTaxila(
   try {
     await publishFileToTaxila(client, {
       courseId: check.course.id,
-      contextid: check.folder.contextid,
-      fileName,
+      contextid: check.item.contextid,
       pdf,
     });
   } catch (err) {
@@ -292,9 +275,11 @@ export async function publishRequestToTaxila(
               taxilaCourseId: check.course.id,
               courseFullname: check.course.fullname,
               courseUrl: check.courseUrl,
-              folder: cfg.folderName,
-              contextid: check.folder.contextid,
+              item: TAXILA_HANDOUT_ITEM,
+              contextid: check.item.contextid,
               fileName,
+              size: pdf.length,
+              replaced: check.replaces,
               semesterCode,
             } as Prisma.InputJsonValue,
           },
@@ -338,7 +323,7 @@ export async function publishRequestToTaxila(
   });
   return {
     status: 'published',
-    message: `Published to Taxila as “${fileName}”.`,
+    message: `Published to Taxila: “${fileName}” in ${TAXILA_HANDOUT_ITEM}.`,
     fileName,
     course: check.course,
     courseUrl: check.courseUrl,

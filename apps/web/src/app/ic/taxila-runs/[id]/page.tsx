@@ -21,8 +21,9 @@ export default async function TaxilaRunPage({ params }: { params: { id: string }
           {run.rows.length} approved handout{run.rows.length === 1 ? '' : 's'} · started by{' '}
           {run.createdBy} on {formatDateTime(run.createdAt)}
           {run.finishedAt && <> · finished {formatDateTime(run.finishedAt)}</>}. Each PDF goes into
-          the “{cfg?.folderName ?? 'Course Handout'}” folder of its course. You can pause or close
-          this page at any time and come back — nothing is published twice.{' '}
+          its course’s “Course Handout” item as Course Handout.pdf, replacing the one there. A
+          course whose item holds any other file is held back until that file is removed. You can
+          pause or close this page at any time and come back — nothing is published twice.{' '}
           <Link href="/ic/taxila-runs" className="underline">
             All runs
           </Link>

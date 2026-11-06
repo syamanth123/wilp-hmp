@@ -115,7 +115,7 @@ The portal reads its config from `.env` (see `.env.example`). Key vars:
 - `DATABASE_URL`
 - `NEXTAUTH_URL`, `NEXTAUTH_SECRET`
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` — Mailhog locally, real SMTP in prod (`SMTP_TIMEOUT_MS`, default 10000)
-- `TAXILA_URL`, `TAXILA_TOKEN`, `TAXILA_HANDOUT_FOLDER` — publishing into Taxila (v1.3.0); off unless both URL and token are set
+- `TAXILA_URL`, `TAXILA_TOKEN` — publishing into Taxila (v1.3.0; each course's "Course Handout" File item, file `Course Handout.pdf`, since v1.3.1); off unless both are set
 - `CRON_SECRET` — required for `/api/cron/reminders`
 - `AI_PROVIDER` (`openai` | `anthropic`) + `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Empty keys → heuristic-only fallback.
 - `S3_ENDPOINT`/`S3_BUCKET`/`S3_ACCESS_KEY`/`S3_SECRET_KEY` — MinIO locally.

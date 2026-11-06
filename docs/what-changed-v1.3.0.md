@@ -1,5 +1,8 @@
 # What changed in HMP v1.3.0 — publishing into Taxila
 
+> **Superseded in part by v1.3.1** (`docs/what-changed-v1.3.1.md`): HMP now publishes into the
+> "Course Handout" File item as `Course Handout.pdf`, and "Publish as new version" is gone.
+
 **In one line:** the Instruction Cell can now put an approved handout's PDF straight into its Taxila
 course — one at a time or many at once — using the same method IT's question-paper system uses.
 

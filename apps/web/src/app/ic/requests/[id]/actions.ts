@@ -307,7 +307,7 @@ export async function archiveAction(formData: FormData) {
   return { ok: true };
 }
 
-// ── v1.3.0 "Mode C": publish into the course's Taxila folder (lib/taxila-publish.ts) ──────────
+// ── "Mode C": publish into the course's Taxila "Course Handout" item (lib/taxila-publish.ts) ──
 
 const taxilaSchema = z.object({
   requestId: z.string().cuid(),
@@ -316,7 +316,6 @@ const taxilaSchema = z.object({
     .trim()
     .regex(/^[A-Za-z0-9-]{2,12}$/, 'Type the Taxila semester code, e.g. S1-26.'),
   courseId: z.coerce.number().int().positive().optional(),
-  newVersion: z.enum(['0', '1']).optional(),
 });
 
 function parseTaxila(formData: FormData) {
@@ -324,11 +323,10 @@ function parseTaxila(formData: FormData) {
     requestId: formData.get('requestId'),
     semesterCode: formData.get('semesterCode') ?? '',
     courseId: formData.get('courseId') || undefined,
-    newVersion: formData.get('newVersion') || undefined,
   });
 }
 
-/** "Check in Taxila": finds the course and folder; uploads nothing. IC only. */
+/** "Check in Taxila": finds the course and its Course Handout item; uploads nothing. IC only. */
 export async function checkTaxilaAction(formData: FormData) {
   requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = parseTaxila(formData);
@@ -345,7 +343,7 @@ export async function checkTaxilaAction(formData: FormData) {
       taxilaClient(cfg),
       cfg,
     );
-    return { ok: true, view, folderName: cfg.folderName } as const;
+    return { ok: true, view } as const;
   } catch (err) {
     return {
       error: err instanceof TaxilaError ? err.message : 'Taxila couldn’t be checked. Try again.',
@@ -353,7 +351,7 @@ export async function checkTaxilaAction(formData: FormData) {
   }
 }
 
-/** Publish: re-checks, uploads the PDF, moves it into the folder, marks it published. IC only. */
+/** Publish: re-checks, uploads Course Handout.pdf into the item, reads it back, marks it published. IC only. */
 export async function publishTaxilaAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
   const parsed = parseTaxila(formData);
@@ -368,7 +366,6 @@ export async function publishTaxilaAction(formData: FormData) {
     {
       semesterCode: parsed.data.semesterCode,
       courseId: parsed.data.courseId,
-      newVersion: parsed.data.newVersion === '1',
       actor: { id: actor.id, name: actor.name, roles: actor.roles },
     },
     taxilaClient(cfg),

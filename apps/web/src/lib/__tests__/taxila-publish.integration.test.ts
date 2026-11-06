@@ -139,31 +139,37 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
         {
           id: 7001,
           fullname: 'Taxila Test (S1-26_QTXZG653)',
-          folder: { name: 'Course Handout', contextid: 8001, files: [] },
+          item: {
+            name: 'Course Handout',
+            contextid: 8001,
+            files: [{ filename: 'Course Handout.pdf', size: 900 }],
+          },
         },
-        { id: 7002, fullname: 'No Folder (S1-26_QTXZG654)' },
+        { id: 7002, fullname: 'No Item (S1-26_QTXZG654)' },
         {
           id: 7003,
-          fullname: 'Has File (S1-26_QTXZG655)',
-          folder: { name: 'Course Handout', contextid: 8003, files: [] },
+          fullname: 'Old File Too (S1-26_QTXZG655)',
+          item: {
+            name: 'Course Handout',
+            contextid: 8003,
+            files: [
+              ...[{ filename: 'Course Handout.pdf', size: 900 }],
+              { filename: 'QTX ZG655 Handout 2025.pdf', size: 9 },
+            ],
+          },
         },
       ],
     });
     cfg = {
       url: fake.url,
       token: TOKEN,
-      folderName: 'Course Handout',
-      timeoutMs: 2_000,
+      timeoutMs: 5_000,
       backoffMs: [0, 0],
     };
     ids.ready = await seedRequest('QTX ZG653', 1);
-    ids.noFolder = await seedRequest('QTX ZG654', 2);
-    ids.there = await seedRequest('QTX ZG655', 3);
+    ids.noItem = await seedRequest('QTX ZG654', 2);
+    ids.otherFiles = await seedRequest('QTX ZG655', 3);
     ids.draft = await seedRequest('QTX ZG656', 4, HandoutStatus.IN_PROGRESS);
-    fake.courses[2]!.folder!.files.push({
-      filename: 'QTX ZG655 Course Handout Sem-I 2026-27.pdf',
-      size: 9,
-    });
   });
 
   afterAll(async () => {
@@ -199,11 +205,11 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       cfg,
     );
     expect(view.check.status).toBe('ready');
-    expect(view.fileName).toBe('QTX ZG653 Course Handout Sem-I 2026-27.pdf');
+    expect(view.fileName).toBe('Course Handout.pdf');
     expect(fake.calls.some((c) => c.step === 'upload')).toBe(false);
   });
 
-  it('publishes: file in the folder, handout PUBLISHED, log has the HMP reference and Taxila course id', async () => {
+  it('publishes: Course Handout.pdf replaces the placeholder, handout PUBLISHED, log has the HMP reference and Taxila course id', async () => {
     const out = await publishRequestToTaxila(
       await target(ids.ready!),
       { semesterCode: 'S1-26', actor },
@@ -212,11 +218,13 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
     );
     expect(out).toMatchObject({
       status: 'published',
-      fileName: 'QTX ZG653 Course Handout Sem-I 2026-27.pdf',
+      fileName: 'Course Handout.pdf',
+      message: 'Published to Taxila: “Course Handout.pdf” in Course Handout.',
     });
-    expect(fake.courses[0]!.folder!.files.map((f) => f.filename)).toEqual([
-      'QTX ZG653 Course Handout Sem-I 2026-27.pdf',
-    ]);
+    const files = fake.courses[0]!.item!.files;
+    expect(files.map((f) => f.filename)).toEqual(['Course Handout.pdf']);
+    // The handout's PDF (mocked above), not the 900-byte placeholder.
+    expect(files[0]!.size).toBe(Buffer.byteLength('%PDF-1.4 test handout'));
     const req = await prisma.handoutRequest.findUniqueOrThrow({
       where: { id: ids.ready },
       include: { handout: { include: { publishLogs: true } }, approvals: true },
@@ -230,6 +238,10 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       refNo: `${REF}0001`,
       taxilaCourseId: 7001,
       semesterCode: 'S1-26',
+      item: 'Course Handout',
+      fileName: 'Course Handout.pdf',
+      size: files[0]!.size,
+      replaced: true,
     });
   });
 
@@ -255,72 +267,118 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
     expect(out.status).toBe('not-approved');
   });
 
-  it('folder missing: nothing uploaded, still approved, the failure is logged with its step', async () => {
+  it('item missing: nothing uploaded, still approved, the failure is logged with its step', async () => {
     const out = await publishRequestToTaxila(
-      await target(ids.noFolder!),
+      await target(ids.noItem!),
       { semesterCode: 'S1-26', actor },
       client(),
       cfg,
     );
     expect(out).toMatchObject({
-      status: 'folder-missing',
-      message: "Folder 'Course Handout' not found in General.",
+      status: 'item-missing',
+      message:
+        "Create a File named 'Course Handout' in General with a placeholder named Course Handout.pdf, then check again.",
     });
     const req = await prisma.handoutRequest.findUniqueOrThrow({
-      where: { id: ids.noFolder },
+      where: { id: ids.noItem },
       include: { handout: { include: { publishLogs: true } } },
     });
     expect(req.status).toBe(HandoutStatus.APPROVED);
     expect(req.handout!.publishLogs[0]).toMatchObject({ status: 'failed', mode: 'TAXILA_FOLDER' });
     expect(req.handout!.publishLogs[0]!.responseJson).toMatchObject({
-      step: 'folder',
+      step: 'item',
       refNo: `${REF}0002`,
     });
   });
 
-  it('already in Taxila: not uploaded again; "new version" adds " v2"', async () => {
+  it('another file in the item blocks it: nothing uploaded, still approved; once removed, it publishes', async () => {
     const before = fake.calls.filter((c) => c.step === 'upload').length;
     const out = await publishRequestToTaxila(
-      await target(ids.there!),
+      await target(ids.otherFiles!),
       { semesterCode: 'S1-26', actor },
       client(),
       cfg,
     );
-    expect(out.status).toBe('already-there');
+    expect(out).toMatchObject({
+      status: 'other-files',
+      message:
+        "Remove 'QTX ZG655 Handout 2025.pdf' from Course Handout first, so students see the published handout.",
+    });
     expect(fake.calls.filter((c) => c.step === 'upload').length).toBe(before);
+    expect((await target(ids.otherFiles!)).status).toBe(HandoutStatus.APPROVED);
 
-    const v2 = await publishRequestToTaxila(
-      await target(ids.there!),
-      { semesterCode: 'S1-26', actor, newVersion: true },
+    // The IC removes the old file in Taxila, then publishes.
+    const handoutItem = fake.courses[2]!.item!;
+    handoutItem.files = handoutItem.files.filter((f) => f.filename === 'Course Handout.pdf');
+    const ok = await publishRequestToTaxila(
+      await target(ids.otherFiles!),
+      { semesterCode: 'S1-26', actor },
       client(),
       cfg,
     );
-    expect(v2).toMatchObject({
-      status: 'published',
-      fileName: 'QTX ZG655 Course Handout Sem-I 2026-27 v2.pdf',
+    expect(ok.status).toBe('published');
+    expect(handoutItem.files.map((f) => f.filename)).toEqual(['Course Handout.pdf']);
+  });
+
+  it('a publish Taxila doesn’t confirm stays approved and is logged as failed', async () => {
+    const id = await seedRequest('QTX ZG660', 5);
+    fake.courses.push({
+      id: 7005,
+      fullname: 'Unconfirmed (S1-26_QTXZG660)',
+      item: {
+        name: 'Course Handout',
+        contextid: 8005,
+        files: [{ filename: 'Course Handout.pdf', size: 900 }],
+      },
     });
-    expect(fake.courses[2]!.folder!.files.map((f) => f.filename)).toEqual([
-      'QTX ZG655 Course Handout Sem-I 2026-27.pdf',
-      'QTX ZG655 Course Handout Sem-I 2026-27 v2.pdf',
-    ]);
+    fake.failures.move = 'move-no-effect';
+    try {
+      const out = await publishRequestToTaxila(
+        await target(id),
+        { semesterCode: 'S1-26', actor },
+        client(),
+        cfg,
+      );
+      expect(out).toMatchObject({ status: 'failed', step: 'verify' });
+      expect(out.message).toMatch(
+        /^Uploaded, but the Course Handout.pdf in Taxila isn't the new file/,
+      );
+    } finally {
+      fake.failures = {};
+    }
+    const req = await prisma.handoutRequest.findUniqueOrThrow({
+      where: { id },
+      include: { handout: { include: { publishLogs: true } } },
+    });
+    expect(req.status).toBe(HandoutStatus.APPROVED);
+    expect(req.handout!.publishLogs[0]).toMatchObject({ status: 'failed' });
+    expect(req.handout!.publishLogs[0]!.responseJson).toMatchObject({ step: 'verify' });
   });
 
   describe('bulk run (one course at a time, resumable)', () => {
     it('check uploads nothing; publish goes on past a failure; a second tab resumes without double-publishing', async () => {
       const a = await seedRequest('QTX ZG657', 11);
-      const b = await seedRequest('QTX ZG658', 12); // no Taxila folder
+      const b = await seedRequest('QTX ZG658', 12); // no Course Handout item
       const c = await seedRequest('QTX ZG659', 13);
       fake.courses.push(
         {
           id: 7011,
           fullname: 'Bulk A (S1-26_QTXZG657)',
-          folder: { name: 'Course Handout', contextid: 8011, files: [] },
+          item: {
+            name: 'Course Handout',
+            contextid: 8011,
+            files: [{ filename: 'Course Handout.pdf', size: 900 }],
+          },
         },
-        { id: 7012, fullname: 'Bulk B, no folder (S1-26_QTXZG658)' },
+        { id: 7012, fullname: 'Bulk B, no item (S1-26_QTXZG658)' },
         {
           id: 7013,
           fullname: 'Bulk C (S1-26_QTXZG659)',
-          folder: { name: 'Course Handout', contextid: 8013, files: [] },
+          item: {
+            name: 'Course Handout',
+            contextid: 8013,
+            files: [{ filename: 'Course Handout.pdf', size: 900 }],
+          },
         },
       );
       const created = await createTaxilaRun({
@@ -337,7 +395,7 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       const uploads = fake.calls.filter((x) => x.step === 'upload').length;
       while (!(await processNextItem(runId, 'check', actor, client(), cfg)).done);
       let rows = (await loadRun(runId))!.rows;
-      expect(rows.map((r) => r.status)).toEqual(['READY', 'FOLDER_MISSING', 'READY']);
+      expect(rows.map((r) => r.status)).toEqual(['READY', 'ITEM_MISSING', 'READY']);
       expect(fake.calls.filter((x) => x.step === 'upload').length).toBe(uploads);
       expect(fake.calls.filter((x) => x.step === 'search').length).toBe(searches + 1); // one search per run
 
@@ -349,7 +407,7 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       expect(last.done).toBe(true);
       expect(last.itemId).toBeTruthy();
       rows = (await loadRun(runId))!.rows;
-      expect(rows.map((r) => r.status)).toEqual(['PUBLISHED', 'FOLDER_MISSING', 'PUBLISHED']);
+      expect(rows.map((r) => r.status)).toEqual(['PUBLISHED', 'ITEM_MISSING', 'PUBLISHED']);
       expect((await loadRun(runId))!.status).toBe('DONE');
       // The IC who started it gets one summary (in HMP and by email).
       const summaries = () =>
@@ -364,19 +422,19 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       // Asking again changes nothing and sends nothing more.
       expect((await processNextItem(runId, 'publish', actor, client(), cfg)).done).toBe(true);
       expect(await summaries()).toHaveLength(2);
-      expect(fake.courses.find((x) => x.id === 7011)!.folder!.files).toHaveLength(1);
-      expect(fake.courses.find((x) => x.id === 7013)!.folder!.files).toHaveLength(1);
+      expect(fake.courses.find((x) => x.id === 7011)!.item!.files).toHaveLength(1);
+      expect(fake.courses.find((x) => x.id === 7013)!.item!.files).toHaveLength(1);
       expect(
         await prisma.handoutRequest.count({
           where: { id: { in: [a, c] }, status: HandoutStatus.PUBLISHED },
         }),
       ).toBe(2);
 
-      // IC creates the missing folder; "try the problem courses again" publishes just that one.
-      fake.courses.find((x) => x.id === 7012)!.folder = {
+      // IC creates the missing item; "try the problem courses again" publishes just that one.
+      fake.courses.find((x) => x.id === 7012)!.item = {
         name: 'Course Handout',
         contextid: 8012,
-        files: [],
+        files: [{ filename: 'Course Handout.pdf', size: 900 }],
       };
       expect(await retryProblemItems(runId)).toBe(1);
       while (!(await processNextItem(runId, 'publish', actor, client(), cfg)).done);
@@ -384,7 +442,7 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       expect(rows.map((r) => r.status)).toEqual(['PUBLISHED', 'PUBLISHED', 'PUBLISHED']);
       expect(await summaries()).toHaveLength(4); // a second finish, a second summary
       for (const id of [7011, 7012, 7013])
-        expect(fake.courses.find((x) => x.id === id)!.folder!.files).toHaveLength(1);
+        expect(fake.courses.find((x) => x.id === id)!.item!.files).toHaveLength(1);
     });
   });
 

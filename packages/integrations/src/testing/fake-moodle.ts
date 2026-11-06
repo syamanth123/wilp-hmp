@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
  * appears only where Moodle needs it).
  */
 
-export interface FakeFolderFile {
+export interface FakeFile {
   filename: string;
   size: number;
 }
@@ -16,8 +16,10 @@ export interface FakeCourse {
   id: number;
   fullname: string;
   shortname?: string;
-  /** Section "General"'s modules. Omit `folder` to model a course without the handout folder. */
-  folder?: { name: string; contextid: number; files: FakeFolderFile[] };
+  /** General's "Course Handout" File item (mod_resource). Omit it to model a course without one. */
+  item?: { name: string; contextid: number; files: FakeFile[] };
+  /** Other modules in General — e.g. an old "Course Handout" folder HMP must ignore. */
+  extraModules?: { name: string; modname: string; contextid: number; files?: FakeFile[] }[];
   /** No "General" section at all. */
   noGeneral?: boolean;
 }
@@ -28,6 +30,7 @@ export type FakeFailure =
   | 'hang' // never answers (client timeout)
   | 'exception' // Moodle-style {exception, errorcode, message} with HTTP 200
   | 'move-not-success' // move answers {status: "failed"}
+  | 'move-no-effect' // move answers "success" but places nothing (the read-back must catch it)
   | 'hang-after-move'; // performs the move, then never answers
 
 export interface FakeMoodle {
@@ -42,6 +45,14 @@ export interface FakeMoodle {
   delayMs: number;
   close(): Promise<void>;
 }
+
+const asContent = (f: FakeFile) => ({
+  type: 'file',
+  filename: f.filename,
+  filepath: '/',
+  filesize: f.size,
+  sortorder: 0,
+});
 
 const json = (res: ServerResponse, body: unknown, status = 200) => {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -100,7 +111,8 @@ export async function startFakeMoodle(opts: {
 
   const fail = (res: ServerResponse, step: FakeStep): boolean => {
     const f = fake.failures[step];
-    if (!f || f === 'hang-after-move' || f === 'move-not-success') return false;
+    if (!f || f === 'hang-after-move' || f === 'move-not-success' || f === 'move-no-effect')
+      return false;
     if (f === 'hang') return true; // leave the request open
     if (f === 'http500') json(res, { error: 'boom' }, 500);
     else
@@ -198,19 +210,21 @@ export async function startFakeMoodle(opts: {
                 name: 'General',
                 modules: [
                   { id: 7, name: 'Announcements', modname: 'forum', contextid: 111 },
-                  ...(c.folder
+                  ...(c.extraModules ?? []).map((m, i) => ({
+                    id: 20 + i,
+                    name: m.name,
+                    modname: m.modname,
+                    contextid: m.contextid,
+                    contents: (m.files ?? []).map(asContent),
+                  })),
+                  ...(c.item
                     ? [
                         {
                           id: 9,
-                          name: c.folder.name,
-                          modname: 'folder',
-                          contextid: c.folder.contextid,
-                          contents: c.folder.files.map((f) => ({
-                            type: 'file',
-                            filename: f.filename,
-                            filepath: '/',
-                            filesize: f.size,
-                          })),
+                          name: c.item.name,
+                          modname: 'resource',
+                          contextid: c.item.contextid,
+                          contents: c.item.files.map(asContent),
                         },
                       ]
                     : []),
@@ -224,20 +238,28 @@ export async function startFakeMoodle(opts: {
         if (fake.failures.move === 'move-not-success') return json(res, { status: 'failed' });
         const draft = drafts.get(Number(params.get('draftitemid')));
         const course = fake.courses.find(
-          (c) => c.folder?.contextid === Number(params.get('contextid')),
+          (c) => c.item?.contextid === Number(params.get('contextid')),
         );
         if (
           !draft ||
-          !course?.folder ||
-          params.get('component') !== 'mod_folder' ||
+          !course?.item ||
+          params.get('component') !== 'mod_resource' ||
           params.get('filearea') !== 'content' ||
           params.get('itemid') !== '0'
         )
           return json(res, { status: 'failed' });
-        course.folder.files.push({ filename: draft.filename, size: draft.size });
         drafts.delete(Number(params.get('draftitemid')));
+        if (fake.failures.move !== 'move-no-effect') {
+          // As Taxila does: a file with the same name is replaced, any other name is added beside.
+          const files = course.item.files.filter((f) => f.filename !== draft.filename);
+          course.item.files = [...files, { filename: draft.filename, size: draft.size }];
+        }
         if (fake.failures.move === 'hang-after-move') return; // moved, but the answer never comes
-        return json(res, { status: 'success' });
+        return json(res, {
+          status: 'success',
+          message: 'Files moved and replaced if existed.',
+          files: [draft.filename],
+        });
       }
       return json(res, {
         exception: 'dml_missing_record_exception',
@@ -256,26 +278,41 @@ export async function startFakeMoodle(opts: {
   return fake;
 }
 
-/** A small Taxila for demos and tests: S1-26 courses, one without the folder, one already holding the file. */
-export function sampleTaxilaCourses(folderName = 'Course Handout'): FakeCourse[] {
+/**
+ * A small Taxila for demos and tests (S1-26): Course Handout items holding the placeholder, one
+ * course without the item, one whose item still holds an old file beside the placeholder.
+ */
+export function sampleTaxilaCourses(): FakeCourse[] {
+  const placeholder = (): FakeFile[] => [{ filename: 'Course Handout.pdf', size: 900 }];
   // Real Taxila name shapes (taxila-discover.log, 5 Nov 2026).
   return [
     {
       id: 4101,
       fullname: 'Software Architectures (S1-26_SSZG653)',
-      folder: { name: folderName, contextid: 9101, files: [] },
+      item: { name: 'Course Handout', contextid: 9101, files: placeholder() },
     },
     {
       id: 4102,
       fullname: 'Software Engineering (S1-26_SEZG501)',
-      folder: { name: folderName, contextid: 9102, files: [] },
+      item: { name: 'Course Handout', contextid: 9102, files: placeholder() },
+      // An old-style folder of the same name — HMP never publishes into it.
+      extraModules: [{ name: 'Course Handout', modname: 'folder', contextid: 8102 }],
     },
     { id: 4103, fullname: 'Introduction to Parallel and Distributed Programming (S1-26_CCZG501)' },
     {
       id: 4104,
       fullname:
         'Quantitative Methods | Business Statistics (Merged - MBAZC417/PDBAZC417/PDFTZC417)(S1-26)',
-      folder: { name: folderName, contextid: 9104, files: [] },
+      item: { name: 'Course Handout', contextid: 9104, files: placeholder() },
+    },
+    {
+      id: 4105,
+      fullname: 'Software Testing (S1-26_SEZG503)',
+      item: {
+        name: 'Course Handout',
+        contextid: 9105,
+        files: [...placeholder(), { filename: 'Old handout 2025.pdf', size: 700 }],
+      },
     },
   ];
 }

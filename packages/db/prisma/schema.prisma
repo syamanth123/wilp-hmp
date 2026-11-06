@@ -970,10 +970,10 @@ model TaxilaPublishItem {
   requestId      String
   request        HandoutRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
   position       Int
-  // "PENDING" | "PUBLISHED" | "ALREADY_THERE" | "NOT_FOUND" | "AMBIGUOUS" | "FOLDER_MISSING" |
-  // "FAILED" | "SKIPPED"
+  // "PENDING" | "WORKING" | "READY" | "PUBLISHED" | "NOT_FOUND" | "AMBIGUOUS" | "ITEM_MISSING" |
+  // "OTHER_FILES" | "FAILED" | "SKIPPED"  (v1.3.1: one "Course Handout.pdf" per Course Handout item)
   status         String           @default("PENDING")
-  // The step that decided it ("search", "folder", "upload", "move", "pdf", "status").
+  // The step that decided it ("search", "item", "upload", "move", "verify", "pdf", "status").
   step           String?
   message        String?
   fileName       String?
