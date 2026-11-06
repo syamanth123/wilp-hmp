@@ -7,6 +7,9 @@ const TABS = [
   { href: '/ic/requests/new', label: 'New request' },
   { href: '/ic/semesters', label: 'Semesters & dates' },
   { href: '/ic/dibba', label: 'Course Dibba' },
+  // v1.4.0: the IC confirms each person's department (Admin accounts stay with the Admin).
+  { href: '/ic/people', label: 'People' },
+  { href: '/ic/departments', label: 'Departments' },
 ];
 
 export const dynamic = 'force-dynamic';

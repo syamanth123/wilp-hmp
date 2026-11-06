@@ -32,15 +32,21 @@ enum FacultyType {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  name         String
-  passwordHash String?
-  ssoSubject   String?      @unique
-  facultyType  FacultyType?
-  active       Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String
+  passwordHash  String?
+  ssoSubject    String?      @unique
+  facultyType   FacultyType?
+  active        Boolean      @default(true)
+  // v1.4: one department per person (IC / Admin: none = all departments).
+  departmentId  String?
+  department    Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  // v1.4: bumped on every role / department / active change, so open sessions re-read access on the
+  // next request instead of keeping the roles they signed in with.
+  accessVersion Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   roles                    UserRole[]
   initiatedRequests        HandoutRequest[]    @relation("RequestInitiator")
@@ -63,8 +69,12 @@ model User {
   // Handout Library (v1.2.0): this person's named library views.
   savedViews               SavedView[]
   taxilaPublishRuns        TaxilaPublishRun[]
+  // v1.4: who is responsible for a request, per role (and who assigned them).
+  requestAssignments       RequestAssignee[]   @relation("RequestAssigneeUser")
+  requestAssignmentsMade   RequestAssignee[]   @relation("RequestAssigneeAssigner")
 
   @@index([email])
+  @@index([departmentId])
 }
 
 model Role {
@@ -106,15 +116,46 @@ model RolePermission {
 // =====================================================================
 
 model Programme {
-  id         String               @id @default(cuid())
-  code       String               @unique
-  name       String
-  active     Boolean              @default(true)
-  semesters  Semester[]
+  id           String               @id @default(cuid())
+  code         String               @unique
+  name         String
+  active       Boolean              @default(true)
+  semesters    Semester[]
   // v1.3.0: Course Dibba programme codes ("18BT/18ET", "HT15") linked to this programme.
-  dibbaCodes DibbaProgrammeCode[]
-  createdAt  DateTime             @default(now())
-  updatedAt  DateTime             @updatedAt
+  dibbaCodes   DibbaProgrammeCode[]
+  // v1.4: the department this programme belongs to (a request's department = its programme's).
+  departmentId String?
+  department   Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+}
+
+// v1.4: an academic department ("MBA / Management", "Core Engineering", "CSIS", "EEE"), one HOG each.
+model Department {
+  id         String      @id @default(cuid())
+  code       String      @unique
+  name       String
+  active     Boolean     @default(true)
+  users      User[]
+  programmes Programme[]
+  // v1.4.0: Course Dibba programme codes tagged straight to this department (when not linked to an HMP programme).
+  dibbaCodes DibbaProgrammeDepartment[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+/// v1.4.0: the department of a Course Dibba programme code ("HT15", "MB21/HB21"). Used when the code is not
+/// linked to an HMP programme that has a department (that link wins). Feeds the people department suggestions.
+model DibbaProgrammeDepartment {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  updatedById  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([departmentId])
 }
 
 model Semester {
@@ -241,6 +282,8 @@ model HandoutRequest {
   auditLogs          AuditLog[]
   taxilaPublishItems TaxilaPublishItem[]
   smeAssignment      SmeAssignment?
+  // v1.4: who is responsible now, per role (HOG, PC, FACULTY, SME), with history.
+  assignees          RequestAssignee[]
 
   @@index([status])
   @@index([courseOfferingId])
@@ -940,4 +983,24 @@ model TaxilaPublishItem {
 
   @@unique([runId, requestId])
   @@index([runId, position])
+}
+
+// v1.4 — the single answer to "who is responsible for this request now", per role. The current
+// person has endedAt = null; a reassignment ends the old row (with the reason) and adds a new one,
+// so the history stays. FacultyAssignment / SmeAssignment keep working alongside.
+model RequestAssignee {
+  id           String         @id @default(cuid())
+  requestId    String
+  request      HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  role         RoleName
+  userId       String
+  user         User           @relation("RequestAssigneeUser", fields: [userId], references: [id], onDelete: Restrict)
+  assignedById String?
+  assignedBy   User?          @relation("RequestAssigneeAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt   DateTime       @default(now())
+  endedAt      DateTime?
+  reason       String?
+
+  @@index([requestId, role])
+  @@index([userId, endedAt])
 }

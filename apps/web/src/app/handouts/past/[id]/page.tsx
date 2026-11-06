@@ -27,7 +27,7 @@ export default async function PastHandoutPage({
   searchParams: Record<string, string | undefined>;
 }) {
   const user = await getSessionUser();
-  if (!user) redirect('/login');
+  if (!user) redirect('/api/session-ended'); // signed in, but switched off since (v1.4.0)
   const row = await prisma.handoutImport.findFirst({
     where: { AND: [{ id: params.id }, PAST_HANDOUT_SCOPE] },
     select: {

@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  */
 export default async function CourseHistoryPage({ params }: { params: { code: string } }) {
   const user = await getSessionUser();
-  if (!user) redirect('/login');
+  if (!user) redirect('/api/session-ended'); // signed in, but switched off since (v1.4.0)
   const h = await courseHistory(user, params.code);
 
   return (

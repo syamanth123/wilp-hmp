@@ -4,7 +4,8 @@ import { aiFeaturesEnabled } from '@/lib/features';
 
 const TABS = [
   { href: '/admin', label: 'Overview' },
-  { href: '/admin/users', label: 'Users' },
+  { href: '/admin/people', label: 'People' },
+  { href: '/admin/departments', label: 'Departments' },
   { href: '/admin/roles', label: 'Roles' },
   { href: '/admin/programmes', label: 'Programmes' },
   { href: '/admin/dibba-codes', label: 'Dibba codes' },

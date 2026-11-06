@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { normalizeBitsCourseNumber } from '../src/course-code';
 import { STANDARD_SLOTS } from '../src/dibba-slots';
 import { seedScaffolding, assertDevOnly } from './seed-scaffolding';
+import { seedDepartmentsDemo } from './seed-departments-demo';
 
 const prisma = new PrismaClient();
 
@@ -380,6 +381,9 @@ async function main() {
   } catch (err) {
     console.warn('[seed] SME assignment upsert failed (non-fatal):', err);
   }
+
+  // v1.4: departments for the demo programmes and people (+ an MBA HOG and PC).
+  await seedDepartmentsDemo(prisma);
 
   console.log('Seed complete.');
 }

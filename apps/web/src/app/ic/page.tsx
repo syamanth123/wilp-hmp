@@ -8,6 +8,7 @@ import { loadActiveTerm } from '@hmp/db/src/dibba-schedule/load';
 import { viewHref, viewWhere } from '@/lib/request-views';
 import { termProgress } from '@/lib/term-progress';
 import { dateFormatter } from '@/lib/format-date';
+import { DepartmentChecksPanel } from '@/app/admin/department-checks';
 
 // One date style everywhere, in India time (lib/format-date.ts).
 const fmtTermEnd = dateFormatter;
@@ -256,6 +257,9 @@ export default async function ICOverview() {
         />
         <StatCard label="Days to term close" value={daysLeft} sub={termSub} icon={<BellIcon />} />
       </div>
+
+      {/* v1.4.0: departments still to fill in — the IC confirms them (People, Departments). */}
+      <DepartmentChecksPanel base="/ic" />
 
       <SlaWidgets role="IC" />
 

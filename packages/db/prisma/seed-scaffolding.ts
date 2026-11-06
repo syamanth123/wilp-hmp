@@ -1,4 +1,4 @@
-import type { PrismaClient} from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { RoleName, NotificationChannel } from '@prisma/client';
 import {
   SME_APPROVAL_TEMPLATES,
@@ -231,4 +231,17 @@ export async function seedScaffolding(prisma: PrismaClient): Promise<void> {
     update: {},
     create: { key: 'default', matrixJson: WORKFLOW_CONFIG_MATRIX },
   });
+
+  // v1.4: the four departments (created once; Admin may rename them — never overwritten).
+  for (const d of DEPARTMENTS) {
+    await prisma.department.upsert({ where: { code: d.code }, update: {}, create: d });
+  }
 }
+
+/** v1.4 departments, one HOG each (names editable in Admin → Departments). */
+export const DEPARTMENTS: Array<{ code: string; name: string }> = [
+  { code: 'MBA', name: 'MBA / Management' },
+  { code: 'CORE', name: 'Core Engineering' },
+  { code: 'CSIS', name: 'CSIS' },
+  { code: 'EEE', name: 'EEE' },
+];

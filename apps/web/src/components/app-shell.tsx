@@ -188,7 +188,7 @@ export async function AppShell({
   children: React.ReactNode;
 }) {
   const user = await getSessionUser();
-  if (!user) redirect('/login');
+  if (!user) redirect('/api/session-ended'); // signed in, but switched off since (v1.4.0)
   if (!isAllowed(user, area)) {
     return <ForbiddenView user={user} />;
   }
