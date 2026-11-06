@@ -60,6 +60,25 @@ Status-gated cards:
 - `PUBLISHED` → **Archive handout** button. Requires confirm checkbox; transitions to `ARCHIVED`.
 - All states → **Comment thread** with **Post comment**.
 
+## People and departments (`/ic/people`, `/ic/departments`, v1.4.0)
+
+The IC confirms which department each faculty member belongs to. The pages are the Admin's own,
+with two limits: you can't give or remove the **Admin** role, and an **Admin account** opens
+read-only.
+
+- **IC overview → "Departments — what's missing"** says what is left to fill in.
+- **People → Download the list (Excel)**: everyone, with a _suggested department_ (from the courses
+  they taught) and _why_. Upload it back (**People → Upload people**), press **Accept all
+  suggestions**, check the preview and **Apply**. Rows marked _Needs a decision_ (taught in more
+  than one department, or a Head of Group) need the department typed in the file.
+- **People → Edit** on one person: set the department (or **Use it** on the suggestion), roles,
+  faculty type. If the change would leave open handouts without an owner, HMP asks who takes them
+  over first.
+- **Departments**: rename a department or make it inactive (never deleted); set the department of
+  each HMP programme and each Course Dibba programme (**Accept all** takes the title suggestions).
+- In an upload, a row that would change an Admin account or give the Admin role is marked _Error_;
+  an Admin's row left exactly as it is passes.
+
 ## Bulk publish to Taxila (v1.3.0)
 
 Handout Library → **Published** → **Approved, not yet published**: tick the handouts (or _Tick all

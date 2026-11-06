@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { loadDepartmentChecks } from '@/lib/department-checks';
+import type { PeopleBase } from '@/lib/people-access';
 
-/** Admin overview: what is still missing for departments (v1.4.0, plan F14). */
-export async function DepartmentChecksPanel() {
+/** Admin and IC overviews: what is still missing for departments (v1.4.0, plan F14). */
+export async function DepartmentChecksPanel({ base = '/admin' }: { base?: PeopleBase }) {
   const c = await loadDepartmentChecks();
   const items: { key: string; text: string; href: string; action: string }[] = [];
   if (c.peopleWithoutDepartment)
@@ -13,35 +14,35 @@ export async function DepartmentChecksPanel() {
         (c.peopleWithSuggestion
           ? ` (${c.peopleWithSuggestion} with a suggestion ready to accept)`
           : ''),
-      href: '/admin/people?department=none',
+      href: `${base}/people?department=none`,
       action: 'People',
     });
   if (c.dibbaCodesWithoutDepartment)
     items.push({
       key: 'dibba',
       text: `${c.dibbaCodesWithoutDepartment} of ${c.dibbaCodes} Course Dibba programmes have no department — people's suggestions come from these`,
-      href: '/admin/departments',
+      href: `${base}/departments`,
       action: 'Departments',
     });
   if (c.programmesWithoutDepartment)
     items.push({
       key: 'programmes',
       text: `${c.programmesWithoutDepartment} HMP programme${c.programmesWithoutDepartment === 1 ? ' has' : 's have'} no department`,
-      href: '/admin/departments',
+      href: `${base}/departments`,
       action: 'Departments',
     });
   if (c.badEmails)
     items.push({
       key: 'emails',
       text: `${c.badEmails} account${c.badEmails === 1 ? ' has' : 's have'} an email that isn't a single address (BITS sign-in can't match it)`,
-      href: '/admin/people?q=%2C',
+      href: `${base}/people?q=%2C`,
       action: 'People',
     });
   if (c.departmentsWithoutHog.length)
     items.push({
       key: 'hog',
       text: `No Head of Group yet: ${c.departmentsWithoutHog.map((d) => d.name).join(', ')}`,
-      href: '/admin/people?role=HOG',
+      href: `${base}/people?role=HOG`,
       action: 'People',
     });
 

@@ -318,6 +318,88 @@ test('a role change shows on the person’s next page; switching them off signs 
   }
 });
 
+test('the Instruction Cell gets People, Upload and Departments — but not Admin accounts or the Admin role', async ({
+  page,
+}) => {
+  try {
+    const ic = await makePerson({
+      who: 'ic',
+      roles: [RoleName.INSTRUCTION_CELL],
+      canSignIn: true,
+    });
+    const faculty = await makePerson({ who: 'icfac', roles: [RoleName.FACULTY] });
+    const admin = await makePerson({ who: 'icadmin', roles: [RoleName.ADMIN] });
+
+    await signIn(page, ic.email);
+    await page.goto('/ic');
+    await expect(page.getByRole('link', { name: 'People', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Departments', exact: true })).toBeVisible();
+    await expect(page.getByTestId('department-checks')).toBeVisible();
+    // Admin's own area stays closed.
+    await page.goto('/admin/people');
+    await expect(page.getByTestId('access-denied')).toBeVisible();
+
+    await page.goto(`/ic/people?q=${encodeURIComponent(TAG)}`);
+    await expect(page.getByTestId('people-ic-limits')).toBeVisible();
+    await expect(page.getByTestId('people-password-accounts')).toHaveCount(0);
+    await expect(
+      page.getByTestId('person-row').filter({ hasText: admin.email }).getByTestId('person-edit'),
+    ).toHaveText('View');
+
+    // A faculty member: the IC sets the department; the Admin role isn't offered.
+    await page.goto(`/ic/people/${faculty.id}`);
+    await expect(page.getByTestId('person-role-ADMIN')).toHaveCount(0);
+    await page.getByTestId('person-department').selectOption({ label: 'CSIS' });
+    await page.getByTestId('person-save').click();
+    await page.waitForURL(/\/ic\/people$/);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: faculty.id } })).departmentId).toBe(
+      await deptId('CSIS'),
+    );
+    expect(
+      await prisma.auditLog.count({ where: { actorId: ic.id, entityId: faculty.id } }),
+    ).toBeGreaterThan(0);
+
+    // An Admin account is read-only for the IC.
+    await page.goto(`/ic/people/${admin.id}`);
+    await expect(page.getByTestId('person-admin-readonly')).toContainText(
+      'Only an Admin can change it.',
+    );
+    await expect(page.getByTestId('person-save')).toHaveCount(0);
+
+    // Upload: an Admin account left as it is passes; giving the Admin role is an error.
+    const file = join(DIR, 'ic.csv');
+    writeFileSync(
+      file,
+      [
+        'email,name,roles,department',
+        `${admin.email},${admin.name},ADMIN,`,
+        `${faculty.email},${faculty.name},FACULTY;ADMIN,CSIS`,
+        `${mail('icnew')},E2E icnew ${TAG},ADMIN,`,
+      ].join('\n'),
+    );
+    await page.goto('/ic/people/upload');
+    await page.getByTestId('people-file').setInputFiles(file);
+    await page.getByTestId('people-preview').click();
+    const table = page.getByTestId('people-preview-table');
+    await expect(table).toBeVisible();
+    await expect(table.locator('tr[data-status="unchanged"]')).toContainText(admin.email);
+    await expect(table.locator('tr[data-status="error"]')).toHaveCount(2);
+    await expect(table.locator('tr[data-status="error"]').first()).toContainText(
+      'Only an Admin can give the Admin role.',
+    );
+    // Nothing can be applied while a row is in error (the server refuses it too).
+    await expect(page.getByTestId('people-apply')).toBeDisabled();
+    expect(await prisma.user.count({ where: { email: mail('icnew') } })).toBe(0);
+
+    // Departments: open to the IC; no delete anywhere.
+    await page.goto('/ic/departments');
+    await expect(page.getByTestId('department-row').filter({ hasText: 'CSIS' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /delete/i })).toHaveCount(0);
+  } finally {
+    await cleanup([]);
+  }
+});
+
 test('Admin → Departments: add a department; tag a programme', async ({ page }) => {
   const code = `E2E${(Date.now() % 100000).toString(36).toUpperCase()}`;
   const programme = await prisma.programme.create({

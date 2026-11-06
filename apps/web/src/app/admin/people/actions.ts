@@ -2,14 +2,19 @@
 
 import { revalidatePath } from 'next/cache';
 import ExcelJS from 'exceljs';
-import { RoleName, FacultyType } from '@hmp/db';
-import { getSessionUser, requireRole } from '@hmp/auth';
+import { prisma, RoleName, FacultyType } from '@hmp/db';
 import { savePerson, type PersonInput, type SaveResult } from '@/lib/people-save';
 import { applyPeople, previewPeople, type Preview } from '@/lib/people-import';
+import { PEOPLE_PATHS, adminOnlyProblem, requirePeopleManager } from '@/lib/people-access';
 
-/** Add or edit a person (Admin). Returns the impact list when replacements are needed first. */
+const refresh = () => PEOPLE_PATHS.forEach((p) => revalidatePath(p));
+
+/**
+ * Add or edit a person (Admin, or the Instruction Cell — who can't change an Admin account or give
+ * the Admin role). Returns the impact list when replacements are needed first.
+ */
 export async function savePersonAction(input: PersonInput): Promise<SaveResult> {
-  const actor = requireRole(await getSessionUser(), RoleName.ADMIN);
+  const actor = await requirePeopleManager();
   const clean: PersonInput = {
     ...input,
     roles: input.roles.filter((r) => (Object.values(RoleName) as string[]).includes(r)),
@@ -19,8 +24,18 @@ export async function savePersonAction(input: PersonInput): Promise<SaveResult> 
         : null,
     departmentId: input.departmentId || null,
   };
+  const before = clean.id
+    ? (
+        await prisma.userRole.findMany({
+          where: { userId: clean.id },
+          select: { role: { select: { name: true } } },
+        })
+      ).map((r) => r.role.name)
+    : null;
+  const notYours = adminOnlyProblem(actor.isAdmin, before, clean.roles);
+  if (notYours) return { ok: false, error: notYours };
   const r = await savePerson(actor.id, clean);
-  if (r.ok) revalidatePath('/admin/people');
+  if (r.ok) refresh();
   return r;
 }
 
@@ -51,16 +66,16 @@ async function toCsv(fd: FormData): Promise<string> {
 
 /** Upload people: preview only — nothing is saved. */
 export async function previewPeopleAction(fd: FormData): Promise<Preview> {
-  requireRole(await getSessionUser(), RoleName.ADMIN);
-  return previewPeople(await toCsv(fd));
+  const actor = await requirePeopleManager();
+  return previewPeople(await toCsv(fd), { actorIsAdmin: actor.isAdmin });
 }
 
 /**
- * Upload people: save every row (or none if any row has an error). `accept` lists the file lines whose
- * suggested department the Admin ticked; no other suggestion is saved.
+ * Upload people: save every row (or none if any row has an error). `accept` lists the file lines
+ * whose suggested department was ticked; no other suggestion is saved.
  */
 export async function applyPeopleAction(fd: FormData) {
-  const actor = requireRole(await getSessionUser(), RoleName.ADMIN);
+  const actor = await requirePeopleManager();
   let accept: number[] = [];
   try {
     const raw: unknown = JSON.parse(String(fd.get('accept') ?? '[]'));
@@ -69,7 +84,7 @@ export async function applyPeopleAction(fd: FormData) {
   } catch {
     accept = [];
   }
-  const r = await applyPeople(actor.id, await toCsv(fd), accept);
-  if (r.ok) revalidatePath('/admin/people');
+  const r = await applyPeople(actor.id, await toCsv(fd), accept, { actorIsAdmin: actor.isAdmin });
+  if (r.ok) refresh();
   return r;
 }

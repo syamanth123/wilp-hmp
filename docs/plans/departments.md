@@ -200,5 +200,9 @@ them is one round-trip: _Download the list_ → fill the `department` column in 
   suggestion from its title, applied only when the Admin clicks.
 - **Switched off while signed in:** `/api/session-ended` clears the sign-in and shows "account is switched
   off". Without it, the sign-in page and the app would redirect to each other forever.
+- **The Instruction Cell gets People, Upload people and Departments** (review, 6 Nov 2026): the same
+  pages at `/ic/people`, `/ic/people/upload`, `/ic/departments` (Admin keeps `/admin/...`). The IC can't
+  give or remove the Admin role and can't change an Admin account (`lib/people-rules.ts`, checked in every
+  server action and in the upload preview); departments have no delete for anyone. All audit-logged.
 - **Admin → Users** stays (linked from People as "Password sign-in accounts") for password logins where BITS
   sign-in isn't used.

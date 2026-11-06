@@ -4,6 +4,7 @@ import { parseCsv } from '@hmp/integrations';
 import { roleLabel } from './labels';
 import { impactOfChange, openWork } from './people';
 import { DEPARTMENT_ROLES } from './people-save';
+import { adminOnlyProblem } from './people-rules';
 import { suggestDepartments, suggestionText, type DeptSuggestion } from './departments';
 
 /**
@@ -82,7 +83,17 @@ export interface Preview {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export async function previewPeople(csv: string): Promise<Preview> {
+/**
+ * `actorIsAdmin: false` (the Instruction Cell): a row that would change an Admin account or give the
+ * Admin role is an error. An Admin account's row left exactly as it is passes, so HMP's own download
+ * uploads back.
+ */
+export async function previewPeople(
+  csv: string,
+  opts: { actorIsAdmin?: boolean } = {},
+): Promise<Preview> {
+  const actorIsAdmin = opts.actorIsAdmin ?? true;
+  const adminAccounts = new Set<number>(); // file lines of existing Admin accounts
   const empty: PreviewCounts = {
     new: 0,
     changed: 0,
@@ -213,6 +224,11 @@ export async function previewPeople(csv: string): Promise<Preview> {
 
     const existing = userBy.get(email);
     if (!existing) {
+      const notYours = adminOnlyProblem(actorIsAdmin, null, roles);
+      if (notYours) {
+        fail(notYours);
+        continue;
+      }
       out.push(row);
       continue;
     }
@@ -228,6 +244,14 @@ export async function previewPeople(csv: string): Promise<Preview> {
       row.changes.push(`department: ${from} → ${row.departmentName ?? 'none'}`);
     }
     if (!existing.active) row.changes.push('reactivated');
+    if (had.includes(RoleName.ADMIN)) adminAccounts.add(line);
+    if (row.changes.length) {
+      const notYours = adminOnlyProblem(actorIsAdmin, had, roles);
+      if (notYours) {
+        fail(notYours);
+        continue;
+      }
+    }
     if (removed.length || (existing.departmentId ?? null) !== row.departmentId) {
       const hit = impactOfChange((await openWork([existing.id])).get(existing.id) ?? [], {
         removedRoles: removed,
@@ -259,7 +283,10 @@ export async function previewPeople(csv: string): Promise<Preview> {
     : new Map<string, DeptSuggestion>();
   for (const r of blank) {
     const s = suggested.get(r.userId!);
-    if (r.roles.includes(RoleName.HOG)) {
+    if (!actorIsAdmin && adminAccounts.has(r.line)) {
+      r.needsDecision = true;
+      r.note = `No department yet (${suggestionText(s)}). This is an Admin account — only an Admin can set it.`;
+    } else if (r.roles.includes(RoleName.HOG)) {
       r.needsDecision = true;
       r.note = `No department yet. A Head of Group's department is chosen by hand (${suggestionText(s)}).`;
     } else if (s?.kind === 'one') {
@@ -291,11 +318,12 @@ export async function applyPeople(
   csv: string,
   /** File lines whose suggested department the Admin / IC accepted (nothing else is ever taken). */
   acceptLines: number[] = [],
+  opts: { actorIsAdmin?: boolean } = {},
 ): Promise<
   | { ok: true; created: number; changed: number; accepted: number }
   | { ok: false; error: string; preview?: Preview }
 > {
-  const preview = await previewPeople(csv);
+  const preview = await previewPeople(csv, opts);
   if (preview.fileError) return { ok: false, error: preview.fileError };
   if (preview.counts.error)
     return { ok: false, error: 'Fix the rows marked Error, then upload again.', preview };

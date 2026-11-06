@@ -6,6 +6,11 @@ Login: `admin@hmp.local` / `password` in dev. Lands on `/admin`.
 
 ## People (`/admin/people`, v1.4.0)
 
+The Instruction Cell has the same page at `/ic/people` (and Upload, the Excel download and
+Departments at `/ic/departments`), with two limits: the IC can't give or remove the Admin role and
+can't change an Admin account (it opens read-only; in an upload such rows are errors). Every change
+is audit-logged with the person who made it.
+
 One person = one BITS email = one department, with any mix of roles. HOG, PC, faculty and SME
 need a department; Instruction Cell and Admin cover all departments. Each department has one HOG.
 
@@ -39,7 +44,7 @@ Every change writes an `AuditLog` row.
 
 ## Departments (`/admin/departments`, v1.4.0)
 
-- **Departments:** add, rename, switch off (only once nobody active is in it). Shows each one's HOG
+- **Departments:** add, rename, switch off (only once nobody active is in it). There is no delete. Shows each one's HOG
   (or "No HOG yet"), its number of people and its programmes.
 - **HMP programmes:** pick each programme's department (saved at once). A request belongs to its
   programme's department.

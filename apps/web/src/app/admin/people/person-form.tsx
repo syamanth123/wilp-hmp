@@ -30,10 +30,16 @@ const ROLE_WORD: Record<WorkRole, string> = {
  * again — the change and the hand-over happen together.
  */
 export function PersonForm({
+  base,
+  canGrantAdmin,
   person,
   departments,
   suggestion,
 }: {
+  /** Where People lives for this viewer: /admin (Admin) or /ic (Instruction Cell). */
+  base: '/admin' | '/ic';
+  /** Only an Admin may give (or take away) the Admin role — the server checks it too. */
+  canGrantAdmin: boolean;
   person: Omit<PersonInput, 'replacements'>;
   departments: { id: string; name: string }[];
   /** v1.4.0 (H6): no department yet — what their past courses suggest. */
@@ -54,7 +60,7 @@ export function PersonForm({
         ...p,
         replacements: withReplacements ? replacements : undefined,
       });
-      if (r.ok) router.push('/admin/people');
+      if (r.ok) router.push(`${base}/people`);
       else if ('needsReplacements' in r) setImpact(r);
       else setError(r.error);
     });
@@ -103,7 +109,7 @@ export function PersonForm({
       <fieldset className="space-y-2">
         <legend className="mb-1 text-sm font-medium">Roles</legend>
         <div className="grid gap-2 sm:grid-cols-3">
-          {ROLE_OPTIONS.map((r) => (
+          {ROLE_OPTIONS.filter((r) => canGrantAdmin || r.value !== 'ADMIN').map((r) => (
             <label
               key={r.value}
               className="hover:bg-accent flex items-start gap-2 rounded-md border p-2 text-sm"
@@ -278,7 +284,7 @@ export function PersonForm({
           <Button onClick={() => save(false)} disabled={pending} data-testid="person-save">
             {pending ? 'Checking…' : 'Save'}
           </Button>
-          <Button variant="outline" onClick={() => router.push('/admin/people')}>
+          <Button variant="outline" onClick={() => router.push(`${base}/people`)}>
             Cancel
           </Button>
         </div>

@@ -1,8 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { prisma, RoleName, type Prisma } from '@hmp/db';
-import { getSessionUser, requireRole } from '@hmp/auth';
+import { prisma, type Prisma } from '@hmp/db';
+import { PEOPLE_PATHS, requirePeopleManager } from '@/lib/people-access';
 import { loadDibbaCodeRows } from '@/lib/dibba-programme-codes';
 import {
   departmentOfDibbaCode,
@@ -12,17 +12,16 @@ import {
 
 /**
  * Admin → Departments (v1.4.0, docs/plans/departments.md §A): the departments themselves, and which
- * department each HMP programme and Course Dibba programme code belongs to. Admin only; every change
- * is audit-logged. Title suggestions are applied only when the Admin clicks.
+ * department each HMP programme and Course Dibba programme code belongs to. Admin and the Instruction
+ * Cell; every change is audit-logged. There is no delete (rename or deactivate only). Title
+ * suggestions are applied only when someone clicks.
  */
 
 type Result = { ok: true; changed?: number } | { ok: false; error: string };
 
-const admin = async () => requireRole(await getSessionUser(), RoleName.ADMIN);
+const admin = requirePeopleManager;
 const done = (r: Result) => {
-  revalidatePath('/admin/departments');
-  revalidatePath('/admin/people');
-  revalidatePath('/admin');
+  PEOPLE_PATHS.forEach((p) => revalidatePath(p));
   return r;
 };
 const audit = (
@@ -64,7 +63,7 @@ export async function saveDepartmentAction(input: {
     if (members)
       return {
         ok: false,
-        error: `${members} active ${members === 1 ? 'person is' : 'people are'} in this department — move them first (Admin → People).`,
+        error: `${members} active ${members === 1 ? 'person is' : 'people are'} in this department — move them first (People).`,
       };
   }
   const saved = input.id
@@ -171,7 +170,7 @@ export async function acceptDibbaTitleSuggestionsAction(): Promise<Result> {
       await audit(tx, actor.id, 'dibba-code.department', 'DibbaProgrammeDepartment', t.code, {
         code: t.code,
         department: t.dept.name,
-        source: 'title suggestion, accepted by Admin',
+        source: `title suggestion, accepted by ${actor.isAdmin ? 'Admin' : 'Instruction Cell'}`,
       });
     }
   });
