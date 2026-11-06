@@ -71,7 +71,11 @@ test('IC → New request: the CSIS HOG is pre-selected, only they are told; the 
     await ic.goto('/ic/requests/new');
     await ic.getByLabel('Programme').selectOption('MTECH-DS');
     await ic.getByLabel('Semester').selectOption({ index: 1 });
-    await ic.getByLabel('Course').selectOption({ label: /CC ZG501/ });
+    const offering = await prisma.courseOffering.findFirstOrThrow({
+      where: { course: { code: 'CC ZG501' }, semester: { programme: { code: 'MTECH-DS' } } },
+      select: { id: true },
+    });
+    await ic.getByLabel('Course').selectOption(offering.id);
     const hogPicker = ic.getByTestId('rf-hog');
     await expect(hogPicker).toHaveValue(await userId('hog@hmp.local'));
     await expect(hogPicker.locator('option:checked')).toContainText('open handout');

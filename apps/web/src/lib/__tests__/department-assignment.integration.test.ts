@@ -34,7 +34,8 @@ describe.skipIf(!hasDb)('v1.4.1 department assignment (real DB)', () => {
     await prisma.semester.deleteMany({ where: { programme: { code: { startsWith: 'DAS-' } } } });
     await prisma.programme.deleteMany({ where: { code: { startsWith: 'DAS-' } } });
     const users = await prisma.user.findMany({
-      where: { email: { contains: `.${TAG}@` } },
+      // Any run's people (the tag changes per run), so a stopped run never leaves anyone behind.
+      where: { email: { contains: '.dassign' } },
       select: { id: true },
     });
     const userIds = users.map((u) => u.id);
@@ -46,7 +47,12 @@ describe.skipIf(!hasDb)('v1.4.1 department assignment (real DB)', () => {
   }
 
   const person = async (who: string, role: RoleName, departmentId: string | null) => {
-    const r = await prisma.role.findUniqueOrThrow({ where: { name: role } });
+    // The CI test database has the schema but no seed: create the role when it is missing.
+    const r = await prisma.role.upsert({
+      where: { name: role },
+      update: {},
+      create: { name: role },
+    });
     return prisma.user.create({
       data: {
         email: `${who}.${TAG}@hmp.local`,
@@ -108,9 +114,11 @@ describe.skipIf(!hasDb)('v1.4.1 department assignment (real DB)', () => {
   });
 
   afterAll(async () => {
-    await emailsSettled();
+    // Background emails can be slow without a mail server (local runs): wait a little, then clean up
+    // regardless, so the clean-up never misses the hook's time limit.
+    await Promise.race([emailsSettled(), new Promise((r) => setTimeout(r, 3_000))]);
     await removeTestData();
-  });
+  }, 30_000);
 
   const only = () => [ids.reqA!, ids.reqUnknown!, ids.reqNoHog!];
 
