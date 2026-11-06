@@ -6,6 +6,13 @@ The HOG allocates faculty to incoming requests (enforcing the off-campus/adjunct
 
 Sign in at `/login` (dev seed: `hog@hmp.local` / `password`). Lands on `/hog`.
 
+## Your department (v1.4.1)
+
+You see **your department's** requests, plus any request where you are the HOG, and requests whose
+programme has no department yet. You are told only about requests where you are the HOG. If your
+department isn't set, you see all departments and a notice says so — the Instruction Cell sets it in
+People. The **Schedule** shows your department by default (**Department → All departments** for the rest).
+
 ## Overview (`/hog`)
 
 - **Pending allocation** — requests in `REQUESTED` waiting for you.
@@ -19,7 +26,14 @@ Sign in at `/login` (dev seed: `hog@hmp.local` / `password`). Lands on `/hog`.
 2. The **AI suggestions** section ranks the top-5 faculty by score with rationale bullets and current semester load. When AI keys are unset, the section shows a yellow `Heuristic-only` badge — the scoring still works.
 3. Click **Add to selection** on each suggested faculty, or use the manual checkbox list below.
 4. Off-campus / adjunct / guest faculty already at the `offCampusMaxCourses` cap (default 3 per semester) are greyed out — selecting them returns `WorkflowError("off_campus_cap_exceeded")` and rolls back.
-5. Click **Allocate**. The system creates `FacultyAssignment` rows + `Approval(HOG_REVIEW, APPROVED)` + status transition `FACULTY_ALLOCATED` atomically. PC and the allocated faculty are notified.
+5. **v1.4.1:** the pickers list your department's people first, each with their load; **Show all
+   departments** reaches everyone else (marked _other dept_). Pick the **Programme Committee member who
+   confirms** (your department's PC is pre-selected when there is one).
+6. Click **Allocate**. The system creates `FacultyAssignment` rows + `Approval(HOG_REVIEW, APPROVED)` + status transition `FACULTY_ALLOCATED` atomically. **That PC** and the allocated faculty are notified.
+
+**Change the PC** after allocation on the request page (_Programme Committee member_ → **Change**, with a
+reason). In **bulk allocate**, the optional `pc_email` column names the PC; left blank, your department's
+only PC is used.
 
 The **Regenerate** button clears today's cached `AIRecommendation` row and re-runs the recommender.
 

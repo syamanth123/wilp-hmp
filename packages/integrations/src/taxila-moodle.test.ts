@@ -214,6 +214,20 @@ describe('Check in Taxila (no upload)', () => {
         "Remove 'course handout.pdf' and 'Notes.pdf' from Course Handout first, so students see the published handout.",
     });
   });
+  it('v1.4.1: a chosen course is used as it is — no search, any name (e.g. a test course)', async () => {
+    fake.courses.push({
+      id: 4999,
+      fullname: 'CIL_Exp',
+      item: { name: 'Course Handout', contextid: 9999, files: [...PLACEHOLDER] },
+    });
+    const r = await checkInTaxila(client(), cfg, {
+      semesterCode: 'S1-26',
+      codes: ['XX ZG111'],
+      chosen: { id: 4999, fullname: 'CIL_Exp', shortname: '' },
+    });
+    expect(r).toMatchObject({ status: 'ready', course: { id: 4999 }, item: { contextid: 9999 } });
+    expect(fake.calls.map((c) => c.step)).toEqual(['contents']);
+  });
   it('course not found', async () => {
     const r = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['XX ZG111'] });
     expect(r).toEqual({

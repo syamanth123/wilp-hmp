@@ -12,7 +12,14 @@ vi.mock('@/lib/export/handout-pdf', () => ({
 }));
 
 import { emailsSettled } from '../notifications';
-import { loadPublishTarget, publishRequestToTaxila, checkRequestInTaxila } from '../taxila-publish';
+import {
+  loadPublishTarget,
+  publishRequestToTaxila,
+  checkRequestInTaxila,
+  clearTaxilaCourseChoice,
+  saveTaxilaCourseChoice,
+  searchTaxilaCourses,
+} from '../taxila-publish';
 import { createTaxilaRun, loadRun, processNextItem, retryProblemItems } from '../taxila-runs';
 
 const hasDb = Boolean(process.env.DATABASE_URL);
@@ -108,7 +115,43 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
     return req.id;
   }
 
+  /**
+   * Removes everything this file makes — filtered only by its own codes (REF, "QTX ", QTX-PROG, TAG),
+   * never by an id that may be missing (an undefined id would match every row). Runs before the
+   * tests too, so a run that stopped half-way can't block the next one.
+   */
+  async function removeTestData() {
+    const reqs = await prisma.handoutRequest.findMany({
+      where: { refNo: { startsWith: REF } },
+      select: { id: true },
+    });
+    const reqIds = reqs.map((r) => r.id);
+    for (const id of reqIds)
+      await prisma.notification.deleteMany({ where: { link: { contains: id } } });
+    await prisma.auditLog.deleteMany({
+      where: { OR: [{ requestId: { in: reqIds } }, { entityId: { in: reqIds } }] },
+    });
+    await prisma.handoutRequest.deleteMany({ where: { id: { in: reqIds } } });
+    await prisma.courseOffering.deleteMany({
+      where: { semester: { programme: { code: 'QTX-PROG' } } },
+    });
+    await prisma.course.deleteMany({ where: { bitsCourseNumber: { startsWith: 'QTX ' } } });
+    // The semester first: a programme with a semester can't be deleted.
+    await prisma.semester.deleteMany({ where: { programme: { code: 'QTX-PROG' } } });
+    await prisma.programme.deleteMany({ where: { code: 'QTX-PROG' } });
+    const testUsers = await prisma.user.findMany({
+      where: { email: `${TAG}@hmp.local` },
+      select: { id: true },
+    });
+    const userIds = testUsers.map((u) => u.id);
+    await prisma.taxilaPublishRun.deleteMany({ where: { createdById: { in: userIds } } });
+    await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  }
+
   beforeAll(async () => {
+    await removeTestData();
     const user = await prisma.user.upsert({
       where: { email: `${TAG}@hmp.local` },
       update: {},
@@ -175,23 +218,7 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
   afterAll(async () => {
     await emailsSettled();
     await fake?.close();
-    const reqs = await prisma.handoutRequest.findMany({
-      where: { refNo: { startsWith: REF } },
-      select: { id: true },
-    });
-    const reqIds = reqs.map((r) => r.id);
-    for (const id of reqIds)
-      await prisma.notification.deleteMany({ where: { link: { contains: id } } });
-    await prisma.auditLog.deleteMany({
-      where: { OR: [{ requestId: { in: reqIds } }, { entityId: { in: reqIds } }] },
-    });
-    await prisma.handoutRequest.deleteMany({ where: { id: { in: reqIds } } });
-    await prisma.courseOffering.deleteMany({ where: { semesterId: ids.semester } });
-    await prisma.course.deleteMany({ where: { bitsCourseNumber: { startsWith: 'QTX ' } } });
-    await prisma.programme.deleteMany({ where: { code: 'QTX-PROG' } });
-    await prisma.taxilaPublishRun.deleteMany({ where: { createdById: actor?.id } });
-    await prisma.notification.deleteMany({ where: { userId: actor?.id } });
-    await prisma.user.deleteMany({ where: { email: `${TAG}@hmp.local` } });
+    await removeTestData();
   });
 
   const client = () => createTaxilaClient(cfg);
@@ -443,6 +470,85 @@ describe.skipIf(!hasDb)('publish one handout into Taxila (Mode C)', () => {
       expect(await summaries()).toHaveLength(4); // a second finish, a second summary
       for (const id of [7011, 7012, 7013])
         expect(fake.courses.find((x) => x.id === id)!.item!.files).toHaveLength(1);
+    });
+  });
+
+  describe('v1.4.1: Choose a different Taxila course', () => {
+    it('search by name, remember per course + semester, bulk run and publish use it, clear', async () => {
+      const id = await seedRequest('QTX ZG661', 21);
+      fake.courses.push({
+        id: 7100,
+        fullname: 'CIL_Exp',
+        item: {
+          name: 'Course Handout',
+          contextid: 8100,
+          files: [{ filename: 'Course Handout.pdf', size: 900 }],
+        },
+      });
+      // By name it isn't found (no "S1-26_QTXZG661" in Taxila)…
+      expect(
+        (await checkRequestInTaxila(await target(id), { semesterCode: 'S1-26' }, client(), cfg))
+          .check.status,
+      ).toBe('not-found');
+      // …so the IC searches and picks the test course.
+      const found = await searchTaxilaCourses(client(), 'CIL_Exp');
+      expect(found.map((c) => c.id)).toEqual([7100]);
+      expect(await searchTaxilaCourses(client(), 'CI')).toEqual([]); // at least 3 letters
+      const refused = await saveTaxilaCourseChoice(
+        await target(id),
+        { taxilaCourseId: 4242, query: 'CIL_Exp', actorId: actor.id },
+        client(),
+      );
+      expect(refused.ok).toBe(false); // only a course Taxila returned can be saved
+      const saved = await saveTaxilaCourseChoice(
+        await target(id),
+        { taxilaCourseId: 7100, query: 'CIL_Exp', actorId: actor.id },
+        client(),
+      );
+      expect(saved.ok).toBe(true);
+
+      const t = await target(id);
+      expect(t.courseChoice).toMatchObject({ course: { id: 7100, fullname: 'CIL_Exp' } });
+      const view = await checkRequestInTaxila(t, { semesterCode: 'S1-26' }, client(), cfg);
+      expect(view.check).toMatchObject({ status: 'ready', course: { id: 7100 } });
+      expect(view.choice).toMatchObject({ fullname: 'CIL_Exp' });
+
+      // A bulk run uses the remembered course too.
+      const run = await createTaxilaRun({
+        actorId: actor.id,
+        semesterCode: 'S1-26',
+        requestIds: [id],
+      });
+      const runId = (run as { runId: string }).runId;
+      while (!(await processNextItem(runId, 'check', actor, client(), cfg)).done);
+      expect((await loadRun(runId))!.rows[0]).toMatchObject({
+        status: 'READY',
+        courseFullname: 'CIL_Exp',
+      });
+
+      const out = await publishRequestToTaxila(t, { semesterCode: 'S1-26', actor }, client(), cfg);
+      expect(out).toMatchObject({ status: 'published', course: { id: 7100 } });
+      expect(fake.courses.find((c) => c.id === 7100)!.item!.files.map((f) => f.filename)).toEqual([
+        'Course Handout.pdf',
+      ]);
+      const log = await prisma.lmsPublishLog.findFirst({
+        where: { handout: { requestId: id }, status: 'success' },
+      });
+      expect(log?.responseJson).toMatchObject({ courseSource: 'chosen', taxilaCourseId: 7100 });
+
+      const audits = await prisma.auditLog.findMany({
+        where: { requestId: id, action: { startsWith: 'taxila.course-choice' } },
+      });
+      expect(audits.map((a) => a.action)).toEqual(['taxila.course-choice']);
+
+      // Clearing goes back to matching by name.
+      await clearTaxilaCourseChoice(await target(id), actor.id);
+      expect((await target(id)).courseChoice).toBeNull();
+      expect(
+        await prisma.auditLog.count({
+          where: { requestId: id, action: 'taxila.course-choice-cleared' },
+        }),
+      ).toBe(1);
     });
   });
 

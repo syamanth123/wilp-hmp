@@ -20,8 +20,11 @@ import {
 } from '@hmp/integrations';
 import {
   checkRequestInTaxila,
+  clearTaxilaCourseChoice,
   loadPublishTarget,
   publishRequestToTaxila,
+  saveTaxilaCourseChoice,
+  searchTaxilaCourses,
   taxilaClient,
   taxilaSettings,
 } from '@/lib/taxila-publish';
@@ -317,6 +320,8 @@ const taxilaSchema = z.object({
     .trim()
     .regex(/^[A-Za-z0-9-]{2,12}$/, 'Type the Taxila semester code, e.g. S1-26.'),
   courseId: z.coerce.number().int().positive().optional(),
+  // v1.4.1: the search the IC picked the course from ("Choose a different Taxila course").
+  query: z.string().trim().max(100).optional(),
 });
 
 function parseTaxila(formData: FormData) {
@@ -324,24 +329,46 @@ function parseTaxila(formData: FormData) {
     requestId: formData.get('requestId'),
     semesterCode: formData.get('semesterCode') ?? '',
     courseId: formData.get('courseId') || undefined,
+    query: formData.get('query') || undefined,
   });
 }
 
-/** "Check in Taxila": finds the course and its Course Handout item; uploads nothing. IC only. */
+/** v1.4.1: choosing a Taxila course is for the IC and the Admin. */
+const TAXILA_CHOOSERS = [RoleName.INSTRUCTION_CELL, RoleName.ADMIN];
+
+/**
+ * "Check in Taxila": finds the course and its Course Handout item; uploads nothing. IC / Admin.
+ * With `courseId` (the IC picked one of several matches, or one from "Choose a different Taxila
+ * course") the pick is remembered for this course + semester first (v1.4.1, H12), then checked.
+ */
 export async function checkTaxilaAction(formData: FormData) {
-  requireRole(await getSessionUser(), RoleName.INSTRUCTION_CELL);
+  const actor = requireRole(await getSessionUser(), TAXILA_CHOOSERS);
   const parsed = parseTaxila(formData);
   if (!parsed.success)
     return { error: parsed.error.issues[0]?.message ?? 'Check the semester code.' } as const;
   const cfg = taxilaSettings();
   if (!cfg) return { error: 'Publishing to Taxila isn’t set up on this server.' } as const;
-  const target = await loadPublishTarget(parsed.data.requestId);
+  let target = await loadPublishTarget(parsed.data.requestId);
   if (!target) return { error: 'That request no longer exists.' } as const;
   try {
+    const client = taxilaClient(cfg);
+    if (parsed.data.courseId) {
+      const saved = await saveTaxilaCourseChoice(
+        target,
+        {
+          taxilaCourseId: parsed.data.courseId,
+          query: parsed.data.query || parsed.data.semesterCode,
+          actorId: actor.id,
+        },
+        client,
+      );
+      if (!saved.ok) return { error: saved.error } as const;
+      target = (await loadPublishTarget(parsed.data.requestId))!;
+    }
     const view = await checkRequestInTaxila(
       target,
-      { semesterCode: parsed.data.semesterCode, courseId: parsed.data.courseId },
-      taxilaClient(cfg),
+      { semesterCode: parsed.data.semesterCode },
+      client,
       cfg,
     );
     return { ok: true, view } as const;
@@ -366,7 +393,7 @@ export async function publishTaxilaAction(formData: FormData) {
     target,
     {
       semesterCode: parsed.data.semesterCode,
-      courseId: parsed.data.courseId,
+      // v1.4.1: a picked course was remembered at the check, so publishing uses that choice.
       actor: { id: actor.id, name: actor.name, roles: actor.roles },
     },
     taxilaClient(cfg),
@@ -391,4 +418,34 @@ export async function changeHogAction(formData: FormData): Promise<{ ok?: true; 
   if (!r.ok) return { error: r.error };
   revalidate(requestId);
   return { ok: true };
+}
+
+/** v1.4.1: search Taxila by name ("Choose a different Taxila course"). Nothing is saved. IC / Admin. */
+export async function searchTaxilaCoursesAction(formData: FormData) {
+  requireRole(await getSessionUser(), TAXILA_CHOOSERS);
+  const query = String(formData.get('query') ?? '').trim();
+  if (query.length < 3) return { error: 'Type at least 3 letters of the course name.' } as const;
+  const cfg = taxilaSettings();
+  if (!cfg) return { error: 'Publishing to Taxila isn’t set up on this server.' } as const;
+  try {
+    const courses = await searchTaxilaCourses(taxilaClient(cfg), query);
+    return {
+      ok: true,
+      courses: courses.map((c) => ({ id: c.id, fullname: c.fullname })),
+    } as const;
+  } catch (err) {
+    return {
+      error: err instanceof TaxilaError ? err.message : 'Taxila couldn’t be searched. Try again.',
+    } as const;
+  }
+}
+
+/** v1.4.1: forget the chosen Taxila course — back to matching by name. IC / Admin. */
+export async function clearTaxilaCourseAction(formData: FormData) {
+  const actor = requireRole(await getSessionUser(), TAXILA_CHOOSERS);
+  const target = await loadPublishTarget(String(formData.get('requestId') ?? ''));
+  if (!target) return { error: 'That request no longer exists.' } as const;
+  await clearTaxilaCourseChoice(target, actor.id);
+  revalidate(target.requestId);
+  return { ok: true } as const;
 }

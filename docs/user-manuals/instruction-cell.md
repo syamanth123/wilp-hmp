@@ -22,7 +22,18 @@ The overview shows:
 2. Cascading dropdown: pick a Programme → Semester → Course offering. Only offerings with no active open request appear.
 3. (Optional) Paste a URL to a previous handout for reference.
 4. (Optional) Add notes for the HOG.
-5. Click **Create request**. The system assigns a sequential `HMP-YYYY-####` reference number and transitions the request to `REQUESTED`. The relevant HOG is notified.
+5. **Head of Group (v1.4.1):** the course's department HOG is pre-selected, with their current load
+   ("3 open handouts · 1 overdue"). Choosing another HOG needs a reason. If the department has no HOG
+   yet, the page says so ("CSIS has no HOG yet — set one in People") — set one, or pick another
+   department's HOG with a reason. A request always has a HOG.
+6. Click **Create request**. The system assigns a sequential `HMP-YYYY-####` reference number and
+   transitions the request to `REQUESTED`. **Only that HOG** is told.
+
+**Change the HOG** later on the request page (_Head of Group and PC_ → **Change**, with a reason): the old
+and the new HOG are both told; the history keeps both names.
+
+**Bulk upload of requests:** each request goes to its department's HOG. A row whose programme has no
+department, or whose department has no HOG, is an error in the preview.
 
 ## Browsing requests (`/ic/requests`)
 
@@ -67,6 +78,22 @@ Status-gated cards:
   - **Not set up:** you get a ZIP to upload to Taxila yourself, then **Mark as manually published**.
 - `PUBLISHED` → **Archive handout** button. Requires confirm checkbox; transitions to `ARCHIVED`.
 - All states → **Comment thread** with **Post comment**.
+
+## Existing requests without a HOG (v1.4.1)
+
+**Departments → Existing requests without a HOG** lists every open request that has no HOG recorded yet: the
+HOG each one gets (its department's), and the ones it can't assign with the reason and a _Fix_ link
+(programme without a department, department without a HOG). Press **Give N requests their HOG** after the
+departments are filled in. It never replaces a HOG already set and can be pressed again after fixing the
+rest.
+
+## Choose a different Taxila course (v1.4.1)
+
+Under the result of **Check in Taxila**: **Choose a different Taxila course** → type part of the name (e.g.
+`CIL_Exp`) → **Search Taxila** → pick it → **Use this course**. The choice is remembered for this course and
+semester: the next check and bulk runs use it. The panel shows who chose it and when, with **Use the
+automatic match again**. When several Taxila courses match, the one you pick is remembered the same way.
+The Course Handout item rules still apply.
 
 ## People and departments (`/ic/people`, `/ic/departments`, v1.4.0)
 

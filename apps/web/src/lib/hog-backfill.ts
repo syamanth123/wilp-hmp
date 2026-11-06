@@ -35,11 +35,13 @@ export interface BackfillPreview {
   }[];
 }
 
-export async function previewHogBackfill(): Promise<BackfillPreview> {
+/** `onlyRequestIds`: limit to these requests (tests). */
+export async function previewHogBackfill(onlyRequestIds?: string[]): Promise<BackfillPreview> {
   const [requests, hogs] = await Promise.all([
     prisma.handoutRequest.findMany({
       where: {
         status: { notIn: DONE },
+        ...(onlyRequestIds ? { id: { in: onlyRequestIds } } : {}),
         assignees: { none: { role: RoleName.HOG, endedAt: null } },
       },
       orderBy: { refNo: 'asc' },
@@ -116,8 +118,9 @@ export async function previewHogBackfill(): Promise<BackfillPreview> {
 /** Writes the HOG rows the preview shows (worked out again now, so it is never stale). */
 export async function applyHogBackfill(
   actorId: string,
+  onlyRequestIds?: string[],
 ): Promise<{ assigned: number; skipped: number }> {
-  const preview = await previewHogBackfill();
+  const preview = await previewHogBackfill(onlyRequestIds);
   await prisma.$transaction(async (tx) => {
     for (const a of preview.assign) {
       // Re-check inside the transaction: someone may have set a HOG since.

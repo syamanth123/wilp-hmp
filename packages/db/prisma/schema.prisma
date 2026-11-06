@@ -49,29 +49,30 @@ model User {
   updatedAt     DateTime     @updatedAt
 
   roles                    UserRole[]
-  initiatedRequests        HandoutRequest[]    @relation("RequestInitiator")
+  initiatedRequests        HandoutRequest[]     @relation("RequestInitiator")
   assignments              FacultyAssignment[]
   approvals                Approval[]
   comments                 Comment[]
   notifications            Notification[]
   auditLogs                AuditLog[]
-  versionsAuthored         HandoutVersion[]    @relation("VersionAuthor")
+  versionsAuthored         HandoutVersion[]     @relation("VersionAuthor")
   // Prompt 12-b (SME approval workflow). The SME is assigned per handout at
   // allocation; these are the "SME for" and "assigner of" back-relations.
-  smeAssignmentsAsSme      SmeAssignment[]     @relation("SmeAssignmentsAsSme")
-  smeAssignmentsAsAssigner SmeAssignment[]     @relation("SmeAssignmentsAsAssigner")
-  corpusImportsApproved    HandoutImport[]     @relation("CorpusApprovedBy")
-  attachmentsUploaded      Attachment[]        @relation("AttachmentUploader")
-  aiUsage                  AiUsageLog[]        @relation("AiUsageActor")
+  smeAssignmentsAsSme      SmeAssignment[]      @relation("SmeAssignmentsAsSme")
+  smeAssignmentsAsAssigner SmeAssignment[]      @relation("SmeAssignmentsAsAssigner")
+  corpusImportsApproved    HandoutImport[]      @relation("CorpusApprovedBy")
+  attachmentsUploaded      Attachment[]         @relation("AttachmentUploader")
+  aiUsage                  AiUsageLog[]         @relation("AiUsageActor")
   // Course Dibba (Phase 1): term-wide schedule imports + instructor rows.
-  dibbaImportsUploaded     DibbaImport[]       @relation("DibbaUploader")
-  courseInstructorRows     CourseInstructor[]  @relation("CourseInstructorUser")
+  dibbaImportsUploaded     DibbaImport[]        @relation("DibbaUploader")
+  courseInstructorRows     CourseInstructor[]   @relation("CourseInstructorUser")
   // Handout Library (v1.2.0): this person's named library views.
   savedViews               SavedView[]
   taxilaPublishRuns        TaxilaPublishRun[]
   // v1.4: who is responsible for a request, per role (and who assigned them).
-  requestAssignments       RequestAssignee[]   @relation("RequestAssigneeUser")
-  requestAssignmentsMade   RequestAssignee[]   @relation("RequestAssigneeAssigner")
+  requestAssignments       RequestAssignee[]    @relation("RequestAssigneeUser")
+  requestAssignmentsMade   RequestAssignee[]    @relation("RequestAssigneeAssigner")
+  taxilaCourseChoices      TaxilaCourseChoice[]
 
   @@index([email])
   @@index([departmentId])
@@ -132,16 +133,16 @@ model Programme {
 
 // v1.4: an academic department ("MBA / Management", "Core Engineering", "CSIS", "EEE"), one HOG each.
 model Department {
-  id         String      @id @default(cuid())
-  code       String      @unique
+  id         String                     @id @default(cuid())
+  code       String                     @unique
   name       String
-  active     Boolean     @default(true)
+  active     Boolean                    @default(true)
   users      User[]
   programmes Programme[]
   // v1.4.0: Course Dibba programme codes tagged straight to this department (when not linked to an HMP programme).
   dibbaCodes DibbaProgrammeDepartment[]
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt  DateTime                   @default(now())
+  updatedAt  DateTime                   @updatedAt
 }
 
 /// v1.4.0: the department of a Course Dibba programme code ("HT15", "MB21/HB21"). Used when the code is not
@@ -207,15 +208,17 @@ model Course {
 }
 
 model CourseOffering {
-  id           String           @id @default(cuid())
-  courseId     String
-  semesterId   String
-  slotInfo     String? // class slot
-  course       Course           @relation(fields: [courseId], references: [id])
-  semester     Semester         @relation(fields: [semesterId], references: [id])
-  requests     HandoutRequest[]
-  slotBookings SlotBooking[]
-  createdAt    DateTime         @default(now())
+  id                 String              @id @default(cuid())
+  courseId           String
+  semesterId         String
+  slotInfo           String? // class slot
+  course             Course              @relation(fields: [courseId], references: [id])
+  semester           Semester            @relation(fields: [semesterId], references: [id])
+  requests           HandoutRequest[]
+  // v1.4.1: the Taxila course the IC chose for this course + semester ("Choose a different Taxila course").
+  taxilaCourseChoice TaxilaCourseChoice?
+  slotBookings       SlotBooking[]
+  createdAt          DateTime            @default(now())
 
   @@unique([courseId, semesterId])
   @@index([semesterId])
@@ -944,6 +947,21 @@ model DibbaProgrammeCode {
   updatedAt   DateTime  @updatedAt
 
   @@index([programmeId])
+}
+
+// v1.4.1 — "Choose a different Taxila course" (IC / Admin): for courses whose Taxila name doesn't follow the
+// pattern, test courses, or the IC's pick when several match. One per course offering (course + semester);
+// Check in Taxila and bulk runs use it by id instead of matching by name. Cleared = automatic match again.
+model TaxilaCourseChoice {
+  id               String         @id @default(cuid())
+  courseOfferingId String         @unique
+  offering         CourseOffering @relation(fields: [courseOfferingId], references: [id], onDelete: Cascade)
+  taxilaCourseId   Int
+  taxilaFullname   String
+  chosenById       String?
+  chosenBy         User?          @relation(fields: [chosenById], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 }
 
 // v1.3.0 — a bulk "publish to Taxila" run, driven from the IC's browser one course at a time.

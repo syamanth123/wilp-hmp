@@ -163,7 +163,15 @@ HMP-2026-0042,sharma@bits.ac.in,sme@bits.ac.in`;
       request_reference: 'HMP-2026-0042',
       faculty_emails: 'sharma@bits.ac.in',
       sme_email: 'sme@bits.ac.in',
+      pc_email: '', // v1.4.1: optional column
     });
+  });
+
+  it('v1.4.1: reads the optional pc_email column', () => {
+    const r = parseAllocationsCsv(`request_reference,faculty_emails,sme_email,pc_email
+HMP-2026-0042,sharma@bits.ac.in,sme@bits.ac.in,pc@bits.ac.in`);
+    expect(r.ok).toBe(true);
+    expect(r.rows[0]?.pc_email).toBe('pc@bits.ac.in');
   });
 
   it('keeps a quoted comma-separated faculty_emails cell intact (split is the caller’s job)', () => {
