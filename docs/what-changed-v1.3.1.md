@@ -24,6 +24,9 @@ way is an item holding exactly one file, which every publish replaces.
 - **"Publish as new version" is gone** (there is only ever one file).
 - In a bulk run, "Already in Taxila" is gone; "No Course Handout item" and "Other files in Course
   Handout" are listed as needing attention.
+- **Backlog and Tentative courses are never picked.** Taxila keeps shells like "Additive
+  Manufacturing Process (S1-26_DMZG631)Backlog" beside the regular course; HMP now ignores them,
+  so the regular course is found instead of "several courses match".
 
 ## For the deployer
 
