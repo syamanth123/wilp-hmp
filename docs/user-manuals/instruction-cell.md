@@ -44,23 +44,31 @@ The detail page always shows:
 Status-gated cards:
 
 - `APPROVED` → **Publish to LMS**. Two ways, depending on the server:
-  - **Publishing into Taxila is set up (v1.3.0):** the Taxila semester code is filled in (Sem-I
+  - **Publishing into Taxila is set up (v1.3.1):** the Taxila semester code is filled in (Sem-I
     2026-27 → `S1-26`, Sem-II → `S2-26`; type it for Summer). **Check in Taxila** shows the course
-    it found (with an _Open in Taxila_ link), the folder (_General › Course Handout_) and the file
-    name — nothing is uploaded. **Publish to Taxila** appears only after a passing check: it makes
-    the PDF, puts it in the folder, marks the handout Published and tells the faculty.
+    it found (with an _Open in Taxila_ link) and what its **Course Handout** File item in General
+    holds — nothing is uploaded. **Publish to Taxila** appears only after a passing check: it makes
+    the PDF, uploads it as **`Course Handout.pdf`** (always this name), replacing the file in the
+    item, reads the item back to confirm it holds only the new file, then marks the handout
+    Published and tells the faculty.
     - _Course not found_ — check the semester code and that the course exists in Taxila.
     - _Several courses match_ — pick the right one.
-    - _Folder missing_ — create a folder named **Course Handout** in the course's General section,
-      then check again.
-    - _Already in Taxila_ — nothing is uploaded; **Publish as new version** adds " v2" to the name.
-    - File names: `SS ZG653 Course Handout Sem-I 2026-27.pdf`; courses with several codes join them
-      with " \_ ". The HMP reference and the Taxila course are recorded in the publish log.
+    - _No Course Handout item_ — in Taxila, add a **File** (not a folder) in General named
+      **Course Handout**, with any PDF renamed to `Course Handout.pdf` as the placeholder; then
+      check again. Every course needs this once.
+    - _Other files in Course Handout_ — **publishing is blocked**. With more than one file, Taxila
+      opens the oldest, so students wouldn't see the new handout. The message names each file to
+      remove: open Course Handout → Edit settings, delete them, keep only `Course Handout.pdf`,
+      save, check again.
+    - _Not confirmed_ — the upload went through but the read-back didn't show exactly the new
+      `Course Handout.pdf`; the handout stays Approved. Look at the course in Taxila, then publish
+      again (it simply replaces the file).
+    - The HMP reference, the Taxila course and the file size are recorded in the publish log.
   - **Not set up:** you get a ZIP to upload to Taxila yourself, then **Mark as manually published**.
 - `PUBLISHED` → **Archive handout** button. Requires confirm checkbox; transitions to `ARCHIVED`.
 - All states → **Comment thread** with **Post comment**.
 
-## Bulk publish to Taxila (v1.3.0)
+## Bulk publish to Taxila (v1.3.0, fixed file name since v1.3.1)
 
 Handout Library → **Published** → **Approved, not yet published**: tick the handouts (or _Tick all
 approved on this page_), check the Taxila semester code and press **Bulk publish to Taxila**. The run
@@ -70,7 +78,8 @@ page works through them one at a time:
 - **Publish all** publishes everything that's ready. **Pause** stops after the current course;
   closing the page does the same — reopen the run from **Earlier runs** (`/ic/taxila-runs`) and
   press the button again. Nothing is published twice.
-- **Try the N problem courses again** after fixing them (e.g. creating a missing folder).
+- **Try the N problem courses again** after fixing them (e.g. creating a missing Course Handout
+  item, or removing an old file from it).
 - **Download as Excel**: one row per course with its result and reason.
 - When the last course is done the page says **Finished: 2 published, 1 needs attention** (for
   example), and the person who started the run gets the same summary in HMP and by email.

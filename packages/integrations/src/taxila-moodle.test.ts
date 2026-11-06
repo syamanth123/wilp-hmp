@@ -1,16 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  TAXILA_HANDOUT_FILE,
   TaxilaError,
   checkInTaxila,
+  confirmPublished,
   createTaxilaClient,
   defaultTaxilaSemesterCode,
+  findHandoutItem,
   matchTaxilaCourse,
-  nextFreeFileName,
   publishFileToTaxila,
   redact,
   taxilaConfigFromEnv,
   taxilaCourseUrl,
-  taxilaFileName,
   type TaxilaConfig,
 } from './taxila-moodle';
 import { sampleTaxilaCourses, startFakeMoodle, type FakeMoodle } from './testing/fake-moodle';
@@ -26,15 +27,19 @@ beforeEach(async () => {
   cfg = {
     url: fake.url,
     token: TOKEN,
-    folderName: 'Course Handout',
-    timeoutMs: 300,
+    // Generous: the fake runs alongside every other package's tests (ci-local), and a slow answer
+    // would be retried and change the call list. Tests that wait for a timeout set SHORT below.
+    timeoutMs: 5_000,
     backoffMs: [0, 0],
   };
 });
 afterEach(() => fake.close());
 
 const client = () => createTaxilaClient(cfg);
-const name = taxilaFileName(['SS ZG653'], 'Sem-I 2026-27');
+/** For tests where the fake deliberately never answers. */
+const SHORT = 300;
+const item = (id: number) => fake.courses.find((c) => c.id === id)!.item!;
+const PLACEHOLDER = [{ filename: TAXILA_HANDOUT_FILE, size: 900 }];
 
 describe('settings', () => {
   it('Mode C needs both TAXILA_URL and TAXILA_TOKEN; the trailing slash is kept', () => {
@@ -43,7 +48,6 @@ describe('settings', () => {
     expect(taxilaConfigFromEnv({ TAXILA_URL: 'https://t/webservice', TAXILA_TOKEN: 'x' })).toEqual({
       url: 'https://t/webservice/',
       token: 'x',
-      folderName: 'Course Handout',
     });
     expect(taxilaCourseUrl({ url: 'https://taxila-aws.bits-pilani.ac.in/webservice/' }, 42)).toBe(
       'https://taxila-aws.bits-pilani.ac.in/course/view.php?id=42',
@@ -123,119 +127,219 @@ describe('course matching (IT’s rule, on Taxila’s real names — taxila-disc
     ];
     expect(matchTaxilaCourse(twice, 'S1-25', ['SS ZG653'])).toMatchObject({ kind: 'ambiguous' });
   });
+  it('Backlog and Tentative shells are never matched (real S1-26 names)', () => {
+    const s126 = [
+      { id: 20, fullname: 'Additive Manufacturing Process (S1-26_DMZG631)', shortname: '' },
+      { id: 21, fullname: 'Additive Manufacturing Process (S1-26_DMZG631)Backlog', shortname: '' },
+      { id: 22, fullname: 'Mechanics of Solids (S1-26_MTTMZC261) - Backlog', shortname: '' },
+      {
+        id: 23,
+        fullname: 'Software Engineering (S1-26_SESAPZC344)(Flipped)(Backlog)',
+        shortname: '',
+      },
+      { id: 24, fullname: 'Dissertation (S1-26_SESAPZG628T)-Backlog', shortname: '' },
+      { id: 25, fullname: 'Dissertation (S1-26_Tentative)', shortname: '' },
+    ];
+    expect(matchTaxilaCourse(s126, 'S1-26', ['DM ZG631'])).toMatchObject({
+      kind: 'found',
+      course: { id: 20 },
+    });
+    expect(matchTaxilaCourse(s126, 'S1-26', ['MTTM ZC261']).kind).toBe('none');
+    expect(matchTaxilaCourse(s126, 'S1-26', ['SESAP ZC344']).kind).toBe('none');
+    expect(matchTaxilaCourse(s126, 'S1-26', ['SESAP ZG628T']).kind).toBe('none');
+  });
+});
+
+describe('the Course Handout File item', () => {
+  it('only a File (resource) named "Course Handout" in General counts — never a folder', () => {
+    const modules = [
+      { id: 1, name: 'Course Handout', modname: 'folder', contextid: 11, contents: [] },
+      { id: 2, name: 'Past Question Papers', modname: 'resource', contextid: 12, contents: [] },
+      {
+        id: 3,
+        name: ' course handout ',
+        modname: 'resource',
+        contextid: 13,
+        contents: [{ type: 'file', filename: 'Course Handout.pdf', filesize: 5 }],
+      },
+    ];
+    expect(findHandoutItem([{ name: 'General', modules }])).toEqual({
+      moduleId: 3,
+      contextid: 13,
+      files: [{ name: 'Course Handout.pdf', size: 5 }],
+    });
+    expect(findHandoutItem([{ name: 'General', modules: modules.slice(0, 2) }])).toBe(null);
+    expect(findHandoutItem([{ name: 'Week 1', modules }])).toBe(null);
+  });
 });
 
 describe('Check in Taxila (no upload)', () => {
-  it('finds the course and the folder; nothing is uploaded', async () => {
-    const r = await checkInTaxila(client(), cfg, {
-      semesterCode: 'S1-26',
-      codes: ['SS ZG653'],
-      fileName: name,
-    });
+  it('finds the course and the item holding the placeholder; nothing is uploaded', async () => {
+    const r = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['SS ZG653'] });
     expect(r).toMatchObject({
       status: 'ready',
       course: { id: 4101 },
-      folder: { contextid: 9101, files: [] },
+      item: { contextid: 9101, files: [{ name: 'Course Handout.pdf', size: 900 }] },
+      replaces: true,
+      message: 'Ready to publish. It replaces the Course Handout.pdf there now.',
     });
     expect(fake.calls.map((c) => c.step)).toEqual(['search', 'contents']);
   });
-  it('already there', async () => {
-    fake.courses[0]!.folder!.files.push({ filename: name, size: 10 });
-    const r = await checkInTaxila(client(), cfg, {
-      semesterCode: 'S1-26',
-      codes: ['SS ZG653'],
-      fileName: name,
+  it('an empty item is ready too', async () => {
+    item(4101).files = [];
+    const r = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['SS ZG653'] });
+    expect(r).toMatchObject({ status: 'ready', replaces: false, message: 'Ready to publish.' });
+  });
+  it('a folder of the same name is ignored; the File item is used', async () => {
+    const r = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['SE ZG501'] });
+    expect(r).toMatchObject({ status: 'ready', item: { contextid: 9102 } });
+  });
+  it('any other file in the item blocks publishing and is named', async () => {
+    const r = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['SE ZG503'] });
+    expect(r).toMatchObject({
+      status: 'other-files',
+      others: ['Old handout 2025.pdf'],
+      message:
+        "Remove 'Old handout 2025.pdf' from Course Handout first, so students see the published handout.",
     });
-    expect(r).toMatchObject({ status: 'already-there', message: 'Already in Taxila.' });
+    // Without the placeholder, and with a name that differs only in case: still blocked.
+    item(4105).files = [
+      { filename: 'course handout.pdf', size: 1 },
+      { filename: 'Notes.pdf', size: 1 },
+    ];
+    const r2 = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['SE ZG503'] });
+    expect(r2).toMatchObject({
+      status: 'other-files',
+      message:
+        "Remove 'course handout.pdf' and 'Notes.pdf' from Course Handout first, so students see the published handout.",
+    });
   });
   it('course not found', async () => {
-    const r = await checkInTaxila(client(), cfg, {
-      semesterCode: 'S1-26',
-      codes: ['XX ZG111'],
-      fileName: name,
-    });
+    const r = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['XX ZG111'] });
     expect(r).toEqual({
       status: 'not-found',
       message: 'Course S1-26_XXZG111 not found in Taxila.',
     });
   });
-  it('folder missing, and no General section', async () => {
-    const r = await checkInTaxila(client(), cfg, {
-      semesterCode: 'S1-26',
-      codes: ['CC ZG501'],
-      fileName: name,
-    });
+  it('item missing (and no General section) tells the IC what to create', async () => {
+    const r = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['CC ZG501'] });
     expect(r).toMatchObject({
-      status: 'folder-missing',
-      message: "Folder 'Course Handout' not found in General.",
+      status: 'item-missing',
+      message:
+        "Create a File named 'Course Handout' in General with a placeholder named Course Handout.pdf, then check again.",
     });
     fake.courses[1]!.noGeneral = true;
-    const r2 = await checkInTaxila(client(), cfg, {
-      semesterCode: 'S1-26',
-      codes: ['SE ZG501'],
-      fileName: name,
-    });
-    expect(r2.status).toBe('folder-missing');
+    const r2 = await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['SE ZG501'] });
+    expect(r2.status).toBe('item-missing');
   });
 });
 
 describe('Publish', () => {
-  it('upload then move: the file lands in the folder', async () => {
-    await publishFileToTaxila(client(), {
-      courseId: 4101,
-      contextid: 9101,
-      fileName: name,
-      pdf: PDF,
-    });
-    expect(fake.courses[0]!.folder!.files).toEqual([{ filename: name, size: PDF.length }]);
+  it('uploads "Course Handout.pdf", replaces the placeholder, reads the item back', async () => {
+    await publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF });
+    expect(item(4101).files).toEqual([{ filename: 'Course Handout.pdf', size: PDF.length }]);
+    expect(fake.calls.map((c) => c.step)).toEqual(['upload', 'move', 'contents']);
     const [up, mv] = fake.calls;
     expect(up).toMatchObject({ step: 'upload', method: 'POST' });
     expect(mv).toMatchObject({ step: 'move', method: 'POST' });
-    expect(mv!.body).toContain('component=mod_folder');
+    expect(mv!.body).toContain('component=mod_resource');
     expect(mv!.body).toContain('filearea=content');
     expect(mv!.body).toContain('itemid=0');
+    expect(mv!.body).toContain('contextid=9101');
+  });
+
+  it('publishing again replaces it — the item still holds exactly one file', async () => {
+    await publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF });
+    const bigger = Buffer.concat([PDF, Buffer.from(' v2 content')]);
+    await publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: bigger });
+    expect(item(4101).files).toEqual([{ filename: 'Course Handout.pdf', size: bigger.length }]);
+  });
+
+  it('a move that says "success" but changed nothing is not counted as published', async () => {
+    fake.failures.move = 'move-no-effect';
+    await expect(
+      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF }),
+    ).rejects.toMatchObject({
+      step: 'verify',
+      kind: 'not-confirmed',
+      message: `Uploaded, but the Course Handout.pdf in Taxila isn't the new file (900 bytes, expected ${PDF.length}).`,
+    });
+    expect(item(4101).files).toEqual(PLACEHOLDER);
+  });
+
+  it('a file added in Taxila meanwhile makes it fail, naming the file', async () => {
+    item(4101).files.push({ filename: 'Extra.pdf', size: 3 });
+    await expect(
+      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF }),
+    ).rejects.toMatchObject({
+      step: 'verify',
+      message:
+        "Uploaded, but Course Handout also holds 'Extra.pdf', so students may open that instead. Remove it in Taxila, then publish again.",
+    });
   });
 
   it('a move whose answer never comes, but which happened, counts as published — sent once', async () => {
+    cfg.timeoutMs = SHORT;
     fake.failures.move = 'hang-after-move';
-    await publishFileToTaxila(client(), {
-      courseId: 4101,
-      contextid: 9101,
-      fileName: name,
-      pdf: PDF,
-    });
+    await publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF });
     expect(fake.calls.filter((c) => c.step === 'move')).toHaveLength(1);
-    expect(fake.courses[0]!.folder!.files).toHaveLength(1);
+    expect(item(4101).files).toEqual([{ filename: 'Course Handout.pdf', size: PDF.length }]);
   });
 
   it('a move that times out without happening fails — and is not sent twice', async () => {
+    cfg.timeoutMs = SHORT;
     fake.failures.move = 'hang';
     await expect(
-      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, fileName: name, pdf: PDF }),
+      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF }),
     ).rejects.toMatchObject({ step: 'move', kind: 'move-failed' });
     expect(fake.calls.filter((c) => c.step === 'move')).toHaveLength(1);
-    expect(fake.courses[0]!.folder!.files).toHaveLength(0);
+    expect(item(4101).files).toEqual(PLACEHOLDER);
   });
 
   it('move answered "failed" → Move failed', async () => {
     fake.failures.move = 'move-not-success';
     await expect(
-      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, fileName: name, pdf: PDF }),
+      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF }),
     ).rejects.toMatchObject({ step: 'move', kind: 'move-failed' });
+  });
+
+  it('a read-back that fails leaves it unconfirmed', async () => {
+    const c = client();
+    c.getHandoutItem = async () => {
+      throw new TaxilaError('Taxila answered HTTP 502.', 'item', 'http');
+    };
+    await expect(
+      publishFileToTaxila(c, { courseId: 4101, contextid: 9101, pdf: PDF }),
+    ).rejects.toMatchObject({ step: 'verify', kind: 'not-confirmed' });
   });
 
   it('upload failures are retried, then reported', async () => {
     fake.failures.upload = 'http500';
     await expect(
-      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, fileName: name, pdf: PDF }),
+      publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF }),
     ).rejects.toMatchObject({ step: 'upload', kind: 'http' });
     expect(fake.calls.filter((c) => c.step === 'upload')).toHaveLength(3);
     expect(fake.calls.some((c) => c.step === 'move')).toBe(false);
+  });
+
+  it('confirmPublished: exactly one Course Handout.pdf at the new size', () => {
+    const at = (files: { name: string; size: number | null }[]) => ({
+      moduleId: 1,
+      contextid: 2,
+      files,
+    });
+    expect(confirmPublished(at([{ name: 'Course Handout.pdf', size: 10 }]), 10)).toBeNull();
+    expect(confirmPublished(at([]), 10)).toMatch(/isn't in the Course Handout item/);
+    expect(confirmPublished(null, 10)).toMatch(/no longer in the course/);
+    expect(confirmPublished(at([{ name: 'Course Handout.pdf', size: null }]), 10)).toMatch(
+      /isn't the new file/,
+    );
   });
 });
 
 describe('each step’s failure, in plain words', () => {
   it('search: timeout retried 3 times, then "didn’t answer"', async () => {
+    cfg.timeoutMs = SHORT;
     fake.failures.search = 'hang';
     await expect(client().searchCourses('S1-26')).rejects.toMatchObject({
       step: 'search',
@@ -246,8 +350,8 @@ describe('each step’s failure, in plain words', () => {
   });
   it('a Moodle exception is a refusal, not retried', async () => {
     fake.failures.contents = 'exception';
-    await expect(client().getFolder(4101)).rejects.toMatchObject({
-      step: 'folder',
+    await expect(client().getHandoutItem(4101)).rejects.toMatchObject({
+      step: 'item',
       kind: 'refused',
       message: "Taxila refused: the HMP token can't call core_course_get_contents — ask IT.",
     });
@@ -268,17 +372,8 @@ describe('the token never leaves the client', () => {
     for (const step of ['search', 'contents', 'upload', 'move'] as const) {
       fake.failures = { [step]: 'http500' };
       try {
-        await checkInTaxila(client(), cfg, {
-          semesterCode: 'S1-26',
-          codes: ['SS ZG653'],
-          fileName: name,
-        });
-        await publishFileToTaxila(client(), {
-          courseId: 4101,
-          contextid: 9101,
-          fileName: name,
-          pdf: PDF,
-        });
+        await checkInTaxila(client(), cfg, { semesterCode: 'S1-26', codes: ['SS ZG653'] });
+        await publishFileToTaxila(client(), { courseId: 4101, contextid: 9101, pdf: PDF });
       } catch (err) {
         expect(err).toBeInstanceOf(TaxilaError);
         errors.push(String(err), JSON.stringify(err), (err as Error).stack ?? '');
@@ -286,7 +381,7 @@ describe('the token never leaves the client', () => {
     }
     // An unreachable server's network error carries the URL — still redacted.
     await createTaxilaClient({ ...cfg, url: 'http://127.0.0.1:1/webservice/' })
-      .upload(name, PDF)
+      .upload(TAXILA_HANDOUT_FILE, PDF)
       .catch((err: Error) => errors.push(err.message, err.stack ?? ''));
     expect(errors.length).toBeGreaterThan(4);
     for (const e of errors) expect(e).not.toContain(TOKEN);
@@ -296,19 +391,7 @@ describe('the token never leaves the client', () => {
   });
 });
 
-describe('file names and semester codes', () => {
-  it('codes joined with " _ ", never "/"; new versions " v2", " v3"', () => {
-    expect(taxilaFileName(['SS ZG653'], 'Sem-I 2026-27')).toBe(
-      'SS ZG653 Course Handout Sem-I 2026-27.pdf',
-    );
-    expect(taxilaFileName(['MBA ZC417', 'PDBA ZC417'], 'Sem-I 2026-27')).toBe(
-      'MBA ZC417 _ PDBA ZC417 Course Handout Sem-I 2026-27.pdf',
-    );
-    expect(taxilaFileName(['A/B ZC1'], 'X/Y', 2)).toBe('A-B ZC1 Course Handout X-Y v2.pdf');
-    expect(
-      nextFreeFileName(['SS ZG653'], 'Sem-I 2026-27', [name, name.replace('.pdf', ' v2.pdf')]),
-    ).toBe('SS ZG653 Course Handout Sem-I 2026-27 v3.pdf');
-  });
+describe('semester codes', () => {
   it('Sem-I 2026-27 → S1-26, Sem-II → S2-26, Summer left blank', () => {
     expect(defaultTaxilaSemesterCode('Sem-I 2026-27')).toBe('S1-26');
     expect(defaultTaxilaSemesterCode('Sem-II 2026-27')).toBe('S2-26');

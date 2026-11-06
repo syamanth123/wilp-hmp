@@ -50,8 +50,8 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   // Mode B "awaiting manual confirmation" state: an EXPORTED publish log exists
   // while the request is still APPROVED. Regenerate the download URL fresh from
   // the durable s3Key each render — the presigned URL is ephemeral, so we never
-  // persist/serve a stale one. Mode C (v1.3.0): only whether it's set up and the folder name
-  // reach the client — never the URL or the token.
+  // persist/serve a stale one. Mode C: only whether it's set up reaches the client —
+  // never the URL or the token.
   const taxila = taxilaSettings();
   let exportDownloadUrl: string | null = null;
   if (handout && request.status === HandoutStatus.APPROVED) {
@@ -158,7 +158,6 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                 requestId={request.id}
                 defaultSemesterCode={defaultTaxilaSemesterCode(request.offering.semester.name)}
                 semesterName={request.offering.semester.name}
-                folderName={taxila.folderName}
               />
             ) : (
               <PublishPanel requestId={request.id} exportDownloadUrl={exportDownloadUrl} />
