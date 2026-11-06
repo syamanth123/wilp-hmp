@@ -26,10 +26,10 @@ export const ITEM_STATUS = {
   WORKING: 'WORKING',
   READY: 'READY',
   PUBLISHED: 'PUBLISHED',
-  ALREADY_THERE: 'ALREADY_THERE',
   NOT_FOUND: 'NOT_FOUND',
   AMBIGUOUS: 'AMBIGUOUS',
-  FOLDER_MISSING: 'FOLDER_MISSING',
+  ITEM_MISSING: 'ITEM_MISSING',
+  OTHER_FILES: 'OTHER_FILES',
   FAILED: 'FAILED',
   SKIPPED: 'SKIPPED',
 } as const;
@@ -40,10 +40,10 @@ export const ITEM_LABEL: Record<ItemStatus, string> = {
   WORKING: 'Working…',
   READY: 'Ready to publish',
   PUBLISHED: 'Published',
-  ALREADY_THERE: 'Already in Taxila',
   NOT_FOUND: 'Course not found',
   AMBIGUOUS: 'Several courses match',
-  FOLDER_MISSING: 'Folder missing',
+  ITEM_MISSING: 'No Course Handout item',
+  OTHER_FILES: 'Other files in Course Handout',
   FAILED: 'Failed',
   SKIPPED: 'Skipped',
 };
@@ -95,10 +95,10 @@ export async function createTaxilaRun(input: {
 const outcomeStatus = (o: PublishOutcome): ItemStatus =>
   ({
     published: 'PUBLISHED',
-    'already-there': 'ALREADY_THERE',
     'not-found': 'NOT_FOUND',
     ambiguous: 'AMBIGUOUS',
-    'folder-missing': 'FOLDER_MISSING',
+    'item-missing': 'ITEM_MISSING',
+    'other-files': 'OTHER_FILES',
     failed: 'FAILED',
     'not-approved': 'SKIPPED',
     'no-content': 'FAILED',
@@ -110,7 +110,7 @@ export interface StepResult {
 }
 
 /**
- * Works on the next item of the run: 'check' finds the course and folder (no upload); 'publish'
+ * Works on the next item of the run: 'check' finds the course and its item (no upload); 'publish'
  * publishes it. Returns done as soon as nothing is left for this mode — in the same answer as the
  * last course, so the page settles at once. When a publish pass finishes, the run is marked DONE and
  * the IC who started it gets a short summary (once per finish).
@@ -199,15 +199,19 @@ async function processOneItem(
         status:
           check.status === 'ready'
             ? 'READY'
-            : check.status === 'already-there'
-              ? 'ALREADY_THERE'
-              : check.status === 'ambiguous'
-                ? 'AMBIGUOUS'
-                : check.status === 'folder-missing'
-                  ? 'FOLDER_MISSING'
+            : check.status === 'ambiguous'
+              ? 'AMBIGUOUS'
+              : check.status === 'item-missing'
+                ? 'ITEM_MISSING'
+                : check.status === 'other-files'
+                  ? 'OTHER_FILES'
                   : 'NOT_FOUND',
         step:
-          check.status === 'ready' ? null : check.status === 'folder-missing' ? 'folder' : 'search',
+          check.status === 'ready'
+            ? null
+            : check.status === 'item-missing' || check.status === 'other-files'
+              ? 'item'
+              : 'search',
         message: check.message,
         fileName,
         courseFullname: course?.fullname ?? null,
@@ -278,7 +282,7 @@ async function notifyRunFinished(runId: string): Promise<void> {
 /** "Try these again": problem items go back to waiting (published ones never do). */
 export async function retryProblemItems(runId: string): Promise<number> {
   const r = await prisma.taxilaPublishItem.updateMany({
-    where: { runId, status: { in: ['NOT_FOUND', 'AMBIGUOUS', 'FOLDER_MISSING', 'FAILED'] } },
+    where: { runId, status: { in: PROBLEM_STATUSES } },
     data: { status: 'PENDING', step: null, message: null },
   });
   if (r.count)

@@ -67,14 +67,16 @@ export async function PublishLogs({ handoutId }: { handoutId: string }) {
 
 const STEP: Record<string, string> = {
   search: 'Finding the course',
-  folder: 'Finding the folder',
+  folder: 'Finding the folder', // v1.3.0 logs
+  item: 'Finding the Course Handout item',
   pdf: 'Making the PDF',
   upload: 'Uploading',
-  move: 'Moving into the folder',
+  move: 'Placing it in Course Handout',
+  verify: 'Confirming it in Taxila',
   status: 'Marking it published',
 };
 
-/** Mode C (v1.3.0): the file and course it went to, or the step that failed. */
+/** Mode C: the file and course it went to, or the step that failed. */
 function TaxilaDetail({
   log,
 }: {

@@ -265,3 +265,29 @@ untested until IT answers §C.
   _starting_ with `S1-25_`. Upload (`upload.php`), `core_course_get_contents` and
   `local_move_file_from_draft` are therefore untested with the real token — the first real publish on
   one test course is the check.
+
+## J. v1.3.1 — the fixed-name rule (6 Nov 2026)
+
+Tested on the real Taxila in CIL_Exp (`C:\work\server-steps\taxila-test-main.log`, then
+`run-taxila-test-fixedname.bat` → PASS). Findings: `local_move_file_from_draft` replaces a file of
+the same name, but the new copy gets `sortorder 0` and is **not** made the main file; with several
+files at sortorder 0 Moodle opens the oldest. Final rule, as built:
+
+- Publish into the **"Course Handout" File item** (`modname` `resource`; move with
+  `component=mod_resource`, `filearea=content`, `itemid=0`) in General. Never a folder, never
+  "Past Question Papers" or any other item.
+- The file is **always `Course Handout.pdf`**, so each publish replaces the last and the item keeps
+  exactly one file. "Publish as new version" and the per-course file names are removed.
+- **Check in Taxila:** item missing → "Create a File named 'Course Handout' in General with a
+  placeholder named Course Handout.pdf, then check again." Any other file in the item (including a
+  different-case "course handout.pdf") → **blocked**: "Remove '<name>' from Course Handout first, so
+  students see the published handout."
+- **After publishing** the item is read back; it must hold only `Course Handout.pdf` at the new
+  file's size, otherwise the publish is marked failed (step "verify") and the handout stays
+  Approved. A lost move answer is decided by the same read-back; the move is never sent twice.
+- Bulk-run results: "Already in Taxila" is gone; "No Course Handout item" and "Other files in
+  Course Handout" are problem results ("Try … again" re-queues them).
+- `TAXILA_HANDOUT_FOLDER` is no longer read. Course matching keeps merged-first and the exact bracket
+  token, and now also never matches Backlog or Tentative shells ("… (S1-26_DMZG631)Backlog",
+  "Dissertation (S1-26_Tentative)") — v1.3.0 did not exclude them.
+- Released as **v1.3.1**: v1.3.0 was already tagged on 41b928b and is not moved.

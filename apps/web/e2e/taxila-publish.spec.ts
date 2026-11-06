@@ -10,7 +10,8 @@ import {
 import { startFakeMoodle, type FakeMoodle } from '@hmp/integrations/src/testing/fake-moodle';
 import { cleanupTestHandouts } from './fixtures/handout';
 
-// v1.3.0 "Mode C": publish into Taxila — against a FAKE Taxila started here, never the real one.
+// "Mode C": publish into Taxila — against a FAKE Taxila started here, never the real one. The file is
+// always "Course Handout.pdf" in the course's "Course Handout" File item (v1.3.1).
 // Runs only in the ci-local / CI step "e2e (Taxila on)", which starts the app with
 // TAXILA_URL=http://127.0.0.1:4599/webservice/ and TAXILA_TOKEN set; the main e2e run (no Taxila
 // settings) skips it and keeps testing the ZIP flow (m6a, m6c). Needs LibreOffice for the PDF.
@@ -139,27 +140,49 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
         {
           id: 501,
           fullname: `Software Engineering (${SEM}_SEZG501)`,
-          folder: { name: 'Course Handout', contextid: 9501, files: [] },
+          item: {
+            name: 'Course Handout',
+            contextid: 9501,
+            files: [{ filename: 'Course Handout.pdf', size: 900 }],
+          },
+          // An old-style folder of the same name is never used.
+          extraModules: [{ name: 'Course Handout', modname: 'folder', contextid: 8501 }],
         },
-        { id: 503, fullname: `Software Testing (${SEM}_SEZG503)` }, // no handout folder
+        // Only a folder, no File item.
+        {
+          id: 503,
+          fullname: `Software Testing (${SEM}_SEZG503)`,
+          extraModules: [{ name: 'Course Handout', modname: 'folder', contextid: 8503 }],
+        },
         {
           id: 504,
           fullname: `Agile (${SEM}_SEZG504)`,
-          folder: {
+          item: {
             name: 'Course Handout',
             contextid: 9504,
-            files: [{ filename: 'SE ZG504 Course Handout Sem-I 2025-26.pdf', size: 10 }],
+            files: [
+              ...[{ filename: 'Course Handout.pdf', size: 900 }],
+              { filename: 'Highway Engineering Lab (V-HEL)_v2 (2).pdf', size: 10 },
+            ],
           },
         },
         {
           id: 601,
           fullname: `Introduction to Parallel and Distributed Programming (${SEM}_CCZG501)`,
-          folder: { name: 'Course Handout', contextid: 9601, files: [] },
+          item: {
+            name: 'Course Handout',
+            contextid: 9601,
+            files: [{ filename: 'Course Handout.pdf', size: 900 }],
+          },
         },
         {
           id: 417,
           fullname: `Quantitative Methods | Business Statistics (Merged - MBAZC417/PDBAZC417/PDFTZC417/MBAZG501)(${SEM})`,
-          folder: { name: 'Course Handout', contextid: 9417, files: [] },
+          item: {
+            name: 'Course Handout',
+            contextid: 9417,
+            files: [{ filename: 'Course Handout.pdf', size: 900 }],
+          },
         },
         // Taxila also keeps a single-code shell; a cross-listed handout must go to the merged one.
         { id: 418, fullname: `Quantitative Methods (${SEM}_MBAZC417)` },
@@ -187,7 +210,7 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
     await prisma.taxilaPublishRun.deleteMany({ where: { createdAt: { gte: started } } });
   });
 
-  test('check, then publish one handout: PDF in the folder, handout published', async ({
+  test('check, then publish one handout: Course Handout.pdf replaces the placeholder', async ({
     browser,
   }) => {
     const id = await seedApproved('SE ZG501');
@@ -199,7 +222,11 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
     const result = page.getByTestId('taxila-check-result');
     await expect(result).toHaveAttribute('data-status', 'ready');
     await expect(result).toContainText(`Software Engineering (${SEM}_SEZG501)`);
-    await expect(result).toContainText('SE ZG501 Course Handout Sem-I 2025-26.pdf');
+    await expect(result).toContainText('General › Course Handout');
+    await expect(result).toContainText(
+      'Ready to publish. It replaces the Course Handout.pdf there now.',
+    );
+    await expect(page.getByText('Publish as new version')).toHaveCount(0);
     expect(fake.calls.some((c) => c.step === 'upload')).toBe(false);
 
     await page.getByTestId('taxila-publish').click();
@@ -208,46 +235,52 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
       timeout: 60_000,
     });
     await expect(page.getByText('Published to Taxila').first()).toBeVisible();
-    await expect(page.getByText('“SE ZG501 Course Handout Sem-I 2025-26.pdf”')).toBeVisible();
-    const files = fake.courses.find((c) => c.id === 501)!.folder!.files;
-    expect(files.map((f) => f.filename)).toEqual(['SE ZG501 Course Handout Sem-I 2025-26.pdf']);
-    expect(files[0]!.size).toBeGreaterThan(1000); // a real PDF
+    await expect(page.getByText('“Course Handout.pdf”')).toBeVisible();
+    const files = fake.courses.find((c) => c.id === 501)!.item!.files;
+    expect(files.map((f) => f.filename)).toEqual(['Course Handout.pdf']);
+    expect(files[0]!.size).toBeGreaterThan(1000); // a real PDF, not the placeholder
+    // The move went to the File item, never the folder.
+    const move = fake.calls.find((c) => c.step === 'move')!;
+    expect(move.body).toContain('component=mod_resource');
+    expect(move.body).toContain('contextid=9501');
     await page.context().close();
   });
 
-  test('folder missing; already there → publish as new version', async ({ browser }) => {
+  test('item missing; another file in the item blocks publishing', async ({ browser }) => {
     const missing = await seedApproved('SE ZG503');
-    const there = await seedApproved('SE ZG504');
+    const blocked = await seedApproved('SE ZG504');
     const page = await asIc(browser);
 
     await page.goto(`/ic/requests/${missing}`);
     await page.getByTestId('taxila-check').click();
-    await expect(page.getByTestId('taxila-check-result')).toHaveAttribute(
-      'data-status',
-      'folder-missing',
-    );
-    await expect(page.getByTestId('taxila-check-result')).toContainText(
-      "Folder 'Course Handout' not found in General.",
+    const result = page.getByTestId('taxila-check-result');
+    await expect(result).toHaveAttribute('data-status', 'item-missing');
+    await expect(result).toContainText(
+      "Create a File named 'Course Handout' in General with a placeholder named Course Handout.pdf, then check again.",
     );
     await expect(page.getByTestId('taxila-publish')).toHaveCount(0);
 
-    await page.goto(`/ic/requests/${there}`);
+    const uploads = fake.calls.filter((c) => c.step === 'upload').length;
+    await page.goto(`/ic/requests/${blocked}`);
     await page.getByTestId('taxila-check').click();
-    await expect(page.getByTestId('taxila-check-result')).toHaveAttribute(
-      'data-status',
-      'already-there',
+    await expect(result).toHaveAttribute('data-status', 'other-files');
+    await expect(result).toContainText(
+      "Remove 'Highway Engineering Lab (V-HEL)_v2 (2).pdf' from Course Handout first, so students see the published handout.",
     );
-    await expect(page.getByTestId('taxila-check-result')).toContainText(
-      'SE ZG504 Course Handout Sem-I 2025-26 v2.pdf',
-    );
-    await page.getByTestId('taxila-new-version').click();
+    await expect(page.getByTestId('taxila-other-files')).toContainText('Taxila opens the oldest');
+    await expect(page.getByTestId('taxila-publish')).toHaveCount(0);
+    expect(fake.calls.filter((c) => c.step === 'upload')).toHaveLength(uploads);
+
+    // The IC removes the old file in Taxila and checks again: now it publishes.
+    const item = fake.courses.find((c) => c.id === 504)!.item!;
+    item.files = item.files.filter((f) => f.filename === 'Course Handout.pdf');
+    await page.getByTestId('taxila-check').click();
+    await expect(result).toHaveAttribute('data-status', 'ready');
+    await page.getByTestId('taxila-publish').click();
     await expect(page.locator('[data-status="PUBLISHED"]').first()).toBeVisible({
       timeout: 60_000,
     });
-    expect(fake.courses.find((c) => c.id === 504)!.folder!.files.map((f) => f.filename)).toEqual([
-      'SE ZG504 Course Handout Sem-I 2025-26.pdf',
-      'SE ZG504 Course Handout Sem-I 2025-26 v2.pdf',
-    ]);
+    expect(item.files.map((f) => f.filename)).toEqual(['Course Handout.pdf']);
     await page.context().close();
   });
 
@@ -292,9 +325,9 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
     await expect(page.locator('[data-testid="run-row"][data-status="NOT_FOUND"]')).toContainText(
       'not found in Taxila',
     );
-    expect(fake.courses.find((c) => c.id === 417)!.folder!.files.map((f) => f.filename)).toEqual([
-      'MBA ZC417 _ PDBA ZC417 _ PDFT ZC417 Course Handout Sem-I 2025-26.pdf',
-    ]);
+    const merged = fake.courses.find((c) => c.id === 417)!.item!.files;
+    expect(merged.map((f) => f.filename)).toEqual(['Course Handout.pdf']);
+    expect(merged[0]!.size).toBeGreaterThan(1000);
     const xlsx = await page.request.get(
       (await page.getByTestId('run-excel').getAttribute('href')) as string,
     );

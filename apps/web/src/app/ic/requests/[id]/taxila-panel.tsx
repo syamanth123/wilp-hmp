@@ -12,24 +12,25 @@ type Outcome = Extract<PublishReply, { ok: true }>['outcome'];
 
 const box = {
   ok: 'rounded-md border border-emerald-300 bg-emerald-50 p-3 text-emerald-950',
-  warn: 'rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950',
   bad: 'rounded-md border border-red-300 bg-red-50 p-3 text-red-950',
 };
 
+const ITEM = 'Course Handout';
+const FILE = 'Course Handout.pdf';
+
 /**
- * Mode C (v1.3.0): Check in Taxila → Publish. Nothing is uploaded by the check; Publish is enabled
- * only after a passing check and re-checks on the server before uploading.
+ * Mode C: Check in Taxila → Publish. Nothing is uploaded by the check; Publish is offered only
+ * after a passing check, and the server re-checks before uploading. The file is always
+ * "Course Handout.pdf" in the course's "Course Handout" item; any other file there blocks it.
  */
 export function TaxilaPanel({
   requestId,
   defaultSemesterCode,
   semesterName,
-  folderName,
 }: {
   requestId: string;
   defaultSemesterCode: string;
   semesterName: string;
-  folderName: string;
 }) {
   const router = useRouter();
   const [code, setCode] = useState(defaultSemesterCode);
@@ -39,12 +40,11 @@ export function TaxilaPanel({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const form = (extra: Record<string, string> = {}) => {
+  const form = () => {
     const fd = new FormData();
     fd.set('requestId', requestId);
     fd.set('semesterCode', code.trim());
     if (courseId) fd.set('courseId', String(courseId));
-    for (const [k, v] of Object.entries(extra)) fd.set(k, v);
     return fd;
   };
 
@@ -61,10 +61,10 @@ export function TaxilaPanel({
     });
   };
 
-  const publish = (newVersion: boolean) => {
+  const publish = () => {
     setError(null);
     startTransition(async () => {
-      const r = await publishTaxilaAction(form({ newVersion: newVersion ? '1' : '0' }));
+      const r = await publishTaxilaAction(form());
       if ('error' in r) return setError(r.error ?? 'Publish failed.');
       setOutcome(r.outcome);
       setView(null);
@@ -76,8 +76,9 @@ export function TaxilaPanel({
   return (
     <div className="space-y-3 text-sm" data-testid="taxila-panel">
       <p className="text-muted-foreground">
-        Publishes the approved handout as a PDF into the <strong>{folderName}</strong> folder of its
-        Taxila course. Check first — nothing is uploaded until you press Publish.
+        Publishes the approved handout as <span className="font-mono">{FILE}</span> into the{' '}
+        <strong>{ITEM}</strong> item in its Taxila course’s General section, replacing the file
+        there. Check first — nothing is uploaded until you press Publish.
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <div>
@@ -121,16 +122,12 @@ export function TaxilaPanel({
 
       {c && (
         <div
-          className={
-            c.status === 'ready' ? box.ok : c.status === 'already-there' ? box.warn : box.bad
-          }
+          className={c.status === 'ready' ? box.ok : box.bad}
           data-testid="taxila-check-result"
           data-status={c.status}
           role="status"
         >
-          {(c.status === 'ready' ||
-            c.status === 'already-there' ||
-            c.status === 'folder-missing') && (
+          {(c.status === 'ready' || c.status === 'item-missing' || c.status === 'other-files') && (
             <p>
               Course: <strong>{c.course.fullname}</strong>{' '}
               <a href={c.courseUrl} target="_blank" rel="noreferrer" className="underline">
@@ -138,14 +135,21 @@ export function TaxilaPanel({
               </a>
             </p>
           )}
-          {(c.status === 'ready' || c.status === 'already-there') && (
+          {(c.status === 'ready' || c.status === 'other-files') && (
             <>
               <p>
-                Folder: <strong>General › {folderName}</strong> ({c.folder.files.length}{' '}
-                {c.folder.files.length === 1 ? 'file' : 'files'} in it)
+                Item: <strong>General › {ITEM}</strong> — holds{' '}
+                {c.item.files.length === 0
+                  ? 'no file yet'
+                  : c.item.files.map((f, i) => (
+                      <span key={f.name}>
+                        {i > 0 && ', '}
+                        <span className="font-mono">{f.name}</span>
+                      </span>
+                    ))}
               </p>
               <p>
-                File: <span className="font-mono">{view!.fileName}</span>
+                File HMP uploads: <span className="font-mono">{view!.fileName}</span>
               </p>
             </>
           )}
@@ -155,10 +159,18 @@ export function TaxilaPanel({
               Check the semester code, and that the course exists in Taxila for this semester.
             </p>
           )}
-          {c.status === 'folder-missing' && (
+          {c.status === 'item-missing' && (
             <p className="mt-1 text-xs">
-              Create a folder named “{folderName}” in the course’s General section, then check
-              again.
+              In Taxila: turn editing on, add a File in General, name it “{ITEM}”, and upload any
+              PDF renamed to {FILE} as the placeholder. HMP replaces it when you publish.
+            </p>
+          )}
+          {c.status === 'other-files' && (
+            <p className="mt-1 text-xs" data-testid="taxila-other-files">
+              Publishing is blocked: when the item holds more than one file, Taxila opens the
+              oldest, so students wouldn’t see this handout. In Taxila, open {ITEM} → Edit settings,
+              delete the file{c.others.length === 1 ? '' : 's'} named above, keep only {FILE}, save,
+              then check again.
             </p>
           )}
           {c.status === 'ambiguous' && (
@@ -183,41 +195,19 @@ export function TaxilaPanel({
           {c.status === 'ready' && (
             <Button
               className="mt-2"
-              onClick={() => publish(false)}
+              onClick={publish}
               disabled={pending}
               data-testid="taxila-publish"
             >
               {pending ? 'Publishing…' : 'Publish to Taxila'}
             </Button>
           )}
-          {c.status === 'already-there' && view!.newVersionName && (
-            <div className="mt-2 space-y-1">
-              <p className="text-xs">
-                Nothing will be uploaded unless you publish a new version. It is added beside the
-                existing file as “{view!.newVersionName}”.
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => publish(true)}
-                disabled={pending}
-                data-testid="taxila-new-version"
-              >
-                {pending ? 'Publishing…' : 'Publish as new version'}
-              </Button>
-            </div>
-          )}
         </div>
       )}
 
       {outcome && (
         <div
-          className={
-            outcome.status === 'published'
-              ? box.ok
-              : outcome.status === 'already-there'
-                ? box.warn
-                : box.bad
-          }
+          className={outcome.status === 'published' ? box.ok : box.bad}
           data-testid="taxila-outcome"
           data-status={outcome.status}
           role="status"

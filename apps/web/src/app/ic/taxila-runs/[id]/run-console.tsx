@@ -4,17 +4,17 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@hmp/ui';
 import type { ItemStatus, RunRow } from '@/lib/taxila-runs';
 import { retryProblemsAction, runStepAction } from '../actions';
-import { finishedLine, summariseRun } from '@/lib/taxila-run-summary';
+import { PROBLEM_STATUSES, finishedLine, summariseRun } from '@/lib/taxila-run-summary';
 
 const LABEL: Record<ItemStatus, string> = {
   PENDING: 'Waiting',
   WORKING: 'Working…',
   READY: 'Ready to publish',
   PUBLISHED: 'Published',
-  ALREADY_THERE: 'Already in Taxila',
   NOT_FOUND: 'Course not found',
   AMBIGUOUS: 'Several courses match',
-  FOLDER_MISSING: 'Folder missing',
+  ITEM_MISSING: 'No Course Handout item',
+  OTHER_FILES: 'Other files in Course Handout',
   FAILED: 'Failed',
   SKIPPED: 'Skipped',
 };
@@ -23,14 +23,14 @@ const TONE: Record<ItemStatus, string> = {
   WORKING: 'bg-blue-100 text-blue-800',
   READY: 'bg-emerald-50 text-emerald-800',
   PUBLISHED: 'bg-emerald-100 text-emerald-900',
-  ALREADY_THERE: 'bg-amber-100 text-amber-900',
   NOT_FOUND: 'bg-red-100 text-red-900',
   AMBIGUOUS: 'bg-red-100 text-red-900',
-  FOLDER_MISSING: 'bg-red-100 text-red-900',
+  ITEM_MISSING: 'bg-red-100 text-red-900',
+  OTHER_FILES: 'bg-red-100 text-red-900',
   FAILED: 'bg-red-100 text-red-900',
   SKIPPED: 'bg-gray-100 text-gray-700',
 };
-const PROBLEM: ItemStatus[] = ['NOT_FOUND', 'AMBIGUOUS', 'FOLDER_MISSING', 'FAILED'];
+const PROBLEM = PROBLEM_STATUSES as ItemStatus[];
 /** A pause between courses so Taxila isn't hammered. */
 const BETWEEN_MS = 1_000;
 
@@ -154,7 +154,7 @@ export function RunConsole({
       <p className="text-sm" data-testid="run-progress" aria-live="polite">
         <strong>{done}</strong> of {rows.length} done
         {ready > 0 && <> · {ready} ready to publish</>} · {count(['PUBLISHED'])} published ·{' '}
-        {count(['ALREADY_THERE'])} already there · {count(PROBLEM)} need attention
+        {count(PROBLEM)} need attention
         {running && <> · working…</>}
       </p>
       {error && (
