@@ -51,6 +51,8 @@ export const allocationRowSchema = z.object({
   request_reference: z.string().min(1, 'request_reference is required'),
   faculty_emails: z.string().min(1, 'faculty_emails is required'),
   sme_email: z.string().min(1, 'sme_email is required'),
+  // v1.4.1: the PC who confirms. Optional column; blank = the department's only PC.
+  pc_email: z.string().optional().default(''),
 });
 export type AllocationRow = z.infer<typeof allocationRowSchema>;
 

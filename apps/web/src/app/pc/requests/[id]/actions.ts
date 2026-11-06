@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma, RoleName, ApprovalStage, ApprovalDecision, HandoutStatus } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
+import { assertRequestInScope } from '@/lib/request-scope';
 import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { rejectAllocationEffect } from '@/lib/pc-allocation-review';
@@ -29,8 +30,24 @@ function revalidate(requestId: string) {
   revalidatePath('/hog');
 }
 
+/**
+ * v1.4.1: the HOG names the PC who confirms the allocation; only that PC may confirm or send it back.
+ * Older requests without a recorded PC can be confirmed by any PC of the department (as before).
+ */
+async function otherPcMessage(requestId: string, actorId: string): Promise<string | null> {
+  const pc = await prisma.requestAssignee.findFirst({
+    where: { requestId, role: RoleName.PROGRAMME_COMMITTEE, endedAt: null },
+    orderBy: { assignedAt: 'desc' },
+    select: { userId: true, user: { select: { name: true } } },
+  });
+  if (!pc || pc.userId === actorId) return null;
+  return `The HOG asked ${pc.user.name} to confirm this allocation.`;
+}
+
 export async function confirmAssignmentAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.PROGRAMME_COMMITTEE);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const parsed = baseSchema.safeParse({
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
@@ -42,6 +59,8 @@ export async function confirmAssignmentAction(formData: FormData) {
   if (request.status !== HandoutStatus.ALLOCATED) {
     return { error: movedOnMessage(request.status) };
   }
+  const notYours = await otherPcMessage(parsed.data.requestId, actor.id);
+  if (notYours) return { error: notYours };
 
   try {
     await transition({
@@ -78,6 +97,8 @@ export async function confirmAssignmentAction(formData: FormData) {
 
 export async function pcRejectAllocationAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.PROGRAMME_COMMITTEE);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const parsed = reworkSchema.safeParse({
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
@@ -89,6 +110,8 @@ export async function pcRejectAllocationAction(formData: FormData) {
   if (request.status !== HandoutStatus.ALLOCATED) {
     return { error: movedOnMessage(request.status) };
   }
+  const notYours = await otherPcMessage(parsed.data.requestId, actor.id);
+  if (notYours) return { error: notYours };
 
   try {
     await transition({
@@ -116,6 +139,8 @@ export async function pcRejectAllocationAction(formData: FormData) {
 
 export async function pcReviewApproveAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.PROGRAMME_COMMITTEE);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const parsed = baseSchema.safeParse({
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
@@ -157,6 +182,8 @@ export async function pcReviewApproveAction(formData: FormData) {
 
 export async function pcReviewReworkAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.PROGRAMME_COMMITTEE);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const parsed = reworkSchema.safeParse({
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',

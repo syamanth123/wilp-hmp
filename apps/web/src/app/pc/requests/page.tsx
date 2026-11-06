@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { getSessionUser } from '@hmp/auth';
 import { prisma } from '@hmp/db';
 import {
   Card,
@@ -29,7 +30,9 @@ export default async function PCRequestList({
   const filter = parseListFilter('PC', searchParams);
   const page = Math.max(1, parseInt(searchParams?.page ?? '1', 10) || 1);
 
-  const where = listWhere('PC', '', filter);
+  // v1.4.1: their department's requests (+ their own, + department unknown) — lib/department-scope.ts.
+  const me = await getSessionUser();
+  const where = listWhere('PC', me ?? '', filter);
   const [total, requests] = await Promise.all([
     prisma.handoutRequest.count({ where }),
     prisma.handoutRequest.findMany({

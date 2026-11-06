@@ -37,6 +37,7 @@ const item = (o: Partial<LibraryItem>): LibraryItem => ({
   termKey: '2025-FIRST',
   semesterName: 'Sem-I 2025-26',
   programmeCode: 'MTECH-SE',
+  departmentIds: [],
   programmes: [],
   discipline: 'SS',
   faculty: ['Dr. Anaïs Pérez'],

@@ -12,6 +12,7 @@ export async function pcBulkReviewAction(formData: FormData): Promise<BulkReview
     id: actor.id,
     roles: actor.roles,
     name: actor.name,
+    departmentId: actor.departmentId,
   });
   if (result.status !== 'rejected') {
     revalidatePath('/pc/requests');

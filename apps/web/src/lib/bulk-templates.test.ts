@@ -76,6 +76,7 @@ describe('HOG bulk allocation template', () => {
       'request_reference',
       'faculty_emails',
       'sme_email',
+      'pc_email',
     ]);
     const parsed = parseAllocationsCsv(exampleRows(HOG_BULK_ALLOCATE_TEMPLATE));
     expect(parsed.ok).toBe(true);

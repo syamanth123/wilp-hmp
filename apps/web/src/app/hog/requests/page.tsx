@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { getSessionUser } from '@hmp/auth';
 import { prisma, HandoutStatus, ApprovalStage, ApprovalDecision } from '@hmp/db';
 import {
   Badge,
@@ -30,7 +31,9 @@ export default async function HOGRequestList({
   const filter = parseListFilter('HOG', searchParams);
   const page = Math.max(1, parseInt(searchParams?.page ?? '1', 10) || 1);
 
-  const where = listWhere('HOG', '', filter);
+  // v1.4.1: their department's requests (+ their own, + department unknown) — lib/department-scope.ts.
+  const me = await getSessionUser();
+  const where = listWhere('HOG', me ?? '', filter);
   const [total, requests] = await Promise.all([
     prisma.handoutRequest.count({ where }),
     prisma.handoutRequest.findMany({

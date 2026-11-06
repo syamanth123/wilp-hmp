@@ -1,18 +1,22 @@
 import { HandoutStatus, Prisma, RoleName, prisma } from '@hmp/db';
 import type { SessionUser } from '@hmp/auth';
+import { departmentScope } from './department-scope';
 
 /**
  * Who may see which handout in the Handout Library — ONE rule, used by every list, count, facet,
  * suggestion, export, detail page and download (never only hidden in the UI).
  *
  *   Published tab (approved / published / archived)   every role
- *   In progress tab                                    Admin, IC, HOG, PC: all
+ *   In progress tab                                    Admin, IC: all
+ *                                                      HOG, PC: their department (v1.4.1,
+ *                                                        lib/department-scope.ts)
  *                                                      Faculty: only with their ACTIVE assignment
  *                                                      SME: only those assigned to them
  *   Draft / rejected requests                          Admin, IC, HOG, PC only
  *   Past BITS handouts (approved imports with data)    every role
  *
- * HMP has no programme ↔ person link, so HOG and PC see every programme's handouts.
+ * v1.4.1: HOG and PC see their own department (plus requests they are on, and requests whose department
+ * isn't known); with no department set they see all, as before (H9).
  */
 
 const S = HandoutStatus;
@@ -40,7 +44,7 @@ const OVERSIGHT_ROLES: RoleName[] = [
 
 export type LibraryTab = 'published' | 'in-progress';
 
-type ScopeUser = Pick<SessionUser, 'id' | 'roles'>;
+type ScopeUser = Pick<SessionUser, 'id' | 'roles' | 'departmentId'>;
 
 export function seesAllWork(user: ScopeUser): boolean {
   return user.roles.some((r) => OVERSIGHT_ROLES.includes(r));
@@ -62,7 +66,13 @@ function ownWork(user: ScopeUser): Prisma.HandoutRequestWhereInput[] {
 export function libraryScope(user: ScopeUser, tab: LibraryTab): Prisma.HandoutRequestWhereInput {
   if (tab === 'published') return { status: { in: PUBLISHED_STATUSES } };
   if (seesAllWork(user)) {
-    return { status: { in: [...IN_PROGRESS_STATUSES, ...OVERSIGHT_ONLY_STATUSES] } };
+    const all: Prisma.HandoutRequestWhereInput = {
+      status: { in: [...IN_PROGRESS_STATUSES, ...OVERSIGHT_ONLY_STATUSES] },
+    };
+    const dept = departmentScope(user);
+    if (!dept) return all;
+    // A HOG / PC who is also faculty / SME keeps their own work from other departments.
+    return { AND: [all, { OR: [dept, ...ownWork(user)] }] };
   }
   const own = ownWork(user);
   if (own.length === 0) return { id: { in: [] } };

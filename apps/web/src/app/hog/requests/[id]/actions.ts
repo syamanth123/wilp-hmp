@@ -11,6 +11,8 @@ import {
   ACTIVE_USER_FILTER,
 } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
+import { assertRequestInScope } from '@/lib/request-scope';
+import { changeHogOrPc } from '@/lib/request-handover';
 import { transition, WorkflowError, assertOffCampusCap, movedOnMessage } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { audit } from '@/lib/audit';
@@ -29,6 +31,8 @@ const allocateSchema = z.object({
   smeUserId: z
     .string({ required_error: 'Choose a subject expert.' })
     .cuid('Select a Subject Matter Expert'),
+  // v1.4 §C: the PC member who confirms (optional only while no PC accounts exist).
+  pcUserId: z.string().cuid().optional(),
 });
 
 const approvalSchema = z.object({
@@ -50,12 +54,16 @@ function revalidate(requestId: string) {
 
 export async function allocateFacultyAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const facultyIds = formData.getAll('facultyIds').map(String).filter(Boolean);
   const smeUserId = String(formData.get('smeUserId') ?? '').trim() || undefined;
+  const pcUserId = String(formData.get('pcUserId') ?? '').trim() || undefined;
   const parsed = allocateSchema.safeParse({
     requestId: formData.get('requestId'),
     facultyIds,
     smeUserId,
+    pcUserId,
   });
   if (!parsed.success) return { error: formError(parsed.error) };
 
@@ -97,6 +105,25 @@ export async function allocateFacultyAction(formData: FormData) {
     return {
       error: "The chosen subject expert can't review handouts any more. Choose another one.",
     };
+  }
+
+  // v1.4 §C: the chosen PC must be an active PC; one is required once any PC account exists.
+  const pcWhere = {
+    ...ACTIVE_USER_FILTER,
+    roles: { some: { role: { name: RoleName.PROGRAMME_COMMITTEE } } },
+  };
+  if (parsed.data.pcUserId) {
+    const pc = await prisma.user.findFirst({
+      where: { id: parsed.data.pcUserId, ...pcWhere },
+      select: { id: true },
+    });
+    if (!pc) {
+      return {
+        error: "The chosen PC member can't confirm allocations any more. Choose another one.",
+      };
+    }
+  } else if (await prisma.user.count({ where: pcWhere })) {
+    return { error: 'Choose the Programme Committee member who confirms it.' };
   }
 
   try {
@@ -154,6 +181,31 @@ export async function allocateFacultyAction(formData: FormData) {
             assignedById: actor.id,
           },
         });
+        // v1.4 §C: record who is responsible now — the faculty, SME and PC (a re-allocation after a
+        // PC rejection ends the previous ones). The HOG row was written when the IC created it.
+        await tx.requestAssignee.updateMany({
+          where: {
+            requestId: request.id,
+            endedAt: null,
+            role: { in: [RoleName.FACULTY, RoleName.SME, RoleName.PROGRAMME_COMMITTEE] },
+          },
+          data: { endedAt: new Date(), reason: 'Re-allocated' },
+        });
+        const assignee = (role: RoleName, userId: string) => ({
+          requestId: request.id,
+          role,
+          userId,
+          assignedById: actor.id,
+        });
+        await tx.requestAssignee.createMany({
+          data: [
+            ...faculties.map((f) => assignee(RoleName.FACULTY, f.id)),
+            assignee(RoleName.SME, parsed.data.smeUserId),
+            ...(parsed.data.pcUserId
+              ? [assignee(RoleName.PROGRAMME_COMMITTEE, parsed.data.pcUserId)]
+              : []),
+          ],
+        });
       },
     });
   } catch (err) {
@@ -173,6 +225,8 @@ export async function allocateFacultyAction(formData: FormData) {
 
 export async function finalApproveAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const parsed = approvalSchema.safeParse({
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
@@ -214,6 +268,8 @@ export async function finalApproveAction(formData: FormData) {
 
 export async function finalRejectAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const parsed = reworkSchema.safeParse({
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
@@ -255,6 +311,8 @@ export async function finalRejectAction(formData: FormData) {
 
 export async function regenerateRecommendationAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   if (!aiFeaturesEnabled()) return { error: AI_OFF_MESSAGE };
   const requestId = String(formData.get('requestId') ?? '');
   if (!requestId) return { error: 'Something went wrong — refresh the page and try again.' };
@@ -280,6 +338,8 @@ export async function regenerateRecommendationAction(formData: FormData) {
 
 export async function hogRequestReworkAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
+  // v1.4.1: only requests in their department (lib/department-scope.ts).
+  await assertRequestInScope(actor, formData.get('requestId'));
   const parsed = reworkSchema.safeParse({
     requestId: formData.get('requestId'),
     comments: formData.get('comments') ?? '',
@@ -316,5 +376,24 @@ export async function hogRequestReworkAction(formData: FormData) {
   });
 
   revalidate(parsed.data.requestId);
+  return { ok: true };
+}
+
+// ── v1.4.1 §A4: the HOG changes a request's PC, with a reason (lib/request-handover.ts) ──────────
+
+export async function changePcAction(formData: FormData): Promise<{ ok?: true; error?: string }> {
+  const actor = requireRole(await getSessionUser(), RoleName.HOG);
+  await assertRequestInScope(actor, formData.get('requestId'));
+  const requestId = String(formData.get('requestId') ?? '');
+  const r = await changeHogOrPc({
+    requestId,
+    role: 'PC',
+    toUserId: String(formData.get('toUserId') ?? ''),
+    reason: String(formData.get('reason') ?? ''),
+    actor: { id: actor.id, name: actor.name },
+  });
+  if (!r.ok) return { error: r.error };
+  revalidatePath(`/hog/requests/${requestId}`);
+  revalidatePath('/pc/requests');
   return { ok: true };
 }

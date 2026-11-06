@@ -31,6 +31,20 @@ export async function DepartmentChecksPanel({ base = '/admin' }: { base?: People
       href: `${base}/departments`,
       action: 'Departments',
     });
+  if (c.hogPcWithoutDepartment)
+    items.push({
+      key: 'hogpc',
+      text: `${c.hogPcWithoutDepartment} HOG / PC ${c.hogPcWithoutDepartment === 1 ? 'person has' : 'people have'} no department — they see every department's handouts until one is set`,
+      href: `${base}/people?department=none`,
+      action: 'People',
+    });
+  if (c.requestsWithoutDepartment)
+    items.push({
+      key: 'requests',
+      text: `${c.requestsWithoutDepartment} open request${c.requestsWithoutDepartment === 1 ? ' is' : 's are'} in a programme with no department — every HOG and PC sees ${c.requestsWithoutDepartment === 1 ? 'it' : 'them'}`,
+      href: `${base}/departments#programmes`,
+      action: 'Departments',
+    });
   if (c.badEmails)
     items.push({
       key: 'emails',

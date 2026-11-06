@@ -11,6 +11,7 @@ import { parseCsv, parseAllocationsCsv } from '@hmp/integrations';
 import { transition, isCappedFacultyType, WorkflowError } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { statusLabel } from '@hmp/workflow';
+import { requestVisibleTo } from '@/lib/request-scope';
 
 /**
  * HOG bulk faculty + SME allocation (Prompt 14).
@@ -47,7 +48,11 @@ export type BulkAllocErrorCode =
   | 'sme_role_invalid'
   | 'sme_inactive'
   | 'off_campus_cap_exceeded'
-  | 'duplicate_row_in_file';
+  | 'duplicate_row_in_file'
+  // v1.4.1
+  | 'not_in_department'
+  | 'pc_not_found'
+  | 'pc_required';
 
 export interface BulkAllocError {
   line: number;
@@ -70,6 +75,8 @@ export interface BulkActor {
   id: string;
   roles: RoleName[];
   name: string;
+  /** v1.4.1: requests outside the HOG's department are refused (lib/department-scope.ts). */
+  departmentId?: string | null;
 }
 
 interface ResolvedFaculty {
@@ -85,7 +92,14 @@ interface ResolvedRow {
   semesterName: string;
   faculties: ResolvedFaculty[];
   smeUserId: string;
+  /** v1.4.1: the PC who confirms (null only while no PC accounts exist). */
+  pcUserId: string | null;
 }
+
+const PC_WHERE = {
+  active: true,
+  roles: { some: { role: { name: RoleName.PROGRAMME_COMMITTEE } } },
+};
 
 export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkAllocateResult> {
   // ── 0. Structural parse ─────────────────────────────────────────────────────
@@ -143,7 +157,12 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
       select: {
         id: true,
         status: true,
-        offering: { select: { semesterId: true, semester: { select: { name: true } } } },
+        offering: {
+          select: {
+            semesterId: true,
+            semester: { select: { name: true, programme: { select: { departmentId: true } } } },
+          },
+        },
       },
     });
     if (!request) {
@@ -152,6 +171,15 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
         field: 'request_reference',
         code: 'request_not_found',
         message: `No request with reference "${row.request_reference}"`,
+      });
+      continue;
+    }
+    if (!(await requestVisibleTo(actor, request.id))) {
+      errors.push({
+        line,
+        field: 'request_reference',
+        code: 'not_in_department',
+        message: `Request ${row.request_reference} belongs to another department.`,
       });
       continue;
     }
@@ -261,6 +289,48 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
       continue;
     }
 
+    // v1.4.1 §A3: the PC who confirms — named in pc_email, or the department's only PC.
+    const pcEmail = (row.pc_email ?? '').trim().toLowerCase();
+    let pcUserId: string | null = null;
+    if (pcEmail) {
+      const pc = await prisma.user.findFirst({
+        where: { email: { equals: pcEmail, mode: 'insensitive' }, ...PC_WHERE },
+        select: { id: true },
+      });
+      if (!pc) {
+        errors.push({
+          line,
+          field: 'pc_email',
+          code: 'pc_not_found',
+          message: `"${row.pc_email}" isn't an active Programme Committee member`,
+        });
+        continue;
+      }
+      pcUserId = pc.id;
+    } else if (await prisma.user.count({ where: PC_WHERE })) {
+      const deptId = request.offering.semester.programme.departmentId;
+      const deptPcs = deptId
+        ? await prisma.user.findMany({
+            where: { ...PC_WHERE, departmentId: deptId },
+            select: { id: true },
+            take: 2,
+          })
+        : [];
+      if (deptPcs.length !== 1) {
+        errors.push({
+          line,
+          field: 'pc_email',
+          code: 'pc_required',
+          message:
+            deptPcs.length === 0
+              ? 'Add pc_email: the department has no PC member of its own.'
+              : 'Add pc_email: the department has more than one PC member.',
+        });
+        continue;
+      }
+      pcUserId = deptPcs[0]!.id;
+    }
+
     resolved.push({
       line,
       requestId: request.id,
@@ -269,6 +339,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
       semesterName: request.offering.semester.name,
       faculties,
       smeUserId: sme.id,
+      pcUserId,
     });
   }
 
@@ -332,6 +403,28 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
           await tx.smeAssignment.create({
             data: { requestId: r.requestId, smeUserId: r.smeUserId, assignedById: actor.id },
           });
+          // v1.4.1: who is responsible now — faculty, SME and PC (ends any earlier ones).
+          await tx.requestAssignee.updateMany({
+            where: {
+              requestId: r.requestId,
+              endedAt: null,
+              role: { in: [RoleName.FACULTY, RoleName.SME, RoleName.PROGRAMME_COMMITTEE] },
+            },
+            data: { endedAt: new Date(), reason: 'Re-allocated' },
+          });
+          const assignee = (role: RoleName, userId: string) => ({
+            requestId: r.requestId,
+            role,
+            userId,
+            assignedById: actor.id,
+          });
+          await tx.requestAssignee.createMany({
+            data: [
+              ...r.faculties.map((f) => assignee(RoleName.FACULTY, f.id)),
+              assignee(RoleName.SME, r.smeUserId),
+              ...(r.pcUserId ? [assignee(RoleName.PROGRAMME_COMMITTEE, r.pcUserId)] : []),
+            ],
+          });
           await tx.auditLog.create({
             data: {
               actorId: actor.id,
@@ -341,6 +434,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
               after: {
                 facultyIds: r.faculties.map((f) => f.id),
                 smeUserId: r.smeUserId,
+                pcUserId: r.pcUserId,
                 bulkSessionId,
               } as Prisma.InputJsonValue,
               requestId: r.requestId,

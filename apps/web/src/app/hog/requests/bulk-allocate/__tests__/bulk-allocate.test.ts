@@ -160,7 +160,15 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+// v1.4.1: every row names the PC who confirms (the seeded PC).
+const PC_EMAIL = 'pc@hmp.local';
 const csvOf = (rows: string[]) =>
+  [
+    'request_reference,faculty_emails,sme_email,pc_email',
+    ...rows.map((r) => `${r},${PC_EMAIL}`),
+  ].join('\n');
+/** Without pc_email — the department's only PC is used, or the row is refused. */
+const csvNoPc = (rows: string[]) =>
   ['request_reference,faculty_emails,sme_email', ...rows].join('\n');
 
 describe('bulkAllocate (Prompt 14)', () => {
@@ -367,10 +375,37 @@ describe('bulkAllocate (Prompt 14)', () => {
     expect(after?.status).toBe(HandoutStatus.REQUESTED); // untouched
   });
 
-  it('empty (header-only) input succeeds with zero allocated', async () => {
+  // Since 1a9ac8c an empty file is refused with a plain message (it used to 'succeed' with 0).
+  it('empty (header-only) input is refused: the file has no rows', async () => {
     if (!dbReady) return;
     const res = await bulkAllocate('request_reference,faculty_emails,sme_email', actor);
+    if (res.status !== 'rejected') throw new Error('expected rejected');
+    expect(res.errors[0]!.message).toContain('The file has no rows');
+  });
+
+  it('v1.4.1: records faculty, SME and the named PC as assignees', async () => {
+    if (!dbReady) return;
+    const r = await mkRequest(ids.semA!, HandoutStatus.REQUESTED);
+    const res = await bulkAllocate(csvOf([`${r.refNo},${onCampusEmail},${smeEmail}`]), actor);
     expect(res.status).toBe('success');
-    if (res.status === 'success') expect(res.allocated).toBe(0);
+    const pc = await prisma.user.findUniqueOrThrow({ where: { email: PC_EMAIL } });
+    const rows = await prisma.requestAssignee.findMany({
+      where: { requestId: r.id, endedAt: null },
+      select: { role: true, userId: true },
+    });
+    expect(rows.map((x) => x.role).sort()).toEqual(
+      [RoleName.FACULTY, RoleName.PROGRAMME_COMMITTEE, RoleName.SME].sort(),
+    );
+    expect(rows.find((x) => x.role === RoleName.PROGRAMME_COMMITTEE)!.userId).toBe(pc.id);
+  });
+
+  it('v1.4.1: no pc_email and no single department PC → pc_required, nothing allocated', async () => {
+    if (!dbReady) return;
+    const r = await mkRequest(ids.semA!, HandoutStatus.REQUESTED);
+    const res = await bulkAllocate(csvNoPc([`${r.refNo},${onCampusEmail},${smeEmail}`]), actor);
+    if (res.status !== 'rejected') throw new Error('expected rejected');
+    expect(res.errors[0]!.code).toBe('pc_required');
+    const after = await prisma.handoutRequest.findUniqueOrThrow({ where: { id: r.id } });
+    expect(after.status).toBe(HandoutStatus.REQUESTED);
   });
 });

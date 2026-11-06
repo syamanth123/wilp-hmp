@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma, type Prisma } from '@hmp/db';
 import { PEOPLE_PATHS, requirePeopleManager } from '@/lib/people-access';
+import { applyHogBackfill } from '@/lib/hog-backfill';
 import { loadDibbaCodeRows } from '@/lib/dibba-programme-codes';
 import {
   departmentOfDibbaCode,
@@ -175,4 +176,11 @@ export async function acceptDibbaTitleSuggestionsAction(): Promise<Result> {
     }
   });
   return done({ ok: true, changed: todo.length });
+}
+
+/** v1.4.1 (H4 / H11): existing requests get their department's HOG (preview shown on the page). */
+export async function applyHogBackfillAction(): Promise<Result> {
+  const actor = await admin();
+  const r = await applyHogBackfill(actor.id);
+  return done({ ok: true, changed: r.assigned });
 }

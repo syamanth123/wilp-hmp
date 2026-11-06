@@ -2,6 +2,7 @@ import { prisma, type RoleName, type HandoutStatus, type Prisma } from '@hmp/db'
 import { parseCsv, parseQueueActionsCsv } from '@hmp/integrations';
 import { notifyTransition, type WorkflowEventType } from '@/lib/notifications';
 import { statusLabel } from '@hmp/workflow';
+import { requestVisibleTo } from './request-scope';
 
 /**
  * Shared engine for the Prompt 15 bulk review-action uploads (PC / SME / HOG).
@@ -29,6 +30,8 @@ export type BulkReviewErrorCode =
   | 'comment_required'
   | 'invalid_action'
   | 'not_your_sme_assignment'
+  | 'not_in_department'
+  | 'not_your_allocation'
   | 'duplicate_row_in_file';
 
 export interface BulkReviewError {
@@ -52,6 +55,8 @@ export interface BulkActor {
   id: string;
   roles: RoleName[];
   name: string;
+  /** v1.4.1: HOG / PC rows outside their department are refused (lib/department-scope.ts). */
+  departmentId?: string | null;
 }
 
 export interface BulkReviewRoleConfig {
@@ -168,6 +173,15 @@ export async function bulkReview(
         field: 'comment',
         code: 'comment_required',
         message: `Action "${row.action}" requires a comment`,
+      });
+      continue;
+    }
+    if (!(await requestVisibleTo(actor, request.id))) {
+      errors.push({
+        line,
+        field: 'request_reference',
+        code: 'not_in_department',
+        message: `Request ${row.request_reference} belongs to another department.`,
       });
       continue;
     }

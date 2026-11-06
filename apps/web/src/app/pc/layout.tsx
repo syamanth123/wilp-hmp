@@ -1,5 +1,6 @@
 import { AppShell } from '@/components/app-shell';
 import { RoleTabs } from '@/components/role-tabs';
+import { DepartmentNotice } from '@/components/department-notice';
 
 const TABS = [
   { href: '/pc', label: 'Overview' },
@@ -15,6 +16,7 @@ export default function PCLayout({ children }: { children: React.ReactNode }) {
     <AppShell area="/pc">
       <div className="space-y-4">
         <RoleTabs tabs={TABS} />
+        <DepartmentNotice />
         <div>{children}</div>
       </div>
     </AppShell>

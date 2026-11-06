@@ -16,6 +16,7 @@ const cache = new Map<
     at: number;
     active: boolean;
     version: number;
+    departmentId: string | null;
     access: Pick<SessionUser, 'roles' | 'permissions'> | null;
   }
 >();
@@ -28,9 +29,9 @@ async function currentAccess(
   if (hit && Date.now() - hit.at < FRESH_MS) return hit;
   const row = await prisma.user.findUnique({
     where: { id: userId },
-    select: { active: true, accessVersion: true },
+    select: { active: true, accessVersion: true, departmentId: true },
   });
-  if (!row) return { at: Date.now(), active: false, version: -1, access: null };
+  if (!row) return { at: Date.now(), active: false, version: -1, departmentId: null, access: null };
   // Version 0 = never changed since v1.4: the token's roles are still right.
   const access =
     hit && hit.version === row.accessVersion
@@ -38,7 +39,13 @@ async function currentAccess(
       : row.accessVersion === 0
         ? tokenAccess
         : await loadUserAccess(userId);
-  const entry = { at: Date.now(), active: row.active, version: row.accessVersion, access };
+  const entry = {
+    at: Date.now(),
+    active: row.active,
+    version: row.accessVersion,
+    departmentId: row.departmentId,
+    access,
+  };
   cache.set(userId, entry);
   return entry;
 }
@@ -61,5 +68,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     name: session.user.name ?? '',
     roles: now.access.roles,
     permissions: now.access.permissions,
+    departmentId: now.departmentId,
   };
 }

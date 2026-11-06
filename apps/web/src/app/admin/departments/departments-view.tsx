@@ -15,6 +15,7 @@ import {
   UseSuggestion,
 } from './forms';
 import type { PeopleBase } from '@/lib/people-access';
+import { HogBackfillCard } from './hog-backfill-card';
 
 /**
  * Departments (v1.4.0, docs/plans/departments.md §A): the departments, and which department each
@@ -66,6 +67,7 @@ export async function DepartmentsView({ base }: { base: PeopleBase }) {
 
   return (
     <div className="space-y-4">
+      <HogBackfillCard base={base} />
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
           <div>
@@ -131,7 +133,9 @@ export async function DepartmentsView({ base }: { base: PeopleBase }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">HMP programmes</CardTitle>
+          <CardTitle className="text-base" id="programmes">
+            HMP programmes
+          </CardTitle>
           <CardDescription data-testid="programmes-summary">
             {programmesDone} of {programmes.length} have a department. A request belongs to its
             programme&apos;s department.

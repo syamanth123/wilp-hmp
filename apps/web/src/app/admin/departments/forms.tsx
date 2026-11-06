@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@hmp/ui';
 import {
   acceptDibbaTitleSuggestionsAction,
+  applyHogBackfillAction,
   saveDepartmentAction,
   setDibbaCodeDepartmentAction,
   setProgrammeDepartmentAction,
@@ -207,6 +209,42 @@ export function AcceptAllTitleSuggestions({ count }: { count: number }) {
       )}
       {message && (
         <span className="text-sm" role="status">
+          {message}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** v1.4.1 (H4): give existing requests their department's HOG — after the preview above it. */
+export function ApplyHogBackfill({ count }: { count: number }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <span className="inline-flex items-center gap-3">
+      {count > 0 && (
+        <Button
+          size="sm"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const r = await applyHogBackfillAction();
+              setMessage(
+                r.ok
+                  ? `${r.changed} request${r.changed === 1 ? '' : 's'} now have their department's HOG.`
+                  : r.error,
+              );
+              router.refresh();
+            })
+          }
+          data-testid="hog-backfill-apply"
+        >
+          {pending ? 'Saving…' : `Give ${count} request${count === 1 ? '' : 's'} their HOG`}
+        </Button>
+      )}
+      {message && (
+        <span className="text-sm" role="status" data-testid="hog-backfill-message">
           {message}
         </span>
       )}

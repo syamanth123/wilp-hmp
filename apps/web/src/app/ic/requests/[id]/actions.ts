@@ -26,6 +26,7 @@ import {
   taxilaSettings,
 } from '@/lib/taxila-publish';
 import { audit } from '@/lib/audit';
+import { changeHogOrPc } from '@/lib/request-handover';
 import {
   notifyTransition,
   notifyPublishExportReady,
@@ -373,4 +374,21 @@ export async function publishTaxilaAction(formData: FormData) {
   );
   revalidate(parsed.data.requestId);
   return { ok: true, outcome } as const;
+}
+
+// ── v1.4.1 §A4: the IC changes a request's HOG, with a reason (lib/request-handover.ts) ──────────
+
+export async function changeHogAction(formData: FormData): Promise<{ ok?: true; error?: string }> {
+  const actor = requireRole(await getSessionUser(), [RoleName.INSTRUCTION_CELL, RoleName.ADMIN]);
+  const requestId = String(formData.get('requestId') ?? '');
+  const r = await changeHogOrPc({
+    requestId,
+    role: 'HOG',
+    toUserId: String(formData.get('toUserId') ?? ''),
+    reason: String(formData.get('reason') ?? ''),
+    actor: { id: actor.id, name: actor.name },
+  });
+  if (!r.ok) return { error: r.error };
+  revalidate(requestId);
+  return { ok: true };
 }

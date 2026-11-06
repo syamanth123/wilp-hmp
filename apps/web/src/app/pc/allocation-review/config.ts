@@ -1,4 +1,4 @@
-import { ApprovalStage, ApprovalDecision, HandoutStatus } from '@hmp/db';
+import { prisma, ApprovalStage, ApprovalDecision, HandoutStatus, RoleName } from '@hmp/db';
 import { transition } from '@hmp/workflow';
 import type { BulkReviewRoleConfig } from '@/lib/bulk-review';
 import { rejectAllocationEffect } from '@/lib/pc-allocation-review';
@@ -13,6 +13,14 @@ const ALLOCATION_EVENTS = {
 } as const;
 
 export const PC_ALLOCATION_CONFIG: BulkReviewRoleConfig = {
+  // v1.4.1: only the PC the HOG named may confirm or send back (none named: any PC of the department).
+  authorityCheck: async (requestId, actor) => {
+    const pc = await prisma.requestAssignee.findFirst({
+      where: { requestId, role: RoleName.PROGRAMME_COMMITTEE, endedAt: null },
+      select: { userId: true },
+    });
+    return pc && pc.userId !== actor.id ? 'not_your_allocation' : null;
+  },
   queueStatus: HandoutStatus.ALLOCATED,
   allowedActions: ['pc_confirm_allocation', 'pc_reject_allocation'],
   commentRequiredFor: ['pc_reject_allocation'],

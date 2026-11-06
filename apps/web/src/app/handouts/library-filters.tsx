@@ -341,6 +341,9 @@ export function LibraryFilters(p: Props) {
             {},
           )}
           {hmpTab && select('programme', 'Programme', p.facets.programme, 'All programmes')}
+          {hmpTab &&
+            (p.facets.dept?.length ?? 0) > 1 &&
+            select('dept', 'Department', p.facets.dept, 'All departments')}
           {select('discipline', 'Discipline', p.facets.discipline, 'All disciplines')}
 
           {hmpTab && (

@@ -10,10 +10,11 @@ export const IC_BULK_UPLOAD_TEMPLATE = `programme_code,course_code,semester
 # MTECH-DS,CC ZG501,Sem-I 2025-26
 `;
 
-export const HOG_BULK_ALLOCATE_TEMPLATE = `request_reference,faculty_emails,sme_email
+export const HOG_BULK_ALLOCATE_TEMPLATE = `request_reference,faculty_emails,sme_email,pc_email
 # Lines starting with '#' are ignored. Delete these examples or leave them — they are skipped.
-# HMP-2026-0042,faculty@hmp.local,sme@hmp.local
-# HMP-2026-0043,"a@hmp.local,b@hmp.local",sme@hmp.local
+# pc_email: the PC member who confirms. Leave it blank when the department has exactly one PC.
+# HMP-2026-0042,faculty@hmp.local,sme@hmp.local,pc@hmp.local
+# HMP-2026-0043,"a@hmp.local,b@hmp.local",sme@hmp.local,
 `;
 
 export const HOG_BULK_REVIEW_TEMPLATE = `request_reference,action,comment

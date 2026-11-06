@@ -29,6 +29,15 @@ import { PublishPanel } from './publish-panel';
 import { TaxilaPanel } from './taxila-panel';
 import { ArchivePanel } from './archive-panel';
 import { formatDateTime } from '@/lib/format-date';
+import { HandoverPanel } from '@/components/handover-panel';
+import { currentAssignee, handoverCandidates } from '@/lib/request-handover';
+import { changeHogAction } from './actions';
+
+const CLOSED_FOR_HANDOVER: HandoutStatus[] = [
+  HandoutStatus.PUBLISHED,
+  HandoutStatus.ARCHIVED,
+  HandoutStatus.REJECTED,
+];
 
 export default async function RequestDetailPage({ params }: { params: { id: string } }) {
   const request = await prisma.handoutRequest.findUnique({
@@ -43,6 +52,18 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   if (!request) notFound();
 
   const attachments = await loadAttachments(request.id);
+
+  // v1.4.1: the request's HOG / PC and who could take over (department first).
+  const departmentId = request.offering.semester.programme.departmentId;
+  const [hog, pc, hogCandidates, department] = await Promise.all([
+    currentAssignee(request.id, 'HOG'),
+    currentAssignee(request.id, 'PC'),
+    handoverCandidates('HOG', departmentId),
+    departmentId
+      ? prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } })
+      : null,
+  ]);
+  const departmentName = department?.name ?? null;
 
   const handout = request.handout;
   const versions = handout ? await listVersions(handout.id) : [];
@@ -119,6 +140,33 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
               </Field>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* v1.4.1 §A4: who is responsible now; the IC can hand the request to another HOG. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Head of Group and PC</CardTitle>
+          <CardDescription>
+            {departmentName
+              ? `Department: ${departmentName}.`
+              : 'This programme has no department yet.'}{' '}
+            Only the request&apos;s HOG and PC are told about it and see it in their lists.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <HandoverPanel
+            requestId={request.id}
+            roleLabel="HOG"
+            current={hog ? { name: hog.user.name, departmentName: null } : null}
+            candidates={hogCandidates}
+            action={changeHogAction}
+            canChange={!CLOSED_FOR_HANDOVER.includes(request.status)}
+          />
+          <p className="text-sm" data-testid="ic-request-pc">
+            <span className="text-muted-foreground">PC:</span>{' '}
+            {pc ? <strong>{pc.user.name}</strong> : <span>chosen by the HOG at allocation</span>}
+          </p>
         </CardContent>
       </Card>
 

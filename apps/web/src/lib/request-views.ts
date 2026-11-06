@@ -1,4 +1,5 @@
 import { HandoutStatus, type Prisma } from '@hmp/db';
+import { departmentScope, type DeptScopeUser } from './department-scope';
 
 /**
  * One definition of every role's request list and its named "views" (the
@@ -17,6 +18,13 @@ import { HandoutStatus, type Prisma } from '@hmp/db';
  */
 
 export type ListRole = 'IC' | 'HOG' | 'PC' | 'FACULTY' | 'SME';
+
+/**
+ * Whose list: a user id (faculty / SME / IC), or the signed-in user (HOG / PC, scoped to their department since
+ * v1.4.1 — lib/department-scope.ts). A bare id for HOG / PC means no department limit.
+ */
+export type ListWho = string | DeptScopeUser;
+const whoId = (who: ListWho) => (typeof who === 'string' ? who : who.id);
 
 export interface RequestView {
   key: string;
@@ -205,24 +213,28 @@ export function parseListFilter(
   return { view, status, ignored: false };
 }
 
-function scopeWhere(role: ListRole, userId: string): Prisma.HandoutRequestWhereInput {
+function scopeWhere(role: ListRole, who: ListWho): Prisma.HandoutRequestWhereInput {
+  const userId = whoId(who);
   if (role === 'FACULTY') return { assignments: { some: { facultyId: userId, active: true } } };
   if (role === 'SME') return { smeAssignment: { smeUserId: userId } };
+  if ((role === 'HOG' || role === 'PC') && typeof who !== 'string')
+    return departmentScope(who) ?? {};
   return {};
 }
 
 /** The Prisma `where` for a role's list under a filter. */
 export function listWhere(
   role: ListRole,
-  userId: string,
+  who: ListWho,
   filter: ListFilter,
 ): Prisma.HandoutRequestWhereInput {
+  const userId = whoId(who);
   let statuses = filter.view ? filter.view.statuses : LIST_STATUSES[role];
   if (filter.status) statuses = statuses.includes(filter.status) ? [filter.status] : [];
   // Never wider than the role's own list.
   statuses = statuses.filter((s) => LIST_STATUSES[role].includes(s));
   const and: Prisma.HandoutRequestWhereInput[] = [
-    scopeWhere(role, userId),
+    scopeWhere(role, who),
     { status: { in: statuses } },
   ];
   if (filter.view?.extra) and.push(filter.view.extra(userId));
@@ -232,10 +244,10 @@ export function listWhere(
 /** The `where` a dashboard card counts — identical to its list's. */
 export function viewWhere(
   role: ListRole,
-  userId: string,
+  who: ListWho,
   key: string,
 ): Prisma.HandoutRequestWhereInput {
-  return listWhere(role, userId, { view: getView(role, key), status: null, ignored: false });
+  return listWhere(role, who, { view: getView(role, key), status: null, ignored: false });
 }
 
 /** Keeps the active filter when paging. */
