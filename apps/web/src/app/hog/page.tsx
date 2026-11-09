@@ -143,7 +143,7 @@ export default async function HOGOverview() {
   // Each card counts exactly what its list shows (lib/request-views.ts).
   const CARDS = ['pending-allocation', 'final-approval', 'in-progress', 'approved'] as const;
   const counts = await Promise.all(
-    CARDS.map((key) => prisma.handoutRequest.count({ where: viewWhere('HOG', '', key) })),
+    CARDS.map((key) => prisma.handoutRequest.count({ where: viewWhere('HOG', me ?? '', key) })),
   );
 
   return (

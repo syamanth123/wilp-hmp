@@ -397,7 +397,7 @@ export const otherFiles = (item: TaxilaHandoutItem) =>
 /**
  * "Check in Taxila": finds the course and its Course Handout item and says whether HMP may publish
  * into it — without uploading anything. `courses` lets a bulk run reuse one search; `courseId`
- * applies the IC's pick when several courses matched.
+ * applies the IC's pick when several courses matched; `chosen` is a remembered choice (v1.4.1).
  */
 export async function checkInTaxila(
   client: TaxilaClient,
@@ -407,11 +407,13 @@ export async function checkInTaxila(
     codes: string[];
     courses?: TaxilaCourse[];
     courseId?: number;
+    /** v1.4.1: a course the IC chose ("Choose a different Taxila course") — used as it is, no search. */
+    chosen?: TaxilaCourse;
   },
 ): Promise<CheckResult> {
-  const courses = input.courses ?? (await client.searchCourses(input.semesterCode));
-  let course: TaxilaCourse | undefined;
-  if (input.courseId) course = courses.find((c) => c.id === input.courseId);
+  let course: TaxilaCourse | undefined = input.chosen;
+  const courses = course ? [] : (input.courses ?? (await client.searchCourses(input.semesterCode)));
+  if (!course && input.courseId) course = courses.find((c) => c.id === input.courseId);
   if (!course) {
     const m = matchTaxilaCourse(courses, input.semesterCode, input.codes);
     const label = `${input.semesterCode}_${input.codes[0]?.replace(/\s+/g, '') ?? ''}`;

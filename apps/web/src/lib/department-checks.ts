@@ -16,6 +16,10 @@ export interface DepartmentChecks {
   peopleWithSuggestion: number;
   /** Active accounts whose email isn't one address (BITS sign-in can't match them). */
   badEmails: number;
+  /** v1.4.1 (H9): active HOG / PC people with no department — they see all departments meanwhile. */
+  hogPcWithoutDepartment: number;
+  /** v1.4.1 (H10): open requests whose programme has no department — visible to all HOGs / PCs. */
+  requestsWithoutDepartment: number;
 }
 
 export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
@@ -55,6 +59,21 @@ export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
       ],
     },
   });
+  const [hogPcWithoutDepartment, requestsWithoutDepartment] = await Promise.all([
+    prisma.user.count({
+      where: {
+        active: true,
+        departmentId: null,
+        roles: { some: { role: { name: { in: [RoleName.HOG, RoleName.PROGRAMME_COMMITTEE] } } } },
+      },
+    }),
+    prisma.handoutRequest.count({
+      where: {
+        status: { notIn: ['PUBLISHED', 'ARCHIVED', 'REJECTED'] },
+        offering: { semester: { programme: { departmentId: null } } },
+      },
+    }),
+  ]);
   const withHog = new Set(hogs.map((h) => h.departmentId));
   const suggestions = noDept.length ? await suggestDepartments(noDept.map((u) => u.id)) : new Map();
   return {
@@ -66,5 +85,7 @@ export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
     peopleWithoutDepartment: noDept.length,
     peopleWithSuggestion: [...suggestions.values()].filter((s) => s.kind === 'one').length,
     badEmails,
+    hogPcWithoutDepartment,
+    requestsWithoutDepartment,
   };
 }

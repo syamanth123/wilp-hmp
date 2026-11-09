@@ -47,6 +47,15 @@ export interface PublishTarget {
   semesterName: string;
   defaultSemesterCode: string;
   data: BitsHandoutV1 | null;
+  /** v1.4.1: the course offering, and the Taxila course chosen for it ("Choose a different Taxila course"). */
+  courseOfferingId: string;
+  courseChoice: CourseChoice | null;
+}
+
+export interface CourseChoice {
+  course: TaxilaCourse;
+  chosenBy: string | null;
+  chosenAt: Date;
 }
 
 export function taxilaSettings(): TaxilaConfig | null {
@@ -63,6 +72,15 @@ export async function loadPublishTarget(requestId: string): Promise<PublishTarge
       handout: { select: { id: true, currentVersion: { select: { data: true } } } },
       offering: {
         select: {
+          id: true,
+          taxilaCourseChoice: {
+            select: {
+              taxilaCourseId: true,
+              taxilaFullname: true,
+              updatedAt: true,
+              chosenBy: { select: { name: true } },
+            },
+          },
           course: { select: { bitsCourseNumber: true, alternateCodes: true, title: true } },
           semester: { select: { name: true } },
         },
@@ -84,6 +102,24 @@ export async function loadPublishTarget(requestId: string): Promise<PublishTarge
     semesterName: r.offering.semester.name,
     defaultSemesterCode: defaultTaxilaSemesterCode(r.offering.semester.name),
     data: parsed?.success ? parsed.data : null,
+    courseOfferingId: r.offering.id,
+    courseChoice: choiceOf(r.offering.taxilaCourseChoice),
+  };
+}
+
+function choiceOf(
+  c: {
+    taxilaCourseId: number;
+    taxilaFullname: string;
+    updatedAt: Date;
+    chosenBy: { name: string } | null;
+  } | null,
+): CourseChoice | null {
+  if (!c) return null;
+  return {
+    course: { id: c.taxilaCourseId, fullname: c.taxilaFullname, shortname: '' },
+    chosenBy: c.chosenBy?.name ?? null,
+    chosenAt: c.updatedAt,
   };
 }
 
@@ -91,6 +127,8 @@ export interface CheckView {
   check: CheckResult;
   /** Always "Course Handout.pdf". */
   fileName: string;
+  /** v1.4.1: set when the course was chosen by the IC rather than matched by name. */
+  choice: { fullname: string; chosenBy: string | null; chosenAt: string } | null;
 }
 
 /** "Check in Taxila" for one handout — nothing is uploaded. */
@@ -100,13 +138,107 @@ export async function checkRequestInTaxila(
   client: TaxilaClient,
   cfg: TaxilaConfig,
 ): Promise<CheckView> {
+  // A remembered choice wins over matching by name (v1.4.1) — unless the IC is picking right now.
+  const chosen = !input.courseId ? target.courseChoice : null;
   const check = await checkInTaxila(client, cfg, {
     semesterCode: input.semesterCode,
     codes: target.codes,
     courses: input.courses,
     courseId: input.courseId,
+    chosen: chosen?.course,
   });
-  return { check, fileName: TAXILA_HANDOUT_FILE };
+  return {
+    check,
+    fileName: TAXILA_HANDOUT_FILE,
+    choice: chosen
+      ? {
+          fullname: chosen.course.fullname,
+          chosenBy: chosen.chosenBy,
+          chosenAt: chosen.chosenAt.toISOString(),
+        }
+      : null,
+  };
+}
+
+// ── v1.4.1: "Choose a different Taxila course" (IC / Admin) ─────────────────
+
+/** Taxila courses whose name contains the text — the same search the HMP token already uses. */
+export async function searchTaxilaCourses(
+  client: TaxilaClient,
+  query: string,
+): Promise<TaxilaCourse[]> {
+  const q = query.trim();
+  if (q.length < 3) return [];
+  const found = await client.searchCourses(q);
+  return found.slice(0, 50);
+}
+
+/**
+ * Remembers the Taxila course for this course + semester. The id is looked up again on the server
+ * (in a search for `query`), so only a course Taxila really returned can be saved. Audit-logged.
+ */
+export async function saveTaxilaCourseChoice(
+  target: PublishTarget,
+  input: { taxilaCourseId: number; query: string; actorId: string },
+  client: TaxilaClient,
+): Promise<{ ok: true; course: TaxilaCourse } | { ok: false; error: string }> {
+  const found = await client.searchCourses(input.query.trim());
+  const course = found.find((c) => c.id === input.taxilaCourseId);
+  if (!course) return { ok: false, error: 'That Taxila course wasn’t found — search again.' };
+  await prisma.$transaction([
+    prisma.taxilaCourseChoice.upsert({
+      where: { courseOfferingId: target.courseOfferingId },
+      update: {
+        taxilaCourseId: course.id,
+        taxilaFullname: course.fullname,
+        chosenById: input.actorId,
+      },
+      create: {
+        courseOfferingId: target.courseOfferingId,
+        taxilaCourseId: course.id,
+        taxilaFullname: course.fullname,
+        chosenById: input.actorId,
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        actorId: input.actorId,
+        action: 'taxila.course-choice',
+        entity: 'CourseOffering',
+        entityId: target.courseOfferingId,
+        requestId: target.requestId,
+        before: target.courseChoice
+          ? ({
+              taxilaCourseId: target.courseChoice.course.id,
+              fullname: target.courseChoice.course.fullname,
+            } as Prisma.InputJsonValue)
+          : undefined,
+        after: { taxilaCourseId: course.id, fullname: course.fullname } as Prisma.InputJsonValue,
+      },
+    }),
+  ]);
+  return { ok: true, course };
+}
+
+/** Back to matching by name. Audit-logged. */
+export async function clearTaxilaCourseChoice(target: PublishTarget, actorId: string) {
+  if (!target.courseChoice) return;
+  await prisma.$transaction([
+    prisma.taxilaCourseChoice.deleteMany({ where: { courseOfferingId: target.courseOfferingId } }),
+    prisma.auditLog.create({
+      data: {
+        actorId,
+        action: 'taxila.course-choice-cleared',
+        entity: 'CourseOffering',
+        entityId: target.courseOfferingId,
+        requestId: target.requestId,
+        before: {
+          taxilaCourseId: target.courseChoice.course.id,
+          fullname: target.courseChoice.course.fullname,
+        } as Prisma.InputJsonValue,
+      },
+    }),
+  ]);
 }
 
 export type PublishOutcome =
@@ -279,6 +411,7 @@ export async function publishRequestToTaxila(
               contextid: check.item.contextid,
               fileName,
               size: pdf.length,
+              courseSource: view.choice ? 'chosen' : 'matched',
               replaced: check.replaces,
               semesterCode,
             } as Prisma.InputJsonValue,

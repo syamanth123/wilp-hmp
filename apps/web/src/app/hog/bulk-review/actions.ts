@@ -12,6 +12,7 @@ export async function hogBulkReviewAction(formData: FormData): Promise<BulkRevie
     id: actor.id,
     roles: actor.roles,
     name: actor.name,
+    departmentId: actor.departmentId,
   });
   if (result.status !== 'rejected') {
     revalidatePath('/hog/requests');

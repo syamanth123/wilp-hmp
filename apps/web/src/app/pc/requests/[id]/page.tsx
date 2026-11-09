@@ -1,4 +1,6 @@
 import { notFound } from 'next/navigation';
+import { getSessionUser } from '@hmp/auth';
+import { requestVisibleTo } from '@/lib/request-scope';
 import { prisma, HandoutStatus, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
@@ -29,7 +31,8 @@ export default async function PCRequestDetail({ params }: { params: { id: string
       handout: { include: { currentVersion: true } },
     },
   });
-  if (!request) notFound();
+  // v1.4.1: another department's request is 'not found' (lib/department-scope.ts).
+  if (!request || !(await requestVisibleTo(await getSessionUser(), request.id))) notFound();
 
   const attachments = await loadAttachments(request.id);
   const handout = request.handout;

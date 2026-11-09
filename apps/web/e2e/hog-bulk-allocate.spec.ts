@@ -105,9 +105,11 @@ test('HOG uploads a valid allocation CSV → 2 requests ALLOCATED', async ({ pag
 
   await uploadCsv(
     page,
-    `request_reference,faculty_emails,sme_email
-${g.refNos[0]},faculty@hmp.local,sme@hmp.local
-${g.refNos[1]},faculty@hmp.local,sme@hmp.local`,
+    // v1.4.1: pc_email names the PC who confirms (the sentinel programme has no department, so
+    // there is no "department's only PC" to fall back on).
+    `request_reference,faculty_emails,sme_email,pc_email
+${g.refNos[0]},faculty@hmp.local,sme@hmp.local,pc@hmp.local
+${g.refNos[1]},faculty@hmp.local,sme@hmp.local,pc@hmp.local`,
   );
 
   await expect(page.getByTestId('bulk-success')).toBeVisible({ timeout: 15_000 });

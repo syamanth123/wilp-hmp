@@ -36,6 +36,9 @@ const ids: {
   c3?: string;
   off1?: string;
   off2?: string;
+  dept?: string;
+  deptNoHog?: string;
+  hog?: string;
 } = {};
 const createdRequestIds: string[] = [];
 
@@ -49,7 +52,25 @@ beforeAll(async () => {
     if (!ic) throw new Error('no IC user');
     actor = { id: ic.id, name: ic.name, roles: [RoleName.INSTRUCTION_CELL] };
 
-    const progA = await prisma.programme.create({ data: { code: PA, name: `${TAG} Programme A` } });
+    // v1.4.1 (H13): a request goes to its department's HOG — a sentinel department with one.
+    const dept = await prisma.department.create({
+      data: { code: `${TAG}-D`.slice(0, 30), name: `${TAG} Department` },
+    });
+    const deptNoHog = await prisma.department.create({
+      data: { code: `${TAG}-N`.slice(0, 30), name: `${TAG} No-HOG Department` },
+    });
+    const hogRole = await prisma.role.findUniqueOrThrow({ where: { name: RoleName.HOG } });
+    const hog = await prisma.user.create({
+      data: {
+        email: `${TAG}-hog@hmp.local`.toLowerCase(),
+        name: `${TAG} HOG`,
+        departmentId: dept.id,
+        roles: { create: { roleId: hogRole.id } },
+      },
+    });
+    const progA = await prisma.programme.create({
+      data: { code: PA, name: `${TAG} Programme A`, departmentId: dept.id },
+    });
     const progB = await prisma.programme.create({ data: { code: PB, name: `${TAG} Programme B` } });
     const sem = await prisma.semester.create({
       data: {
@@ -81,6 +102,9 @@ beforeAll(async () => {
       c3: c3.id,
       off1: off1.id,
       off2: off2.id,
+      dept: dept.id,
+      deptNoHog: deptNoHog.id,
+      hog: hog.id,
     });
     dbReady = true;
   } catch (err) {
@@ -109,6 +133,10 @@ afterAll(async () => {
     await prisma.course.deleteMany({ where: { id: { in: [ids.c1!, ids.c2!, ids.c3!] } } });
     await prisma.semester.deleteMany({ where: { id: ids.sem! } });
     await prisma.programme.deleteMany({ where: { id: { in: [ids.progA!, ids.progB!] } } });
+    await prisma.userRole.deleteMany({ where: { userId: ids.hog! } });
+    await prisma.notification.deleteMany({ where: { userId: ids.hog! } });
+    await prisma.user.deleteMany({ where: { id: ids.hog! } });
+    await prisma.department.deleteMany({ where: { id: { in: [ids.dept!, ids.deptNoHog!] } } });
   }
   await prisma.$disconnect();
 });
@@ -269,5 +297,44 @@ ${PA},ZZ ZG999,${SEM}`);
     if (r.status !== 'rejected') return;
     expect(r.errors[0]!.code).toBe('invalid_csv_format');
     expect(r.rejectedCsv).toContain('_error_code');
+  });
+
+  it('v1.4.1: each new request goes to its department HOG (assignee row)', async () => {
+    if (!dbReady) return;
+    const r = await run(`programme_code,course_code,semester\n${PA},${C1},${SEM}`);
+    expect(r.status).toBe('success');
+    const req = await prisma.handoutRequest.findFirstOrThrow({
+      where: { courseOfferingId: ids.off1! },
+      select: { assignees: { select: { role: true, userId: true, endedAt: true } } },
+    });
+    expect(req.assignees).toEqual([{ role: RoleName.HOG, userId: ids.hog!, endedAt: null }]);
+  });
+
+  it('v1.4.1 (H13): no department, or a department without a HOG, is an error — no writes', async () => {
+    if (!dbReady) return;
+    const before = await prisma.handoutRequest.count({ where: { courseOfferingId: ids.off1! } });
+    try {
+      await prisma.programme.update({ where: { id: ids.progA! }, data: { departmentId: null } });
+      const unknown = await run(`programme_code,course_code,semester\n${PA},${C1},${SEM}`);
+      if (unknown.status !== 'rejected') throw new Error('expected rejected');
+      expect(unknown.errors[0]!.code).toBe('department_unknown');
+
+      await prisma.programme.update({
+        where: { id: ids.progA! },
+        data: { departmentId: ids.deptNoHog! },
+      });
+      const noHog = await run(`programme_code,course_code,semester\n${PA},${C1},${SEM}`);
+      if (noHog.status !== 'rejected') throw new Error('expected rejected');
+      expect(noHog.errors[0]!.code).toBe('department_has_no_hog');
+      expect(noHog.errors[0]!.message).toContain('has no HOG yet — set one in People');
+    } finally {
+      await prisma.programme.update({
+        where: { id: ids.progA! },
+        data: { departmentId: ids.dept! },
+      });
+    }
+    expect(await prisma.handoutRequest.count({ where: { courseOfferingId: ids.off1! } })).toBe(
+      before,
+    );
   });
 });

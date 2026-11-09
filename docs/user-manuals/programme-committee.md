@@ -6,6 +6,12 @@ The Programme Committee confirms allocated assignments and runs the review/rewor
 
 Sign in at `/login` (dev seed: `pc@hmp.local` / `password`). Lands on `/pc`.
 
+## Your department (v1.4.1)
+
+You see **your department's** requests, plus any request where you are the PC, and requests whose programme
+has no department yet. Only the PC the HOG named confirms an allocation (and is told about it). If your
+department isn't set, you see all departments and a notice says so.
+
 ## Overview (`/pc`)
 
 - **Allocated** — requests in `ALLOCATED` awaiting your confirmation.

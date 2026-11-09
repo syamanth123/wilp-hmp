@@ -14,6 +14,8 @@ import type { ChangeSize } from './handout-compare';
 import { displayCourseTitle } from './course-title';
 import { formatDate } from './format-date';
 import { loadDibbaProgrammeLinks, resolveDibbaProgramme } from './dibba-programme-codes';
+import { departmentOfDibbaCode, loadDepartmentLinks } from './departments';
+import { departmentScope } from './department-scope';
 
 /**
  * The Handout Library list (docs/plans/handout-library.md §2).
@@ -141,6 +143,8 @@ export interface LibraryItem {
   termKey: string | null;
   semesterName: string;
   programmeCode: string | null;
+  /** v1.4.1: the department(s) — HMP: its programme's; not started: its Dibba programmes'; past: none. */
+  departmentIds: string[];
   /** Course Dibba programme codes (scheduled courses with no handout). */
   programmes: string[];
   /** Not started: the HMP programmes those Dibba codes stand for (Admin's links, v1.3.0). */
@@ -252,6 +256,7 @@ export const FILTER_KEYS = [
   'q',
   'term',
   'programme',
+  'dept',
   'discipline',
   'status',
   'faculty',
@@ -291,6 +296,7 @@ const ALLOWED: Record<FilterKey, (v: string) => boolean> = {
   q: () => true,
   term: (v) => /^(all|current|\d{4}-(FIRST|SECOND|SUMMER))$/.test(v),
   programme: (v) => /^[\w/ .-]{1,40}$/.test(v),
+  dept: (v) => v === 'none' || ID_RE.test(v),
   discipline: (v) => /^[A-Z]{1,8}$/.test(v),
   status: (v) => (GROUP_ORDER as string[]).includes(v),
   faculty: (v) => ID_RE.test(v),
@@ -328,6 +334,7 @@ const FILTER_TABS: Record<FilterKey, Tab[]> = {
   q: ['published', 'in-progress', 'past'],
   term: ['published', 'in-progress', 'past'],
   programme: ['published', 'in-progress'],
+  dept: ['published', 'in-progress'],
   discipline: ['published', 'in-progress', 'past'],
   status: ['published', 'in-progress'],
   faculty: ['published', 'in-progress'],
@@ -684,6 +691,10 @@ export function predicates(
         it.programmes.includes(f.programme) ||
         !!it.hmpProgrammes?.includes(f.programme),
     );
+  if (v('dept'))
+    add('dept', (it) =>
+      f.dept === 'none' ? it.departmentIds.length === 0 : it.departmentIds.includes(f.dept),
+    );
   if (v('discipline')) add('discipline', (it) => it.discipline === f.discipline);
   if (v('faculty')) add('faculty', (it) => it.facultyIds.includes(f.faculty));
   if (v('sme')) add('sme', (it) => it.smeId === f.sme);
@@ -806,7 +817,7 @@ export const courseCount = (items: LibraryItem[]) => new Set(items.map((i) => i.
 
 // ── Loading ──────────────────────────────────────────────────────────────────
 
-type ScopeUser = Pick<SessionUser, 'id' | 'roles'>;
+type ScopeUser = Pick<SessionUser, 'id' | 'roles' | 'departmentId'>;
 
 const PUBLISHED_LOG = ['success', 'EXPORTED', 'MANUALLY_CONFIRMED'];
 const disciplineOf = (code: string) => /^([A-Z]+) /.exec(code)?.[1] ?? null;
@@ -901,7 +912,12 @@ async function loadHmpItems(
           select: {
             course: { select: { bitsCourseNumber: true, alternateCodes: true, title: true } },
             semester: {
-              select: { name: true, year: true, term: true, programme: { select: { code: true } } },
+              select: {
+                name: true,
+                year: true,
+                term: true,
+                programme: { select: { code: true, departmentId: true } },
+              },
             },
           },
         },
@@ -954,6 +970,7 @@ async function loadHmpItems(
       termKey: tk,
       semesterName: sem.name,
       programmeCode: sem.programme.code,
+      departmentIds: sem.programme.departmentId ? [sem.programme.departmentId] : [],
       programmes: [],
       discipline: disciplineOf(c.bitsCourseNumber),
       faculty: r.assignments.map((a) => a.faculty.name),
@@ -1044,6 +1061,7 @@ export function notStartedItems(
       termKey: c.term,
       semesterName: names.get(c.term) ?? termLabel(c.term),
       programmeCode: null,
+      departmentIds: [],
       programmes: [...new Set(group.flatMap((g) => [...g.programmes]))].sort(),
       discipline: disciplineOf(c.code),
       faculty: [],
@@ -1102,6 +1120,7 @@ async function loadPastItems(): Promise<LibraryItem[]> {
       termKey: termKeyFromText(r.sem),
       semesterName: r.sem ?? '',
       programmeCode: null,
+      departmentIds: [],
       programmes: [],
       discipline: r.code ? disciplineOf(r.code) : null,
       faculty: r.inst ? [r.inst] : [],
@@ -1138,7 +1157,10 @@ export async function loadAllItems(
   ]);
   let notStarted: LibraryItem[] = [];
   if (seesAllWork(user)) {
-    const links = await loadDibbaProgrammeLinks();
+    const [links, deptLinks] = await Promise.all([
+      loadDibbaProgrammeLinks(),
+      loadDepartmentLinks(),
+    ]);
     notStarted = notStartedItems(schedule, [...published, ...inProgress], termNameMap).map(
       (it) => ({
         ...it,
@@ -1150,8 +1172,22 @@ export async function loadAllItems(
             }),
           ),
         ],
+        departmentIds: [
+          ...new Set(
+            it.programmes.flatMap((dc) => {
+              const d = departmentOfDibbaCode(dc, deptLinks);
+              return d ? [d.departmentId] : [];
+            }),
+          ),
+        ],
       }),
     );
+    // v1.4.1: a HOG / PC sees their department's not-started courses (and those with none known yet).
+    const dept = departmentScope(user) ? user.departmentId : null;
+    if (dept)
+      notStarted = notStarted.filter(
+        (it) => it.departmentIds.length === 0 || it.departmentIds.includes(dept),
+      );
   }
   return { published, 'in-progress': [...inProgress, ...notStarted], past };
 }
@@ -1283,11 +1319,13 @@ export async function loadLibrary(
 ): Promise<LibraryPage> {
   const now = opts.now ?? new Date();
   const names = await termNames();
-  const [byTab, currentTerm, mine] = await Promise.all([
+  const [byTab, currentTerm, mine, departments] = await Promise.all([
     loadAllItems(user, names),
     currentTermKey(now),
     myCourseCodes(user),
+    prisma.department.findMany({ select: { id: true, name: true } }),
   ]);
+  const departmentNames = new Map(departments.map((d) => [d.id, d.name]));
   const ctx: ViewCtx = { now, userId: user.id, myCourseCodes: mine, currentTerm };
   const allViews = quickViews(user.roles);
   const view = allViews.find((v) => v.key === f.view && v.tab === f.tab && !v.href);
@@ -1397,6 +1435,11 @@ export async function loadLibrary(
       (it) => [it.programmeCode, ...it.programmes, ...(it.hmpProgrammes ?? [])],
       (v) => v,
     ),
+    dept: enumFacet(
+      'dept',
+      (it) => (it.departmentIds.length ? it.departmentIds : ['none']),
+      (v) => (v === 'none' ? 'No department' : (departmentNames.get(v) ?? v)),
+    ),
     discipline: enumFacet(
       'discipline',
       (it) => [it.discipline],
@@ -1497,6 +1540,8 @@ export function filterChipLabel(
       return groupMeta(value as StatusGroup).label;
     case 'programme':
       return `Programme: ${value}`;
+    case 'dept':
+      return value === 'none' ? 'No department' : `Department: ${fromFacet ?? '—'}`;
     case 'discipline':
       return `Discipline: ${value}`;
     case 'faculty':

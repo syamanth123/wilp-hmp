@@ -1,10 +1,4 @@
-import {
-  prisma,
-  HandoutStatus,
-  normalizeBitsCourseNumber,
-  type Prisma,
-  type RoleName,
-} from '@hmp/db';
+import { prisma, HandoutStatus, normalizeBitsCourseNumber, type Prisma, RoleName } from '@hmp/db';
 import { parseCsv, parseHandoutRequestsCsv } from '@hmp/integrations';
 import { transition } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
@@ -38,7 +32,10 @@ export type BulkErrorCode =
   | 'semester_not_found'
   | 'no_course_offering_for_programme_course_pair'
   | 'duplicate_active_request_exists'
-  | 'duplicate_row_in_file';
+  | 'duplicate_row_in_file'
+  // v1.4.1 (H13): every request has a HOG — its department's.
+  | 'department_unknown'
+  | 'department_has_no_hog';
 
 export interface BulkError {
   line: number;
@@ -67,6 +64,8 @@ export interface BulkActor {
 interface ResolvedRow {
   line: number;
   courseOfferingId: string;
+  /** v1.4.1: the department HOG the request goes to. */
+  hogId: string;
 }
 
 const ACTIVE_DEDUP_EXCLUDES: HandoutStatus[] = [HandoutStatus.REJECTED, HandoutStatus.ARCHIVED];
@@ -147,7 +146,16 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
 
     const offering = await prisma.courseOffering.findUnique({
       where: { courseId_semesterId: { courseId: course.id, semesterId: semester.id } },
-      select: { id: true },
+      select: {
+        id: true,
+        semester: {
+          select: {
+            programme: {
+              select: { code: true, departmentId: true, department: { select: { name: true } } },
+            },
+          },
+        },
+      },
     });
     if (!offering) {
       errors.push({
@@ -184,7 +192,34 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
       continue;
     }
 
-    resolved.push({ line, courseOfferingId: offering.id });
+    // v1.4.1 (H13): the request goes to its department's HOG — no request without one.
+    const offeringProgramme = offering.semester.programme;
+    if (!offeringProgramme.departmentId) {
+      errors.push({
+        line,
+        code: 'department_unknown',
+        message: `Programme ${offeringProgramme.code} has no department yet — set it in Departments, then upload again.`,
+      });
+      continue;
+    }
+    const hog = await prisma.user.findFirst({
+      where: {
+        active: true,
+        departmentId: offeringProgramme.departmentId,
+        roles: { some: { role: { name: RoleName.HOG } } },
+      },
+      select: { id: true },
+    });
+    if (!hog) {
+      errors.push({
+        line,
+        code: 'department_has_no_hog',
+        message: `${offeringProgramme.department?.name ?? 'The department'} has no HOG yet — set one in People, or create this request on its own.`,
+      });
+      continue;
+    }
+
+    resolved.push({ line, courseOfferingId: offering.id, hogId: hog.id });
   }
 
   if (errors.length > 0) {
@@ -221,6 +256,9 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
             } as Prisma.InputJsonValue,
             requestId: req.id,
           },
+        });
+        await tx.requestAssignee.create({
+          data: { requestId: req.id, role: RoleName.HOG, userId: r.hogId, assignedById: actor.id },
         });
         out.push(req);
       }

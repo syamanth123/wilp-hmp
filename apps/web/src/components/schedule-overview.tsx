@@ -1,3 +1,4 @@
+import { departmentOfDibbaCode, loadDepartmentLinks } from '@/lib/departments';
 import { prisma, DibbaImportStatus } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { loadActiveTerm } from '@hmp/db/src/dibba-schedule/load';
@@ -19,6 +20,8 @@ export interface ScheduleOverviewSearchParams {
   faculty?: Param;
   /** "missing" = only courses not in the HMP catalogue. */
   catalogue?: Param;
+  /** v1.4.1 (H14): "all" = every department; otherwise the viewer's own (HOG / PC). */
+  dept?: Param;
 }
 
 const first = (v: Param): string => (Array.isArray(v) ? (v[0] ?? '') : (v ?? ''));
@@ -54,9 +57,12 @@ function Tile({
 export async function ScheduleOverview({
   basePath,
   searchParams,
+  department,
 }: {
   basePath: string;
   searchParams: ScheduleOverviewSearchParams;
+  /** v1.4.1 (H14): HOG / PC — their department first; "All departments" shows everything. */
+  department?: { id: string; name: string } | null;
 }) {
   const terms = await prisma.academicTerm.findMany({
     where: { imports: { some: { status: DibbaImportStatus.PUBLISHED } } },
@@ -91,8 +97,18 @@ export async function ScheduleOverview({
   const slot = /^[0-8]$/.test(slotRaw) ? Number(slotRaw) : null;
   const faculty = first(searchParams.faculty);
   const onlyMissing = first(searchParams.catalogue) === 'missing';
+  // H14: own department by default — a course belongs to it when one of its Dibba programmes does,
+  // or when none of its programmes has a department yet (H10: nothing disappears).
+  const allDepartments = !department || first(searchParams.dept) === 'all';
+  const links = allDepartments ? null : await loadDepartmentLinks();
+  const inMyDepartment = (codes: string[]) => {
+    if (!links || !department) return true;
+    const depts = codes.map((code) => departmentOfDibbaCode(code, links)?.departmentId ?? null);
+    return depts.includes(department.id) || depts.every((d) => d === null);
+  };
   const filtered = overview.courses.filter(
     (c) =>
+      inMyDepartment(c.programmes) &&
       (!programme || c.programmes.includes(programme)) &&
       (slot === null || c.slotNos.includes(slot)) &&
       (!faculty || c.instructors.some((i) => i.userId === faculty)) &&
@@ -129,6 +145,20 @@ export async function ScheduleOverview({
               ))}
             </select>
           </label>
+          {department && (
+            <label className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs">Department</span>
+              <select
+                name="dept"
+                defaultValue={allDepartments ? 'all' : ''}
+                className="bg-background h-9 rounded-md border px-2"
+                data-testid="schedule-dept"
+              >
+                <option value="">Mine ({department.name})</option>
+                <option value="all">All departments</option>
+              </select>
+            </label>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-muted-foreground text-xs">Programme</span>
             <select

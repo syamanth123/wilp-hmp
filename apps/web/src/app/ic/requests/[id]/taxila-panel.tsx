@@ -3,7 +3,13 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@hmp/ui';
-import { checkTaxilaAction, publishTaxilaAction } from './actions';
+import {
+  checkTaxilaAction,
+  clearTaxilaCourseAction,
+  publishTaxilaAction,
+  searchTaxilaCoursesAction,
+} from './actions';
+import { formatDateTime } from '@/lib/format-date';
 
 type CheckReply = Awaited<ReturnType<typeof checkTaxilaAction>>;
 type CheckView = Extract<CheckReply, { ok: true }>['view'];
@@ -40,24 +46,40 @@ export function TaxilaPanel({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const [choosing, setChoosing] = useState(false);
+  // A picked course is remembered on the server (v1.4.1), so Publish never sends a course id.
   const form = () => {
     const fd = new FormData();
     fd.set('requestId', requestId);
     fd.set('semesterCode', code.trim());
-    if (courseId) fd.set('courseId', String(courseId));
     return fd;
   };
 
-  const check = (pick?: number) => {
+  /** `pick`: the IC chose a course (one of several matches, or from a search for `query`). */
+  const check = (pick?: number, query?: string) => {
     setError(null);
     setOutcome(null);
     setView(null);
     const fd = form();
     if (pick) fd.set('courseId', String(pick));
+    if (query) fd.set('query', query);
     startTransition(async () => {
       const r = await checkTaxilaAction(fd);
+      setCourseId(null);
       if ('error' in r) setError(r.error ?? 'Check failed.');
-      else setView(r.view);
+      else {
+        setView(r.view);
+        setChoosing(false);
+      }
+    });
+  };
+
+  const clearChoice = () => {
+    const fd = new FormData();
+    fd.set('requestId', requestId);
+    startTransition(async () => {
+      await clearTaxilaCourseAction(fd);
+      check();
     });
   };
 
@@ -153,6 +175,21 @@ export function TaxilaPanel({
               </p>
             </>
           )}
+          {view?.choice && (
+            <p className="mt-1 text-xs" data-testid="taxila-choice">
+              Taxila course chosen by {view.choice.chosenBy ?? 'someone'} on{' '}
+              {formatDateTime(view.choice.chosenAt)} ·{' '}
+              <button
+                type="button"
+                className="underline"
+                onClick={clearChoice}
+                disabled={pending}
+                data-testid="taxila-choice-clear"
+              >
+                Use the automatic match again
+              </button>
+            </p>
+          )}
           <p className="mt-1 font-medium">{c.message}</p>
           {c.status === 'not-found' && (
             <p className="mt-1 text-xs">
@@ -205,6 +242,24 @@ export function TaxilaPanel({
         </div>
       )}
 
+      {c && !choosing && (
+        <button
+          type="button"
+          className="text-xs underline"
+          onClick={() => setChoosing(true)}
+          data-testid="taxila-choose-open"
+        >
+          Choose a different Taxila course
+        </button>
+      )}
+      {choosing && (
+        <TaxilaCourseChooser
+          pending={pending}
+          onChoose={(id, query) => check(id, query)}
+          onCancel={() => setChoosing(false)}
+        />
+      )}
+
       {outcome && (
         <div
           className={outcome.status === 'published' ? box.ok : box.bad}
@@ -224,6 +279,118 @@ export function TaxilaPanel({
             </p>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * v1.4.1: search Taxila by name (e.g. "CIL_Exp") and pick the course — for unusual names and test
+ * courses. The pick is remembered for this course + semester; the same Course Handout rules apply.
+ */
+function TaxilaCourseChooser({
+  pending,
+  onChoose,
+  onCancel,
+}: {
+  pending: boolean;
+  onChoose: (courseId: number, query: string) => void;
+  onCancel: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [searched, setSearched] = useState('');
+  const [results, setResults] = useState<{ id: number; fullname: string }[] | null>(null);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [searching, startSearch] = useTransition();
+
+  const search = () => {
+    setError(null);
+    setPicked(null);
+    const fd = new FormData();
+    fd.set('query', query.trim());
+    startSearch(async () => {
+      const r = await searchTaxilaCoursesAction(fd);
+      if ('error' in r) {
+        setResults(null);
+        setError(r.error ?? 'Search failed.');
+      } else {
+        setResults(r.courses);
+        setSearched(query.trim());
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border p-3" data-testid="taxila-chooser">
+      <p className="text-xs">
+        Search Taxila by the course&apos;s name. The course you pick is remembered for this course
+        and semester — Check in Taxila and bulk runs use it.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              search();
+            }
+          }}
+          placeholder="e.g. CIL_Exp"
+          className="bg-background h-9 w-64 rounded-md border px-2"
+          aria-label="Taxila course name"
+          data-testid="taxila-search-text"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={search}
+          disabled={searching || query.trim().length < 3}
+          data-testid="taxila-search"
+        >
+          {searching ? 'Searching…' : 'Search Taxila'}
+        </Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+      {error && (
+        <p className="text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      {results && results.length === 0 && (
+        <p className="text-xs" data-testid="taxila-search-none">
+          No Taxila course has “{searched}” in its name.
+        </p>
+      )}
+      {results && results.length > 0 && (
+        <fieldset className="space-y-1" data-testid="taxila-search-results">
+          <legend className="text-xs">
+            {results.length === 50 ? 'First 50 results' : `${results.length} found`} — pick one:
+          </legend>
+          {results.map((x) => (
+            <label key={x.id} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="taxila-search-pick"
+                checked={picked === x.id}
+                onChange={() => setPicked(x.id)}
+              />
+              {x.fullname} <span className="text-muted-foreground text-xs">(id {x.id})</span>
+            </label>
+          ))}
+          <Button
+            type="button"
+            className="mt-1"
+            onClick={() => picked && onChoose(picked, searched)}
+            disabled={!picked || pending}
+            data-testid="taxila-search-use"
+          >
+            {pending ? 'Checking…' : 'Use this course'}
+          </Button>
+        </fieldset>
       )}
     </div>
   );

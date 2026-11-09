@@ -186,7 +186,16 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
         },
         // Taxila also keeps a single-code shell; a cross-listed handout must go to the merged one.
         { id: 418, fullname: `Quantitative Methods (${SEM}_MBAZC417)` },
-        // MATH ZC222 deliberately has no Taxila course.
+        // MATH ZC222 deliberately has no Taxila course — the last test chooses the test course for it.
+        {
+          id: 999,
+          fullname: 'CIL_Exp',
+          item: {
+            name: 'Course Handout',
+            contextid: 9999,
+            files: [{ filename: 'Course Handout.pdf', size: 900 }],
+          },
+        },
       ],
     });
   });
@@ -208,6 +217,8 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
       where: { link: { in: runs.map((r) => `/ic/taxila-runs/${r.id}`) } },
     });
     await prisma.taxilaPublishRun.deleteMany({ where: { createdAt: { gte: started } } });
+    // v1.4.1: the Taxila course chosen in the last test.
+    await prisma.taxilaCourseChoice.deleteMany({ where: { createdAt: { gte: started } } });
   });
 
   test('check, then publish one handout: Course Handout.pdf replaces the placeholder', async ({
@@ -352,6 +363,48 @@ test.describe('Publish into Taxila (fake Taxila)', () => {
     await expect(page.getByTestId('taxila-check-result')).toBeVisible();
     expect((await page.content()).includes(TOKEN)).toBe(false);
     expect(bodies.some((b) => b.includes(TOKEN))).toBe(false);
+    await page.context().close();
+  });
+
+  // v1.4.1: runs last, so the remembered choice can't change the bulk test above.
+  test('Choose a different Taxila course: search CIL_Exp, check, publish; remembered', async ({
+    browser,
+  }) => {
+    const id = await seedApproved('MATH ZC222');
+    const page = await asIc(browser);
+    await page.goto(`/ic/requests/${id}`);
+    await page.getByTestId('taxila-check').click();
+    const result = page.getByTestId('taxila-check-result');
+    await expect(result).toHaveAttribute('data-status', 'not-found');
+
+    await page.getByTestId('taxila-choose-open').click();
+    await page.getByTestId('taxila-search-text').fill('CIL_Exp');
+    await page.getByTestId('taxila-search').click();
+    const results = page.getByTestId('taxila-search-results');
+    await expect(results).toContainText('CIL_Exp');
+    await results.getByLabel(/CIL_Exp/).check();
+    await page.getByTestId('taxila-search-use').click();
+    await expect(result).toHaveAttribute('data-status', 'ready');
+    await expect(result).toContainText('CIL_Exp');
+    await expect(page.getByTestId('taxila-choice')).toContainText('Taxila course chosen by');
+
+    await page.getByTestId('taxila-publish').click();
+    await expect(page.locator('[data-status="PUBLISHED"]').first()).toBeVisible({
+      timeout: 60_000,
+    });
+    const files = fake.courses.find((c) => c.id === 999)!.item!.files;
+    expect(files.map((f) => f.filename)).toEqual(['Course Handout.pdf']);
+    expect(files[0]!.size).toBeGreaterThan(1000);
+    const offering = await prisma.handoutRequest.findUniqueOrThrow({
+      where: { id },
+      select: { courseOfferingId: true },
+    });
+    expect(
+      await prisma.taxilaCourseChoice.findUnique({
+        where: { courseOfferingId: offering.courseOfferingId },
+        select: { taxilaCourseId: true, taxilaFullname: true },
+      }),
+    ).toEqual({ taxilaCourseId: 999, taxilaFullname: 'CIL_Exp' });
     await page.context().close();
   });
 });

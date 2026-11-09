@@ -14,7 +14,12 @@ export async function bulkAllocateAction(formData: FormData): Promise<BulkAlloca
   const actor = requireRole(await getSessionUser(), RoleName.HOG);
   const csv = String(formData.get('csv') ?? '');
 
-  const result = await bulkAllocate(csv, { id: actor.id, roles: actor.roles, name: actor.name });
+  const result = await bulkAllocate(csv, {
+    id: actor.id,
+    roles: actor.roles,
+    name: actor.name,
+    departmentId: actor.departmentId,
+  });
 
   if (result.status === 'success' || result.status === 'partial') {
     revalidatePath('/hog/requests');

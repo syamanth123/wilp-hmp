@@ -169,6 +169,10 @@ interface RequestForNotify {
   // or null. Carries the "assignedSme" recipient for SME_REVIEW_REQUESTED —
   // no separate resolver function needed; computeRecipients reads this field.
   smeUserId: string | null;
+  /** v1.4.1: the programme's department, and who is the request's HOG / PC now (RequestAssignee). */
+  departmentId: string | null;
+  hogUserId: string | null;
+  pcUserId: string | null;
 }
 
 async function loadRequest(requestId: string): Promise<RequestForNotify | null> {
@@ -181,23 +185,41 @@ async function loadRequest(requestId: string): Promise<RequestForNotify | null> 
       offering: {
         select: {
           course: { select: { code: true, title: true } },
-          semester: { select: { name: true, programme: { select: { code: true } } } },
+          semester: {
+            select: { name: true, programme: { select: { code: true, departmentId: true } } },
+          },
         },
       },
       assignments: { where: { active: true }, select: { facultyId: true, active: true } },
       smeAssignment: { select: { smeUserId: true } },
+      assignees: {
+        where: { endedAt: null, role: { in: [RoleName.HOG, RoleName.PROGRAMME_COMMITTEE] } },
+        orderBy: { assignedAt: 'desc' },
+        select: { role: true, userId: true },
+      },
     },
   });
   if (!r) return null;
-  const { smeAssignment, ...rest } = r;
-  return { ...rest, smeUserId: smeAssignment?.smeUserId ?? null };
+  const { smeAssignment, assignees, ...rest } = r;
+  return {
+    ...rest,
+    smeUserId: smeAssignment?.smeUserId ?? null,
+    departmentId: r.offering.semester.programme.departmentId,
+    hogUserId: assignees.find((a) => a.role === RoleName.HOG)?.userId ?? null,
+    pcUserId: assignees.find((a) => a.role === RoleName.PROGRAMME_COMMITTEE)?.userId ?? null,
+  };
 }
 
 async function usersWithRole(
   role: RoleName,
+  departmentId?: string,
 ): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
   const users = await prisma.user.findMany({
-    where: { ...ACTIVE_USER_FILTER, roles: { some: { role: { name: role } } } },
+    where: {
+      ...ACTIVE_USER_FILTER,
+      roles: { some: { role: { name: role } } },
+      ...(departmentId ? { departmentId } : {}),
+    },
     select: { id: true, email: true },
   });
   return users.map((u) => ({ ...u, primaryRole: role }));
@@ -218,6 +240,27 @@ async function usersById(
   }));
 }
 
+/**
+ * v1.4.1 (docs/plans/v1.4.1-assignment.md §B): the request's own HOG / PC; for a request with none recorded
+ * yet, its department's HOGs / PCs; if the department isn't known or has nobody in that role, everyone in
+ * the role (as before v1.4.1). Nobody is left uninformed.
+ */
+async function responsible(
+  role: typeof RoleName.HOG | typeof RoleName.PROGRAMME_COMMITTEE,
+  req: RequestForNotify,
+): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+  const assigned = role === RoleName.HOG ? req.hogUserId : req.pcUserId;
+  if (assigned) {
+    const u = await usersById([assigned]);
+    if (u.length) return u.map((x) => ({ ...x, primaryRole: role }));
+  }
+  if (req.departmentId) {
+    const inDept = await usersWithRole(role, req.departmentId);
+    if (inDept.length) return inDept;
+  }
+  return usersWithRole(role);
+}
+
 async function computeRecipients(
   event: WorkflowEventType,
   req: RequestForNotify,
@@ -231,10 +274,10 @@ async function computeRecipients(
 
   switch (event) {
     case 'REQUEST_INITIATED':
-      add(await usersWithRole(RoleName.HOG));
+      add(await responsible(RoleName.HOG, req));
       break;
     case 'FACULTY_ALLOCATED':
-      add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+      add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
       add(await usersById(facultyIds));
       break;
     case 'ASSIGNED':
@@ -246,7 +289,7 @@ async function computeRecipients(
     // SME is NOT notified — they weren't notified at allocation (they hear at
     // SME_REVIEW_REQUESTED later).
     case 'ALLOCATION_REJECTED': {
-      add(await usersWithRole(RoleName.HOG));
+      add(await responsible(RoleName.HOG, req));
       // The just-rejected faculty were soft-deactivated INSIDE the reject
       // transaction, so req.assignments (active=true only) no longer lists
       // them. Query all assignments for the request to reach whoever was
@@ -260,11 +303,12 @@ async function computeRecipients(
       break;
     }
     case 'SUBMITTED':
+      // (v1.4.1: the request's PC — see responsible())
       // Prompt 12-b: DORMANT — no producer fires the bare SUBMITTED event
       // once SME is mandatory (faculty submit fires SME_REVIEW_REQUESTED; SME
       // approval fires SME_APPROVED, which lands in the SUBMITTED *status*).
       // Recipient kept for legacy/safety; see notification-templates.ts.
-      add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+      add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
       break;
     // Prompt 12-b: SME approval-gate events.
     case 'SME_REVIEW_REQUESTED':
@@ -279,14 +323,14 @@ async function computeRecipients(
       // standard pattern. Do NOT drop PC here without reviewing that contract.
       add(await usersById(facultyIds));
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
-      add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+      add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
       break;
     case 'SME_REVERTED':
       add(await usersById(facultyIds));
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
       break;
     case 'REVIEW_APPROVED':
-      add(await usersWithRole(RoleName.HOG));
+      add(await responsible(RoleName.HOG, req));
       break;
     case 'REVIEW_REWORK':
       add(await usersById(facultyIds));
@@ -340,7 +384,7 @@ async function loadTemplate(key: string | null) {
   return prisma.notificationTemplate.findUnique({ where: { key } });
 }
 
-function linkFor(role: RoleName, requestId: string): string {
+export function linkFor(role: RoleName, requestId: string): string {
   return (LINK_PREFIX_BY_ROLE[role] ?? ((id: string) => `/ic/requests/${id}`))(requestId);
 }
 
@@ -526,14 +570,15 @@ export async function dispatchComment(input: {
   try {
     const req = await loadRequest(input.requestId);
     if (!req) return;
-    // Notify everyone currently involved: IC + HOG + PC + assigned faculty (minus actor).
+    // Notify everyone currently involved: IC + the request's HOG + PC + assigned faculty (minus actor).
     const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
     const add = (us: { id: string; email: string; primaryRole: RoleName }[]) => {
       for (const u of us) if (u.id !== input.actor.id) out.set(u.id, u);
     };
     add(await usersWithRole(RoleName.INSTRUCTION_CELL));
-    add(await usersWithRole(RoleName.HOG));
-    add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+    // v1.4.1: the request's HOG and PC (their department's, if none recorded yet).
+    add(await responsible(RoleName.HOG, req));
+    add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
     add(await usersById(req.assignments.map((a) => a.facultyId)));
     const recipients = [...out.values()];
     if (recipients.length === 0) return;
@@ -592,6 +637,10 @@ export async function notifySlaReminder(input: {
       select: { facultyId: true },
     });
     recipients = await usersById(assignments.map((a) => a.facultyId));
+  } else if (role === RoleName.HOG || role === RoleName.PROGRAMME_COMMITTEE) {
+    // v1.4.1: the request's HOG / PC (else its department's, else everyone in the role).
+    const req = await loadRequest(input.request.id);
+    recipients = req ? await responsible(role, req) : [];
   } else {
     recipients = await usersWithRole(role);
   }
@@ -764,8 +813,9 @@ export async function dispatchManuallyPublished(input: {
     const add = (us: { id: string; email: string; primaryRole: RoleName }[]) => {
       for (const u of us) if (u.id !== input.actor.id) out.set(u.id, u);
     };
-    add(await usersWithRole(RoleName.HOG));
-    add(await usersWithRole(RoleName.PROGRAMME_COMMITTEE));
+    // v1.4.1: the request's HOG and PC (their department's, if none recorded yet).
+    add(await responsible(RoleName.HOG, req));
+    add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
     add(await usersWithRole(RoleName.INSTRUCTION_CELL));
     add(await usersById(req.assignments.map((a) => a.facultyId)));
     const recipients = [...out.values()];

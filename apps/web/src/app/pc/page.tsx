@@ -143,7 +143,7 @@ export default async function PCOverview() {
     // Each card counts exactly what its list shows (lib/request-views.ts).
     Promise.all(
       (['awaiting-confirmation', 'awaiting-review', 'in-progress', 'forwarded'] as const).map(
-        (key) => prisma.handoutRequest.count({ where: viewWhere('PC', '', key) }),
+        (key) => prisma.handoutRequest.count({ where: viewWhere('PC', me ?? '', key) }),
       ),
     ),
     prisma.programme.findMany({

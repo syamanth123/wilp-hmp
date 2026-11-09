@@ -1,3 +1,5 @@
+import { getSessionUser } from '@hmp/auth';
+import { departmentScope } from '@/lib/department-scope';
 import { HandoutStatus } from '@hmp/db';
 import { countSlaBucketsForStatuses } from '@/lib/sla';
 
@@ -86,12 +88,15 @@ function StatusIcon({ tone }: { tone: Tone }) {
 
 export async function SlaWidgets({ role, facultyId }: { role: Role; facultyId?: string }) {
   const buckets = BUCKETS_BY_ROLE[role];
-  // Faculty see only their own assignments; the other roles see everything.
+  // Faculty see only their own assignments; HOG / PC their department (v1.4.1); IC / Admin everything.
+  const me = role === 'HOG' || role === 'PC' ? await getSessionUser() : null;
   const scope =
     role === 'FACULTY'
       ? // No id means nothing to show, never everyone's requests.
         { assignments: { some: { facultyId: facultyId ?? '', active: true } } }
-      : undefined;
+      : me
+        ? (departmentScope(me) ?? undefined)
+        : undefined;
   const data = await Promise.all(
     buckets.map(async (b) => ({
       ...b,

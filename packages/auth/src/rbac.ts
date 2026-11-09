@@ -22,9 +22,17 @@ export interface SessionUser {
   name: string;
   roles: RoleName[];
   permissions: string[];
+  /**
+   * v1.4.1: the person's department (null / absent = none: IC, Admin, or not set yet). HOG and PC lists are
+   * scoped by it; refreshed with the roles (session.ts), so a change shows on their next page.
+   */
+  departmentId?: string | null;
 }
 
-export function hasRole(user: SessionUser | null | undefined, role: RoleName | RoleName[]): boolean {
+export function hasRole(
+  user: SessionUser | null | undefined,
+  role: RoleName | RoleName[],
+): boolean {
   if (!user) return false;
   // ADMIN is a super-role: it bypasses every role-gate. This matches AppShell
   // navigation which already lists every area (Admin/IC/HOG/PC/Faculty) for admins.
@@ -44,15 +52,22 @@ export function hasPermission(user: SessionUser | null | undefined, permission: 
   return user.permissions.includes(permission);
 }
 
-export function requireRole(user: SessionUser | null | undefined, role: RoleName | RoleName[]): SessionUser {
+export function requireRole(
+  user: SessionUser | null | undefined,
+  role: RoleName | RoleName[],
+): SessionUser {
   if (!user) throw new AuthenticationError();
   if (!hasRole(user, role)) throw new AuthorizationError();
   return user;
 }
 
-export function requirePermission(user: SessionUser | null | undefined, permission: string): SessionUser {
+export function requirePermission(
+  user: SessionUser | null | undefined,
+  permission: string,
+): SessionUser {
   if (!user) throw new AuthenticationError();
-  if (!hasPermission(user, permission)) throw new AuthorizationError(`Missing permission: ${permission}`);
+  if (!hasPermission(user, permission))
+    throw new AuthorizationError(`Missing permission: ${permission}`);
   return user;
 }
 
@@ -60,7 +75,9 @@ export function requirePermission(user: SessionUser | null | undefined, permissi
  * Loads a user's effective roles + permissions from the DB.
  * Cached at session-build time; do not call on every request.
  */
-export async function loadUserAccess(userId: string): Promise<Pick<SessionUser, 'roles' | 'permissions'>> {
+export async function loadUserAccess(
+  userId: string,
+): Promise<Pick<SessionUser, 'roles' | 'permissions'>> {
   const memberships = await prisma.userRole.findMany({
     where: { userId },
     include: {

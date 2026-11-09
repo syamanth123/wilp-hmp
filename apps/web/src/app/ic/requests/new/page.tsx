@@ -2,9 +2,10 @@ import Link from 'next/link';
 import { prisma, RoleName, normalizeDibbaCourseCode } from '@hmp/db';
 import { getSessionUser } from '@hmp/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
-import { RequestForm, type OfferingOption } from './request-form';
+import { RequestForm, type HogOption, type OfferingOption } from './request-form';
 import { SetUpOffering } from './set-up-offering';
 import { loadPlanInput, planMessage, planOffering } from '@/lib/dibba-offering';
+import { loads, loadText } from '@/lib/people';
 
 /** "?courses=ET ZC232,ENGG ZC232&term=2025-FIRST" — the Handout Library's "Create request". */
 function parsePrefill(sp: Record<string, string | undefined>) {
@@ -33,7 +34,10 @@ export default async function NewRequestPage({
   // notifications. Admin views intentionally do NOT filter.
   const offerings = await prisma.courseOffering.findMany({
     where: { course: { active: true } },
-    include: { course: true, semester: { include: { programme: true } } },
+    include: {
+      course: true,
+      semester: { include: { programme: { include: { department: true } } } },
+    },
     orderBy: [{ semester: { name: 'asc' } }, { course: { code: 'asc' } }],
   });
 
@@ -45,6 +49,23 @@ export default async function NewRequestPage({
     programmeName: o.semester.programme.name,
     semesterName: o.semester.name,
     slotInfo: o.slotInfo,
+    departmentId: o.semester.programme.departmentId,
+    departmentName: o.semester.programme.department?.name ?? null,
+  }));
+
+  // v1.4: every active HOG with their department and current load (the form pre-selects the course's).
+  const hogUsers = await prisma.user.findMany({
+    where: { active: true, roles: { some: { role: { name: RoleName.HOG } } } },
+    select: { id: true, name: true, departmentId: true, department: { select: { name: true } } },
+    orderBy: { name: 'asc' },
+  });
+  const hogLoads = await loads(hogUsers.map((h) => h.id));
+  const hogs: HogOption[] = hogUsers.map((h) => ({
+    id: h.id,
+    name: h.name,
+    departmentId: h.departmentId,
+    departmentName: h.department?.name ?? null,
+    load: loadText(hogLoads.get(h.id)),
   }));
 
   // Filled in from a not-started course: its offering in that semester, when one is loaded.
@@ -84,8 +105,8 @@ export default async function NewRequestPage({
       <CardHeader>
         <CardTitle>New handout request</CardTitle>
         <CardDescription>
-          Pick the course offering. The request goes straight to the Head of Group to allocate
-          faculty.
+          Pick the course offering. The request goes to the Head of Group of the course&apos;s
+          department, who allocates the faculty.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -163,7 +184,7 @@ export default async function NewRequestPage({
               offerings.
             </p>
           ) : (
-            <RequestForm offerings={options} initial={initial} />
+            <RequestForm offerings={options} hogs={hogs} initial={initial} />
           ))}
       </CardContent>
     </Card>
