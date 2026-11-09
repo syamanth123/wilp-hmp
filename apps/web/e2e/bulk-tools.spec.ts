@@ -90,7 +90,8 @@ test('HOG and PC bulk tools work from the menu, each with a small CSV', async ({
     page,
     '/hog',
     ['bulk-tool-hog-allocate', 'bulk-tool-hog-review'],
-    ['request_reference,faculty_emails,sme_email', 'request_reference,action,comment'],
+    // v1.4.1: the allocation template names the PC who confirms (optional pc_email column).
+    ['request_reference,faculty_emails,sme_email,pc_email', 'request_reference,action,comment'],
   );
   await page.getByTestId('bulk-tool-hog-allocate').getByRole('link', { name: 'Open' }).click();
   await expect(page.getByTestId('back-to-dashboard')).toBeVisible();

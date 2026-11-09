@@ -35,7 +35,11 @@ let g: Graph;
 
 test.beforeEach(async () => {
   const tag = `E2EBULK-${process.pid}-${Date.now()}`;
-  const progA = await prisma.programme.create({ data: { code: `${tag}-PA`, name: `${tag} A` } });
+  // v1.4.1 (H13): each request goes to its department's HOG — CSIS has one in the dev seed.
+  const csis = await prisma.department.findUniqueOrThrow({ where: { code: 'CSIS' } });
+  const progA = await prisma.programme.create({
+    data: { code: `${tag}-PA`, name: `${tag} A`, departmentId: csis.id },
+  });
   const progB = await prisma.programme.create({ data: { code: `${tag}-PB`, name: `${tag} B` } });
   const sem = await prisma.semester.create({
     data: {
