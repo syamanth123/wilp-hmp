@@ -197,3 +197,37 @@ describe('signInAction — acceptance requires a freshly issued session cookie',
     expect(r).toEqual({ redirectTo: '/faculty' });
   });
 });
+
+describe('signInAction — where it goes after sign-in (v1.4.1.1)', () => {
+  beforeEach(() => signInMock.mockImplementation(acceptAndIssueCookie));
+  const go = (next?: string) => signInAction({ email: 'a@hmp.local', password: 'right', next });
+
+  it('follows a path on this site, query included', async () => {
+    expect(await go('/hog/requests/abc?view=final-approval')).toEqual({
+      redirectTo: '/hog/requests/abc?view=final-approval',
+    });
+  });
+
+  it('never follows another site: the home page instead', async () => {
+    for (const next of [
+      'https://evil.example/login',
+      'http://evil.example',
+      '//evil.example/x',
+      '/\\evil.example',
+      '/\\/evil.example',
+      'javascript:alert(1)',
+      ' https://evil.example',
+      'evil.example',
+    ])
+      expect(await go(next), next).toEqual({ redirectTo: '/faculty' });
+  });
+
+  it('ignores the login page, API addresses and control characters', async () => {
+    for (const next of ['/login', '/login?next=/x', '/api/auth/signout', '/hog\r\nLocation: x'])
+      expect(await go(next), next).toEqual({ redirectTo: '/faculty' });
+  });
+
+  it('no next: the role home page, as before', async () => {
+    expect(await go()).toEqual({ redirectTo: '/faculty' });
+  });
+});
