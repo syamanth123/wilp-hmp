@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { pickFreshCourse } from './fixtures/fresh-offering';
+import { prisma } from '@hmp/db';
 
 async function signIn(page: import('@playwright/test').Page, email: string) {
   await page.goto('/login');
@@ -21,9 +23,8 @@ test('IC creates → HOG allocates → PC confirms → status ASSIGNED', async (
   // 1. IC creates a request.
   await signIn(page, 'ic@hmp.local');
   await page.goto('/ic/requests/new');
-  await page.getByLabel('Programme').selectOption({ index: 1 });
-  await page.getByLabel('Semester').selectOption({ index: 1 });
-  await page.getByLabel('Course').selectOption({ index: 1 });
+  // v1.4.2: a course of its own (New request refuses one that already has a request).
+  await pickFreshCourse(page, prisma);
   await page.getByRole('button', { name: /create request/i }).click();
   // Cuids start with 'c' and are 25 chars; required because /ic/requests/new
   // would otherwise match `[a-z0-9]+` and the test would proceed with id="new".
