@@ -27,9 +27,9 @@ export async function DepartmentChecksPanel({ base = '/admin' }: { base?: People
   if (c.dibbaCodesNotLinked)
     items.push({
       key: 'dibba-unlinked',
-      text: `${c.dibbaCodesNotLinked} Course Dibba programme code${c.dibbaCodesNotLinked === 1 ? ' is' : 's are'} not linked to an HMP programme (${c.coursesNotLinked} courses) — the semester kick-off can't start ${c.dibbaCodesNotLinked === 1 ? 'its' : 'their'} courses`,
+      text: `${c.dibbaCodesNotLinked} Course Dibba programme code${c.dibbaCodesNotLinked === 1 ? ' is' : 's are'} not linked to an HMP programme (${c.coursesNotLinked} courses) — the semester kick-off can't start ${c.dibbaCodesNotLinked === 1 ? 'its' : 'their'} courses${base === '/admin' ? '' : ' (the Admin links them in Admin → Dibba codes)'}`,
       href: base === '/admin' ? '/admin/dibba-codes' : '/ic/kick-off',
-      action: base === '/admin' ? 'Dibba codes' : 'Kick-off (Admin links the codes)',
+      action: base === '/admin' ? 'Dibba codes' : 'Kick-off',
     });
   if (c.awayWithoutBackup.length)
     items.push({

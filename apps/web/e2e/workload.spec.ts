@@ -178,7 +178,9 @@ test('Undo: a role change on Edit person can be undone', async ({ browser }) => 
       .toBe(1);
     await admin.goto(`/admin/people/${guest.id}`);
     await admin.getByTestId('undo-button').click();
-    await expect(admin.getByText('Undone.')).toBeVisible();
+    // The page reopens: the note, and the form shows the roles as they are now (not the undone change).
+    await expect(admin.getByTestId('undo-done')).toBeVisible();
+    await expect(admin.getByTestId('person-role-SME')).not.toBeChecked();
     expect(
       await prisma.userRole.count({ where: { userId: guest.id, role: { name: RoleName.SME } } }),
     ).toBe(0);
@@ -219,11 +221,7 @@ test('New pages load: department dashboard, kick-off, Admin → Workflow preview
   await expect(ic.getByTestId('department-table')).toBeVisible();
   await expect(ic.getByTestId('workload-table')).toBeVisible();
   await ic.goto('/ic/kick-off');
-  await expect(
-    ic
-      .getByRole('heading', { name: 'Kick off a semester' })
-      .or(ic.getByText('Kick off a semester').first()),
-  ).toBeVisible();
+  await expect(ic.getByRole('heading', { name: 'Kick off a semester' })).toBeVisible();
   const admin = await signIn(browser, 'admin@hmp.local');
   await admin.goto('/admin/workflow');
   await expect(admin.getByTestId('run-preview')).toBeVisible();

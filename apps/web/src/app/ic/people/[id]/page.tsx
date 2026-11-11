@@ -8,7 +8,14 @@ export default function IcPersonPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { leaving?: string };
+  searchParams: { leaving?: string; undone?: string };
 }) {
-  return <PersonView base="/ic" id={params.id} leaving={searchParams.leaving === '1'} />;
+  return (
+    <PersonView
+      base="/ic"
+      id={params.id}
+      leaving={searchParams.leaving === '1'}
+      undone={searchParams.undone === '1'}
+    />
+  );
 }

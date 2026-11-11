@@ -41,6 +41,7 @@ export function AwayForm({
   options,
   needsBackup,
   save,
+  personName,
 }: {
   from: string;
   until: string;
@@ -49,6 +50,8 @@ export function AwayForm({
   needsBackup: boolean;
   /** v1.4.2: the IC / Admin set it for someone on Edit person (default: your own, My settings). */
   save?: (prev: unknown, fd: FormData) => Promise<Result>;
+  /** Set for someone else: their name, for the wording. */
+  personName?: string;
 }) {
   const [state, setState] = useState<Result>(null);
   const [pending, start] = useTransition();
@@ -111,9 +114,9 @@ export function AwayForm({
             ) : null}
           </select>
           <p className="text-muted-foreground text-xs">
-            While you are away, they see your requests, get your notices and reminders, and can act
-            for you (recorded as &ldquo;for you&rdquo;). Nothing is moved: it is all yours again
-            when you are back.
+            {personName
+              ? `While ${personName} is away, the back-up sees their requests, gets their notices and reminders, and can act for them (recorded as “for ${personName}”). Nothing is moved.`
+              : 'While you are away, they see your requests, get your notices and reminders, and can act for you (recorded as “for you”). Nothing is moved: it is all yours again when you are back.'}
           </p>
         </div>
       ) : (

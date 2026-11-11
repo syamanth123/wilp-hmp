@@ -282,6 +282,14 @@ interface DeptSummary {
   publishedThisWeek: number;
 }
 
+const HOLDER_WORD: Record<(typeof STAGE_HOLDER)[keyof typeof STAGE_HOLDER], string> = {
+  HOG: 'with the HOG',
+  PC: 'with the PC',
+  FACULTY: 'with the faculty',
+  SME: 'with the SME',
+  IC: 'with the Instruction Cell',
+};
+
 const OPEN: HandoutStatus[] = [
   HandoutStatus.REQUESTED,
   HandoutStatus.ALLOCATED,
@@ -341,7 +349,7 @@ export async function weeklyNumbers(now: Date): Promise<DeptSummary[]> {
         refNo: r.refNo,
         requestId: r.id,
         course: `${r.offering.course.code} ${r.offering.course.title}`,
-        step: `${STAGE_LABEL[due.stage]} (${STAGE_HOLDER[due.stage]}, due ${formatDueDay(due.dueAt)})`,
+        step: `${STAGE_LABEL[due.stage]} (${HOLDER_WORD[STAGE_HOLDER[due.stage]]}, due ${formatDueDay(due.dueAt)})`,
         days: -daysLeft(due.dueAt, now),
       });
   }
@@ -351,7 +359,7 @@ export async function weeklyNumbers(now: Date): Promise<DeptSummary[]> {
   );
 }
 
-function summaryEmail(name: string, depts: DeptSummary[], role: RoleName, week: string) {
+export function summaryEmail(name: string, depts: DeptSummary[], role: RoleName, week: string) {
   const block = (d: DeptSummary) => {
     const over = d.overdue.slice(0, 10);
     return {

@@ -23,11 +23,14 @@ export async function PersonView({
   base,
   id,
   leaving = false,
+  undone = false,
 }: {
   base: PeopleBase;
   id: string;
   /** v1.4.2 (F13): opened from "Deactivate…" — Active starts unticked; Save shows their open work to hand over. */
   leaving?: boolean;
+  /** v1.4.2: just undone (the page reopened after Undo). */
+  undone?: boolean;
 }) {
   const me = await getSessionUser();
   const viewerIsAdmin = !!me?.roles.includes(RoleName.ADMIN);
@@ -39,6 +42,7 @@ export async function PersonView({
         name: true,
         email: true,
         active: true,
+        accessVersion: true,
         facultyType: true,
         departmentId: true,
         roles: { select: { role: { select: { name: true } } } },
@@ -93,6 +97,15 @@ export async function PersonView({
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {undone && !undo ? (
+          <p
+            className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+            role="status"
+            data-testid="undo-done"
+          >
+            Undone. Their menu changes on their next page.
+          </p>
+        ) : null}
         {undo && (viewerIsAdmin || !u.roles.some((r) => r.role.name === RoleName.ADMIN)) ? (
           <UndoChange
             userId={u.id}
@@ -134,6 +147,7 @@ export async function PersonView({
           </div>
         ) : (
           <PersonForm
+            key={u.accessVersion}
             base={base}
             canGrantAdmin={viewerIsAdmin}
             departments={departments}
@@ -173,6 +187,7 @@ export async function PersonView({
               options={backupOptions}
               needsBackup={roleNames.some((r) => BACKUP_ROLES.includes(r))}
               save={setAwayForAction.bind(null, u.id)}
+              personName={u.name}
             />
           </div>
         ) : null}

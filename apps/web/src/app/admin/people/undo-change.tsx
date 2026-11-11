@@ -53,6 +53,8 @@ export function UndoChange({
               const r = await undoPersonChangeAction(userId, auditId);
               if (r.ok) {
                 setDone(true);
+                // Reopen the page: fresh roles in the form, and the "Undone" note.
+                router.replace(`${window.location.pathname}?undone=1`);
                 router.refresh();
               } else setError(r.error);
             })
