@@ -1,4 +1,6 @@
 import { prisma, HandoutStatus, NotificationChannel, RoleName } from '@hmp/db';
+import { absoluteUrl, loadMailContext } from './email/context';
+import { taxilaRunEmail } from './email/other';
 import { deliver } from './notifications';
 import { PROBLEM_STATUSES, finishedLine, summariseRun } from './taxila-run-summary';
 import {
@@ -250,7 +252,7 @@ async function notifyRunFinished(runId: string): Promise<void> {
   const run = await loadRun(runId);
   const creator = await prisma.taxilaPublishRun.findUnique({
     where: { id: runId },
-    select: { createdBy: { select: { id: true, email: true } } },
+    select: { createdBy: { select: { id: true, email: true, name: true } } },
   });
   if (!run || !creator) return;
   const sum = summariseRun(run.rows);
@@ -276,6 +278,18 @@ async function notifyRunFinished(runId: string): Promise<void> {
     channels: [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL],
     metaKind: 'taxila_run_finished',
     extraMeta: { runId },
+    mail: taxilaRunEmail(
+      { name: creator.createdBy.name },
+      {
+        line: `${run.semesterCode}: ${finishedLine(sum)}`,
+        url: absoluteUrl(`/ic/taxila-runs/${runId}`),
+        problems: problems.map((p) => ({
+          title: `${p.codes.join(' / ')} (${p.refNo})`,
+          reason: `${ITEM_LABEL[p.status]}${p.message ? `: ${p.message}` : ''}`,
+        })),
+      },
+      await loadMailContext(),
+    ),
   });
 }
 

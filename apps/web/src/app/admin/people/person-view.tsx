@@ -10,9 +10,11 @@ import type { PeopleBase } from '@/lib/people-access';
 import { PersonForm } from './person-form';
 import { lastUndoable } from '@/lib/people-undo';
 import { UndoChange } from './undo-change';
+import { WelcomeButton } from './welcome-button';
 import { AwayForm, EndAwayButton } from '@/app/settings/forms';
 import { BACKUP_ROLES, backupCandidates, isAway } from '@/lib/away';
 import { formatDueDay } from '@/lib/deadlines';
+import { formatDateTime } from '@/lib/format-date';
 import { endAwayForAction, setAwayForAction } from './actions';
 
 /**
@@ -57,6 +59,11 @@ export async function PersonView({
   if (!u) notFound();
   // v1.4.2: the latest role / department change can be undone for 24 hours (not an Admin account by the IC).
   const undo = await lastUndoable(u.id);
+  const welcomeSent = await prisma.auditLog.findFirst({
+    where: { action: 'user.welcome', entity: 'User', entityId: u.id },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
   // v1.4.2 (§4): the IC / Admin can mark the person away, with a back-up.
   const roleNames = u.roles.map((r) => r.role.name);
   const [pref, backupOptions] = await Promise.all([
@@ -188,6 +195,15 @@ export async function PersonView({
               needsBackup={roleNames.some((r) => BACKUP_ROLES.includes(r))}
               save={setAwayForAction.bind(null, u.id)}
               personName={u.name}
+            />
+          </div>
+        ) : null}
+        {u.active && (viewerIsAdmin || !u.roles.some((r) => r.role.name === RoleName.ADMIN)) ? (
+          <div className="mt-6 space-y-2 border-t pt-4" data-testid="person-welcome-card">
+            <h3 className="text-sm font-semibold">Welcome email</h3>
+            <WelcomeButton
+              userId={u.id}
+              lastSent={welcomeSent ? formatDateTime(welcomeSent.createdAt) : null}
             />
           </div>
         ) : null}

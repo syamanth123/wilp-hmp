@@ -5,6 +5,8 @@ export interface SendMailInput {
   subject: string;
   html: string;
   text?: string;
+  /** v1.4.3: where replies go (the IC mailbox, Admin → Notifications → Settings); none = no Reply-To. */
+  replyTo?: string | null;
 }
 
 export type SendMailResult = { ok: true; id: string } | { ok: false; error: string };
@@ -60,6 +62,7 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
       subject: input.subject,
       html: input.html,
       text: input.text,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
     });
     return { ok: true, id: info.messageId };
   } catch (err) {

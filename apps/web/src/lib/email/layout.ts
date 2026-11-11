@@ -49,7 +49,14 @@ export interface EmailContent {
     bullets?: string[];
   } | null;
   /** The daily digest: "Action needed" / "For information", one compact block per item. */
-  groups?: { title: string; items: { title: string; url: string; lines: string[] }[] }[];
+  groups?: {
+    title: string;
+    /** A line under the heading (the weekly summary: the department’s numbers). */
+    note?: string;
+    /** false: no “(3)” count after the heading. */
+    count?: boolean;
+    items: { title: string; url: string; lines: string[] }[];
+  }[];
   details?: EmailRow[];
   people?: EmailPerson[];
   timeline?: { day: string; text: string }[];
@@ -214,9 +221,16 @@ export function renderEmail(c: EmailContent): RenderedEmail {
   }
 
   for (const g of c.groups ?? []) {
-    if (!g.items.length) continue;
-    b.push(sectionTitle(`${g.title} (${g.items.length})`));
-    t.push(`${g.title.toUpperCase()} (${g.items.length})`);
+    if (!g.items.length && !g.note) continue;
+    const head = g.count === false ? g.title : `${g.title} (${g.items.length})`;
+    b.push(sectionTitle(head));
+    t.push(head.toUpperCase());
+    if (g.note) {
+      b.push(
+        `<tr><td style="${FONT}font-size:13px;color:${INK};padding-bottom:8px">${multiline(g.note)}</td></tr>`,
+      );
+      t.push(g.note);
+    }
     for (const it of g.items) {
       b.push(
         `<tr><td style="padding-bottom:8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-radius:6px;border-collapse:separate">` +

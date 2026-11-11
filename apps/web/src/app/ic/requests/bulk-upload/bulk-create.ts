@@ -1,7 +1,7 @@
 import { prisma, HandoutStatus, normalizeBitsCourseNumber, type Prisma, RoleName } from '@hmp/db';
 import { parseCsv, parseHandoutRequestsCsv } from '@hmp/integrations';
 import { transition } from '@hmp/workflow';
-import { notifyTransition } from '@/lib/notifications';
+import { notifyTransitions, type TransitionNote } from '@/lib/notifications';
 import { createRequestWithRefNo, RefNoRetryExhausted } from '../new/ref-no';
 
 /**
@@ -283,6 +283,7 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
 
   // ── 4. Post-commit: drive each DRAFT → REQUESTED via the workflow engine ─────
   const strandedAtDraft: { refNo: string; reason: string }[] = [];
+  const notes: TransitionNote[] = [];
   for (const req of created) {
     try {
       await transition({
@@ -290,7 +291,7 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
         event: 'REQUEST_INITIATED',
         actor: { id: actor.id, roles: actor.roles },
       });
-      await notifyTransition({
+      notes.push({
         requestId: req.id,
         event: 'REQUEST_INITIATED',
         actor: { id: actor.id, name: actor.name },
@@ -304,6 +305,8 @@ export async function bulkCreateHandouts(csv: string, actor: BulkActor): Promise
   }
 
   const refNos = created.map((r) => r.refNo);
+  // v1.4.3 (H31): one email per person for the whole upload (the bell: one per request).
+  await notifyTransitions(notes);
   return strandedAtDraft.length === 0
     ? { status: 'success', created: created.length, refNos }
     : { status: 'partial', created: created.length, refNos, strandedAtDraft };

@@ -560,17 +560,26 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
+  // v1.4.3: the email log (Admin → Notifications), newest first.
+  @@index([channel, createdAt])
 }
 
 model NotificationTemplate {
-  id        String                @id @default(cuid())
-  key       String                @unique // e.g. "handout.submitted"
-  subject   String
-  body      String                @db.Text
-  channels  NotificationChannel[]
-  active    Boolean               @default(true)
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
+  id         String                @id @default(cuid())
+  key        String                @unique // e.g. "handout.submitted"
+  subject    String
+  body       String                @db.Text
+  channels   NotificationChannel[]
+  active     Boolean               @default(true)
+  // v1.4.3: an Admin edit of an email's wording (key "email:<catalogue key>"): subject, summary (body) and
+  // "what to do" (action). Rows nobody edited don't exist, so the built-in wording applies and improves with
+  // releases; the seed never touches these keys.
+  audience   String?
+  action     String?               @db.Text
+  editedById String?
+  editedAt   DateTime?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
 }
 
 model WorkflowConfig {
@@ -594,6 +603,9 @@ model WorkflowConfig {
   escalationOn        Boolean  @default(false)
   escalationDays      Int      @default(3)
   autoPublish         Boolean  @default(false)
+  // v1.4.3: replies to HMP emails go here (empty = "Please do not reply"); the help contact in every footer.
+  emailReplyTo        String?
+  emailHelp           String?
   matrixJson          Json // approval matrix; configurable
   updatedAt           DateTime @updatedAt
 }

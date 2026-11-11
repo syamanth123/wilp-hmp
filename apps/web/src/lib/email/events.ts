@@ -3,13 +3,15 @@ import { taxilaConfigFromEnv, taxilaCourseUrl } from '@hmp/integrations';
 import { dueWords, formatDueDay, STAGE_LABEL } from '../deadlines';
 import { formatDateTime } from '../format-date';
 import { compareHandouts } from '../handout-compare';
+import { wordingFor, type WordingEdits } from './catalogue';
 import type { EmailContent, EmailQuote, EmailRow } from './layout';
 import { detailRows, peopleRows, recentSteps, type RequestFacts } from './request-facts';
 
 /**
- * v1.4.3 (§G) — the words of each workflow email, per event and per recipient role. The facts come from
- * request-facts.ts; `loadEventExtra` adds what only some events need (the reviewer's comments, what changed
- * since the last version, the Taxila publish). Pure apart from loadEventExtra.
+ * v1.4.3 (§G) — the emails about one request. `requestEmail` puts any catalogue email together from the
+ * request's facts; `transitionEmail` picks the right one for a workflow step and the reader's role, with the
+ * "what happened" box for that step. `loadEventExtra` loads what only some steps need (the reviewer's
+ * comments, what changed since the last reviewed version, the Taxila publish).
  */
 
 export type MailEvent =
@@ -17,6 +19,7 @@ export type MailEvent =
   | 'FACULTY_ALLOCATED'
   | 'ASSIGNED'
   | 'ALLOCATION_REJECTED'
+  | 'EDIT_STARTED'
   | 'SUBMITTED'
   | 'SME_REVIEW_REQUESTED'
   | 'SME_APPROVED'
@@ -34,14 +37,14 @@ export interface MailRecipient {
   email: string;
   /** The role this email is about (their link and "why you got this"). */
   role: RoleName;
-  /** Set when they get a copy as an away colleague's back-up. */
+  /** Set when they get a copy as an away colleague's back-up: that colleague's name. */
   backupFor?: string | null;
 }
 
 export interface EventExtra {
-  /** The decision that caused the event (sent back, rejected …) with its full comments. */
+  /** The decision that caused the step (sent back, rejected …) with its full comments. */
   decision: { by: string; stage: string; at: Date; comments: string | null } | null;
-  /** Sections changed since the last version that was sent for review; null = first version. */
+  /** Sections changed since the last version a reviewer decided on; first = no earlier one. */
   changes: { first: boolean; lines: string[] } | null;
   published: {
     course: string | null;
@@ -52,6 +55,13 @@ export interface EventExtra {
   autoPublish: boolean;
 }
 
+export const NO_EXTRA: EventExtra = {
+  decision: null,
+  changes: null,
+  published: null,
+  autoPublish: false,
+};
+
 export interface MailContext {
   actorName: string;
   now: Date;
@@ -59,9 +69,10 @@ export interface MailContext {
   url: (path: string) => string;
   footer: { help: string | null; replyTo: string | null };
   logoUrl: string | null;
+  edits?: WordingEdits | null;
 }
 
-const ROLE_WHY: Partial<Record<RoleName, string>> = {
+export const ROLE_WHY: Partial<Record<RoleName, string>> = {
   [RoleName.HOG]: 'You get this because you are the Head of Group for this request.',
   [RoleName.PROGRAMME_COMMITTEE]:
     'You get this because you are the Programme Committee member for this request.',
@@ -79,6 +90,10 @@ const PAGE: Partial<Record<RoleName, (id: string) => string>> = {
   [RoleName.SME]: (id) => `/sme/review/${id}`,
   [RoleName.ADMIN]: (id) => `/ic/requests/${id}`,
 };
+
+export function pageFor(role: RoleName, requestId: string): string {
+  return (PAGE[role] ?? PAGE[RoleName.INSTRUCTION_CELL]!)(requestId);
+}
 
 const STAGE_WORD: Record<string, string> = {
   HOG_REVIEW: 'the Head of Group',
@@ -110,7 +125,7 @@ function changeLines(before: unknown, after: unknown): string[] {
 }
 
 export async function loadEventExtra(event: MailEvent, requestId: string): Promise<EventExtra> {
-  const extra: EventExtra = { decision: null, changes: null, published: null, autoPublish: false };
+  const extra: EventExtra = { ...NO_EXTRA };
 
   if (
     event === 'SME_REVERTED' ||
@@ -150,7 +165,8 @@ export async function loadEventExtra(event: MailEvent, requestId: string): Promi
         where: {
           requestId,
           stage: { in: ['SME_REVIEW', 'PC_REVIEW', 'HOG_FINAL'] },
-          decision: { not: 'PENDING' },
+          decision: { in: ['APPROVED', 'REWORK', 'REJECTED'] },
+          createdAt: { lte: cur.createdAt },
         },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
@@ -200,18 +216,100 @@ export async function loadEventExtra(event: MailEvent, requestId: string): Promi
   return extra;
 }
 
-// ---- the words --------------------------------------------------------------------------------
+// ---- one request email ------------------------------------------------------------------------
 
-interface Words {
-  subject: string;
-  summary: string;
-  needed: boolean;
-  action: string;
-  /** Show the current step's due date (for the person who has to act). */
-  showDue: boolean;
-  button: string;
-  happened?: EmailContent['happened'];
+export function requestTokens(
+  f: RequestFacts,
+  to: { name: string },
+  ctx: Pick<MailContext, 'actorName' | 'now'>,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  const due = f.current;
+  return {
+    name: to.name,
+    course: `${f.course.code} ${f.course.title}`,
+    courseCode: f.course.code,
+    courseTitle: f.course.title,
+    semester: f.semester.name,
+    programme: f.programme.code,
+    refNo: f.refNo,
+    actor: ctx.actorName,
+    faculty: f.people.faculty.map((p) => p.name).join(', ') || 'the faculty',
+    step: due ? STAGE_LABEL[due.stage] : '',
+    dueDate: due ? formatDueDay(due.dueAt) : '',
+    daysLeft: due ? dueWords(due.dueAt, ctx.now).text : '',
+    ...extra,
+  };
 }
+
+/** Any catalogue email about a request, for one reader. */
+export function requestEmail(
+  key: string,
+  f: RequestFacts,
+  to: MailRecipient,
+  ctx: MailContext,
+  o: {
+    tokens?: Record<string, string>;
+    happened?: EmailContent['happened'];
+    /** Appended to the page link, e.g. "#comments". */
+    anchor?: string;
+    why?: string;
+    timeline?: number;
+    /** false: the subject already says when (reminders). */
+    subjectDue?: boolean;
+  } = {},
+): EmailContent {
+  const w = wordingFor(key, requestTokens(f, to, ctx, o.tokens), ctx.edits);
+  const due = w.entry.needed && f.current ? f.current : null;
+  const dueText = due ? dueWords(due.dueAt, ctx.now) : null;
+  // Relative links inside "what happened" (the PDF) become absolute.
+  const happened = o.happened
+    ? {
+        ...o.happened,
+        rows: o.happened.rows?.map((r) =>
+          r.href?.startsWith('/') ? { ...r, href: ctx.url(r.href) } : r,
+        ),
+      }
+    : null;
+  return {
+    subject:
+      due && o.subjectDue !== false && !w.subject.includes(formatDueDay(due.dueAt))
+        ? `${w.subject} — due ${formatDueDay(due.dueAt)}`
+        : w.subject,
+    greetingName: to.name,
+    summary: to.backupFor
+      ? `${w.summary} (You get this as ${to.backupFor}’s back-up while they are away.)`
+      : w.summary,
+    action: {
+      needed: w.entry.needed,
+      text: w.action,
+      due:
+        due && dueText
+          ? {
+              day: formatDueDay(due.dueAt),
+              words: `${STAGE_LABEL[due.stage]} · ${dueText.text}`,
+              tone: dueText.tone,
+            }
+          : null,
+    },
+    button: { label: w.entry.button, url: ctx.url(`${pageFor(to.role, f.id)}${o.anchor ?? ''}`) },
+    happened,
+    details: detailRows(f),
+    people: peopleRows(f),
+    timeline: recentSteps(f, o.timeline ?? 5),
+    footer: {
+      why: to.backupFor
+        ? `You get this because you are ${to.backupFor}’s back-up while they are away.`
+        : (o.why ?? ROLE_WHY[to.role] ?? 'You get this because you are on this request.'),
+      settingsUrl: ctx.url('/settings'),
+      help: ctx.footer.help,
+      replyTo: ctx.footer.replyTo,
+    },
+    logoUrl: ctx.logoUrl,
+  };
+}
+
+// ---- workflow steps ---------------------------------------------------------------------------
 
 function decisionQuote(x: EventExtra): EmailQuote[] {
   const d = x.decision;
@@ -228,7 +326,7 @@ function decisionQuote(x: EventExtra): EmailQuote[] {
 function changesBlock(f: RequestFacts, x: EventExtra): EmailContent['happened'] {
   const rows: EmailRow[] = [];
   if (f.version) rows.push({ label: 'Version', value: String(f.version.no) });
-  if (f.version?.note) rows.push({ label: "Faculty's note", value: f.version.note });
+  if (f.version?.note) rows.push({ label: 'Faculty’s note', value: f.version.note });
   const c = x.changes;
   return {
     title: 'What changed',
@@ -243,180 +341,81 @@ function changesBlock(f: RequestFacts, x: EventExtra): EmailContent['happened'] 
   };
 }
 
-function words(
+/** Which catalogue email a step sends to a reader in `role`, and its "what happened" box. */
+export function transitionChoice(
   event: MailEvent,
+  role: RoleName,
   f: RequestFacts,
-  to: MailRecipient,
   x: EventExtra,
-  actor: string,
-): Words | null {
-  const course = `${f.course.code} ${f.course.title}`;
-  const tag = `${course} (${f.semester.name})`;
-  const role = to.role;
+  actorName: string,
+): { key: string; tokens?: Record<string, string>; happened?: EmailContent['happened'] } | null {
   const isFaculty = role === RoleName.FACULTY;
-  const faculty = f.people.faculty.map((p) => p.name).join(', ') || 'the faculty';
-  const info = (
-    subject: string,
-    summary: string,
-    action: string,
-    extra?: Partial<Words>,
-  ): Words => ({
-    subject: `${subject}: ${tag}`,
-    summary,
-    needed: false,
-    action,
-    showDue: false,
-    button: 'Open in HMP',
-    ...extra,
-  });
-  const act = (verb: string, summary: string, action: string, extra?: Partial<Words>): Words => ({
-    subject: `Action needed: ${verb} ${tag}`,
-    summary,
-    needed: true,
-    action,
-    showDue: true,
-    button: 'Open the request',
-    ...extra,
-  });
-
+  const reviewer = { reviewer: x.decision?.by ?? actorName };
   switch (event) {
     case 'REQUEST_INITIATED':
-      return act(
-        'allocate',
-        `${actor} (Instruction Cell) has started the handout request for ${course}, ${f.semester.name}.`,
-        'Choose the Programme Committee member, the faculty and the SME for this course.',
-        { button: 'Allocate now' },
-      );
+      return { key: 'request.new:HOG' };
     case 'FACULTY_ALLOCATED':
       return isFaculty
-        ? info(
-            'You are allocated',
-            `${actor} has allocated you to write the handout for ${course}.`,
-            'The Programme Committee confirms the allocation next. You will get an email when you can start writing.',
-          )
-        : act(
-            'confirm the allocation for',
-            `${actor} has allocated ${faculty} to write the handout for ${course}.`,
-            'Check the allocation and confirm it, or send it back to the Head of Group with a reason.',
-            {
-              button: 'Check the allocation',
-              happened: {
-                title: 'The allocation',
-                rows: [
-                  { label: 'Faculty', value: faculty },
-                  ...(f.people.sme ? [{ label: 'SME', value: f.people.sme.name }] : []),
-                  { label: 'Allocated by', value: actor },
-                ],
-              },
+        ? { key: 'allocated:FACULTY' }
+        : {
+            key: 'allocated:PC',
+            happened: {
+              title: 'The allocation',
+              rows: [
+                { label: 'Faculty', value: f.people.faculty.map((p) => p.name).join(', ') || '—' },
+                ...(f.people.sme ? [{ label: 'SME', value: f.people.sme.name }] : []),
+                { label: 'Allocated by', value: actorName },
+              ],
             },
-          );
+          };
     case 'ASSIGNED':
-      return act(
-        'write the handout for',
-        `You are confirmed as faculty for ${course}, ${f.semester.name}.`,
-        'Accept the assignment and write the handout. It starts from last year’s published handout where there is one. When it is ready, submit it for SME review.',
-        { button: 'Start writing' },
-      );
+      return { key: 'assigned:FACULTY' };
     case 'ALLOCATION_REJECTED':
       return isFaculty
-        ? info(
-            'Allocation withdrawn',
-            `The allocation for ${course} was sent back to the Head of Group, so you are no longer allocated to it.`,
-            'Nothing to do. If you are allocated again, you will get a new email.',
-          )
-        : act(
-            'allocate again',
-            `${actor} sent the allocation for ${course} back to you.`,
-            'Read the reason below and allocate again.',
-            {
-              button: 'Allocate again',
-              happened: { title: 'The reason', quotes: decisionQuote(x) },
-            },
-          );
+        ? { key: 'allocation-sent-back:FACULTY' }
+        : {
+            key: 'allocation-sent-back:HOG',
+            tokens: reviewer,
+            happened: { title: 'The reason', quotes: decisionQuote(x) },
+          };
     case 'SME_REVIEW_REQUESTED':
-      return role === RoleName.SME
-        ? act(
-            'review',
-            `${actor} has submitted the handout for ${course} for your review.`,
-            'Review the handout. Approve it, or send it back to the faculty with comments.',
-            { button: 'Review the handout', happened: changesBlock(f, x) },
-          )
-        : info(
-            'Sent for SME review',
-            `${actor} has sent the handout for ${course} to the SME.`,
-            'The SME reviews it next.',
-            {
-              happened: changesBlock(f, x),
-            },
-          );
+      return {
+        key: role === RoleName.SME ? 'sme-review:SME' : 'sme-review:INFO',
+        happened: changesBlock(f, x),
+      };
     case 'SUBMITTED':
+      return role === RoleName.PROGRAMME_COMMITTEE
+        ? { key: 'submitted:PC', happened: changesBlock(f, x) }
+        : null;
     case 'SME_APPROVED':
       return role === RoleName.PROGRAMME_COMMITTEE
-        ? act(
-            'review',
-            `The handout for ${course} is ready for your review${event === 'SME_APPROVED' ? ` (the SME, ${actor}, approved it)` : ''}.`,
-            'Review the handout. Approve it for the Head of Group, or send it back to the faculty with comments.',
-            { button: 'Review the handout', happened: changesBlock(f, x) },
-          )
-        : info(
-            'SME approved',
-            `The SME (${actor}) approved the handout for ${course}. It is with the Programme Committee now.`,
-            isFaculty
-              ? 'Nothing to do now. You will hear when it is approved or if changes are needed.'
-              : 'The Programme Committee reviews it next.',
-          );
+        ? { key: 'pc-review:PC', happened: changesBlock(f, x) }
+        : { key: isFaculty ? 'sme-approved:FACULTY' : 'sme-approved:INFO' };
     case 'SME_REVERTED':
     case 'REVIEW_REWORK':
-      return isFaculty
-        ? act(
-            'make changes to',
-            `${x.decision?.by ?? actor} sent the handout for ${course} back to you for changes.`,
-            'Read the comments below, make the changes and submit it again.',
-            {
-              subject: `Changes needed: ${tag}`,
-              button: 'Make the changes',
-              happened: { title: 'The comments', quotes: decisionQuote(x) },
-            },
-          )
-        : info(
-            'Sent back for changes',
-            `${x.decision?.by ?? actor} sent the handout for ${course} back to the faculty.`,
-            'The faculty makes the changes and submits again.',
-            {
-              happened: { title: 'The comments', quotes: decisionQuote(x) },
-            },
-          );
+      return {
+        key: isFaculty ? 'sent-back:FACULTY' : 'sent-back:INFO',
+        tokens: reviewer,
+        happened: { title: 'The comments', quotes: decisionQuote(x) },
+      };
     case 'REVIEW_APPROVED':
-      return act(
-        'give final approval to',
-        `The Programme Committee (${actor}) approved the handout for ${course}.`,
-        'Give the final approval, or send it back with comments.',
-        { button: 'Review the handout' },
-      );
-    case 'FINAL_APPROVED': {
-      const next = x.autoPublish
-        ? 'HMP publishes it to Taxila automatically after a check. The Instruction Cell is told if anything stops it.'
-        : 'The Instruction Cell publishes it to Taxila next.';
+      return { key: 'final-approval:HOG' };
+    case 'FINAL_APPROVED':
       return role === RoleName.INSTRUCTION_CELL && !x.autoPublish
-        ? act(
-            'publish',
-            `${actor} gave the final approval for ${course}.`,
-            'Publish the handout to Taxila.',
-            {
-              button: 'Publish to Taxila',
+        ? { key: 'approved:IC' }
+        : {
+            key: 'approved:INFO',
+            tokens: {
+              next: x.autoPublish
+                ? 'HMP publishes it to Taxila automatically after a check. The Instruction Cell is told if anything stops it.'
+                : 'The Instruction Cell publishes it to Taxila next.',
             },
-          )
-        : info('Approved', `${actor} gave the final approval for the handout for ${course}.`, next);
-    }
+          };
     case 'FINAL_REJECTED':
-      return info(
-        'Rejected',
-        `${actor} rejected the handout for ${course}.`,
-        'The request is closed. The Instruction Cell can start a new one if needed.',
-        {
-          happened: { title: 'The reason', quotes: decisionQuote(x) },
-        },
-      );
+      return {
+        key: 'rejected:INFO',
+        happened: { title: 'The reason', quotes: decisionQuote(x) },
+      };
     case 'PUBLISHED': {
       const p = x.published;
       const rows: EmailRow[] = [
@@ -424,28 +423,23 @@ function words(
           ? [{ label: 'Taxila course', value: p.course, ...(p.url ? { href: p.url } : {}) }]
           : []),
         ...(p?.fileName ? [{ label: 'File', value: p.fileName }] : []),
-        { label: 'Published', value: p ? formatDateTime(p.at) : '' },
+        ...(p ? [{ label: 'Published', value: formatDateTime(p.at) }] : []),
         {
           label: 'PDF',
           value: 'Download the handout PDF',
           href: `/api/handouts/${f.id}/export/pdf`,
         },
       ];
-      return info(
-        'Published',
-        `The handout for ${course} is published on Taxila.`,
-        'Nothing to do. Students can see it on the course page.',
-        {
-          happened: { title: 'Where it is', rows },
-        },
-      );
+      return { key: 'published:INFO', happened: { title: 'Where it is', rows } };
     }
     case 'ARCHIVED':
-      return info('Archived', `${actor} archived the request for ${course}.`, 'Nothing to do.');
+      return { key: 'archived:INFO' };
+    case 'EDIT_STARTED':
+      return null;
   }
 }
 
-/** The email one person gets for a workflow event; null when the event sends no email. */
+/** The email one person gets for a workflow step; null when the step sends them none. */
 export function transitionEmail(
   event: MailEvent,
   f: RequestFacts,
@@ -453,51 +447,7 @@ export function transitionEmail(
   x: EventExtra,
   ctx: MailContext,
 ): EmailContent | null {
-  const w = words(event, f, to, x, ctx.actorName);
-  if (!w) return null;
-  const due = w.showDue && f.current ? f.current : null;
-  const dueText = due ? dueWords(due.dueAt, ctx.now) : null;
-  const page = (PAGE[to.role] ?? PAGE[RoleName.INSTRUCTION_CELL]!)(f.id);
-  // Relative links inside "what happened" (the PDF) become absolute.
-  const happened = w.happened
-    ? {
-        ...w.happened,
-        rows: w.happened.rows?.map((r) =>
-          r.href?.startsWith('/') ? { ...r, href: ctx.url(r.href) } : r,
-        ),
-      }
-    : null;
-  return {
-    subject: due ? `${w.subject} — due ${formatDueDay(due.dueAt)}` : w.subject,
-    greetingName: to.name,
-    summary: to.backupFor
-      ? `${w.summary} (You get this as ${to.backupFor}’s back-up while they are away.)`
-      : w.summary,
-    action: {
-      needed: w.needed,
-      text: w.action,
-      due:
-        due && dueText
-          ? {
-              day: formatDueDay(due.dueAt),
-              words: `${STAGE_LABEL[due.stage]} · ${dueText.text}`,
-              tone: dueText.tone,
-            }
-          : null,
-    },
-    button: { label: w.button, url: ctx.url(page) },
-    happened,
-    details: detailRows(f),
-    people: peopleRows(f),
-    timeline: recentSteps(f),
-    footer: {
-      why: to.backupFor
-        ? `You get this because you are ${to.backupFor}’s back-up while they are away.`
-        : (ROLE_WHY[to.role] ?? 'You get this because you are on this request.'),
-      settingsUrl: ctx.url('/settings'),
-      help: ctx.footer.help,
-      replyTo: ctx.footer.replyTo,
-    },
-    logoUrl: ctx.logoUrl,
-  };
+  const c = transitionChoice(event, to.role, f, x, ctx.actorName);
+  if (!c) return null;
+  return requestEmail(c.key, f, to, ctx, { tokens: c.tokens, happened: c.happened });
 }

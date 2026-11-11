@@ -1,6 +1,10 @@
 import { prisma, type RoleName, type HandoutStatus, type Prisma } from '@hmp/db';
 import { parseCsv, parseQueueActionsCsv } from '@hmp/integrations';
-import { notifyTransition, type WorkflowEventType } from '@/lib/notifications';
+import {
+  notifyTransitions,
+  type TransitionNote,
+  type WorkflowEventType,
+} from '@/lib/notifications';
 import { queueAutoPublish } from '@/lib/auto-publish';
 import { statusLabel } from '@hmp/workflow';
 import { requestVisibleTo } from './request-scope';
@@ -216,6 +220,7 @@ export async function bulkReview(
   const applied: string[] = [];
   const failed: { refNo: string; reason: string }[] = [];
 
+  const notes: TransitionNote[] = [];
   for (const r of resolved) {
     try {
       await config.executeRow(r.action, r.requestId, r.comment, actor);
@@ -244,7 +249,7 @@ export async function bulkReview(
     } catch {
       // marker is a breadcrumb; never fail an applied row on it
     }
-    await notifyTransition({
+    notes.push({
       requestId: r.requestId,
       event: config.eventMap[r.action]!,
       actor: { id: actor.id, name: actor.name },
@@ -253,6 +258,8 @@ export async function bulkReview(
     if (config.eventMap[r.action] === 'FINAL_APPROVED') await queueAutoPublish(r.requestId);
   }
 
+  // v1.4.3 (H31): one email per person for the whole review (the bell: one per request).
+  await notifyTransitions(notes);
   return failed.length === 0
     ? { status: 'success', applied: applied.length, refNos: applied }
     : { status: 'partial', applied: applied.length, refNos: applied, failed };

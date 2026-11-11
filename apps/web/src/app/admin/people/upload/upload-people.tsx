@@ -90,6 +90,8 @@ export function UploadPeople() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [accepted, setAccepted] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
+  // v1.4.3 (H33): off by default — a big upload never emails everyone by surprise.
+  const [welcome, setWelcome] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const form = () => {
@@ -107,13 +109,15 @@ export function UploadPeople() {
     startTransition(async () => {
       const fd = form();
       fd.set('accept', JSON.stringify([...accepted]));
+      if (welcome) fd.set('welcome', '1');
       const r = await applyPeopleAction(fd);
       if (r.ok) {
         setMessage(
           `Saved: ${r.created} added, ${r.changed} changed` +
             (r.accepted
               ? ` (${r.accepted} suggested department${r.accepted === 1 ? '' : 's'} accepted).`
-              : '.'),
+              : '.') +
+            (welcome && r.created ? ` Welcome email sent to ${r.created}.` : ''),
         );
         setPreview(null);
         setAccepted(new Set());
@@ -260,6 +264,31 @@ export function UploadPeople() {
               </tbody>
             </table>
           </div>
+          {preview.counts.new > 0 ? (
+            <label className="flex items-start gap-2 text-sm" data-testid="people-welcome">
+              <input
+                type="checkbox"
+                checked={welcome}
+                onChange={(e) => setWelcome(e.target.checked)}
+                className="mt-1"
+                data-testid="people-welcome-tick"
+              />
+              <span>
+                <strong>Send welcome emails to the new people</strong> — how to sign in, their roles
+                and what their menu has. Leave it unticked until the portal has been announced; you
+                can send it later from Edit person.
+                {welcome ? (
+                  <span
+                    className="mt-1 block font-medium text-amber-900"
+                    data-testid="people-welcome-count"
+                  >
+                    Sends a welcome email to {preview.counts.new}{' '}
+                    {preview.counts.new === 1 ? 'person' : 'people'}.
+                  </span>
+                ) : null}
+              </span>
+            </label>
+          ) : null}
           <Button
             onClick={apply}
             disabled={pending || preview.counts.error > 0 || toSave === 0}

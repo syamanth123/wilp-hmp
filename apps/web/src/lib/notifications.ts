@@ -11,6 +11,12 @@ import { enqueueNotification, type NotifyJob } from '@hmp/queue';
 // Package subpath (not '@/'): this file is also loaded by the worker under tsx.
 import { statusLabel } from '@hmp/workflow/src/labels';
 import { mentionedIn, peopleOnRequest } from './comment-people';
+import { renderEmail, type EmailContent } from './email/layout';
+import { absoluteUrl, loadEmailSettings, siteBase, type EmailSettings } from './email/context';
+import { bulkEmail, commentEmail, digestItemOf } from './email/other';
+import { loadMailContext } from './email/context';
+import { loadEventExtra, requestEmail, transitionEmail, type MailRecipient } from './email/events';
+import { loadRequestFacts } from './email/request-facts';
 
 /**
  * The single boundary that decides queue-vs-synchronous for notifications.
@@ -65,6 +71,15 @@ const URGENT_EVENTS: ReadonlySet<WorkflowEventType> = new Set<WorkflowEventType>
   'REVIEW_REWORK',
   'FINAL_REJECTED',
 ]);
+
+/** v1.4.3: a recipient, with their name (emails greet them) and, for a back-up copy, whose back-up they are. */
+export interface Person {
+  id: string;
+  email: string;
+  name: string;
+  primaryRole: RoleName;
+  backupFor?: string | null;
+}
 
 interface ActorRef {
   id: string;
@@ -217,17 +232,14 @@ async function loadRequest(requestId: string): Promise<RequestForNotify | null> 
   };
 }
 
-async function usersWithRole(
-  role: RoleName,
-  departmentId?: string,
-): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+async function usersWithRole(role: RoleName, departmentId?: string): Promise<Person[]> {
   const users = await prisma.user.findMany({
     where: {
       ...ACTIVE_USER_FILTER,
       roles: { some: { role: { name: role } } },
       ...(departmentId ? { departmentId } : {}),
     },
-    select: { id: true, email: true },
+    select: { id: true, email: true, name: true },
   });
   return users.map((u) => ({ ...u, primaryRole: role }));
 }
@@ -236,20 +248,23 @@ async function usersWithRole(
  * `as`: the role the notice is about (v1.4.2, F8) — a person with two roles gets that role's page, not
  * whichever role happens to come first.
  */
-async function usersById(
-  ids: string[],
-  as?: RoleName,
-): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+async function usersById(ids: string[], as?: RoleName): Promise<Person[]> {
   if (ids.length === 0) return [];
   const users = await prisma.user.findMany({
     where: { id: { in: ids }, ...ACTIVE_USER_FILTER },
-    select: { id: true, email: true, roles: { select: { role: { select: { name: true } } } } },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      roles: { select: { role: { select: { name: true } } } },
+    },
   });
   return users.map((u) => {
     const roles = u.roles.map((r) => r.role.name as RoleName);
     return {
       id: u.id,
       email: u.email,
+      name: u.name,
       primaryRole: as && roles.includes(as) ? as : (roles[0] ?? RoleName.FACULTY),
     };
   });
@@ -259,9 +274,7 @@ async function usersById(
  * v1.4.2 (§4, H18): the back-ups of anyone in `list` who is away today, with the same role — they get a copy
  * of the notice while the person is away.
  */
-async function withBackups(
-  list: { id: string; email: string; primaryRole: RoleName }[],
-): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+async function withBackups(list: Person[]): Promise<Person[]> {
   if (list.length === 0) return list;
   const today = new Date();
   const prefs = await prisma.userPreference.findMany({
@@ -282,8 +295,9 @@ async function withBackups(
   if (away.length === 0) return list;
   const out = new Map(list.map((u) => [u.id, u]));
   for (const p of away) {
-    const role = list.find((u) => u.id === p.userId)!.primaryRole;
-    for (const b of await usersById([p.backupUserId!], role)) if (!out.has(b.id)) out.set(b.id, b);
+    const away = list.find((u) => u.id === p.userId)!;
+    for (const b of await usersById([p.backupUserId!], away.primaryRole))
+      if (!out.has(b.id)) out.set(b.id, { ...b, backupFor: away.name });
   }
   return [...out.values()];
 }
@@ -296,7 +310,7 @@ async function withBackups(
 async function responsible(
   role: typeof RoleName.HOG | typeof RoleName.PROGRAMME_COMMITTEE,
   req: RequestForNotify,
-): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+): Promise<Person[]> {
   const assigned = role === RoleName.HOG ? req.hogUserId : req.pcUserId;
   if (assigned) {
     const u = await usersById([assigned], role);
@@ -313,9 +327,9 @@ async function computeRecipients(
   event: WorkflowEventType,
   req: RequestForNotify,
   actorId: string,
-): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
-  const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
-  const add = (us: { id: string; email: string; primaryRole: RoleName }[]) => {
+): Promise<Person[]> {
+  const out = new Map<string, Person>();
+  const add = (us: Person[]) => {
     for (const u of us) if (u.id !== actorId) out.set(u.id, u);
   };
   const facultyIds = req.assignments.map((a) => a.facultyId);
@@ -470,9 +484,22 @@ export async function emailsSettled(): Promise<void> {
   while (emailsInFlight.size) await Promise.allSettled([...emailsInFlight]);
 }
 
+/** v1.4.3: reply-to and help contact, read at most once a minute (every email needs them). */
+let settingsCache: { at: number; value: EmailSettings } | null = null;
+async function emailSettings(): Promise<EmailSettings> {
+  if (settingsCache && Date.now() - settingsCache.at < 60_000) return settingsCache.value;
+  const value = await loadEmailSettings();
+  settingsCache = { at: Date.now(), value };
+  return value;
+}
+/** For tests and the Settings save. */
+export function forgetEmailSettings(): void {
+  settingsCache = null;
+}
+
 function sendEmailInBackground(
   rowId: string,
-  input: { to: string; subject: string; html: string; text: string },
+  input: { to: string; subject: string; html: string; text: string; replyTo?: string | null },
   meta: Record<string, unknown>,
 ) {
   const p = (async () => {
@@ -484,6 +511,8 @@ function sendEmailInBackground(
           ? { status: NotificationStatus.SENT, sentAt: new Date() }
           : { status: NotificationStatus.FAILED, meta: { ...meta, error: result.error } as never },
       });
+      // v1.4.3 (H32): failures also go to the audit log (never the body).
+      if (!result.ok) await auditEmailFailure(rowId, input, result.error);
     } catch (err) {
       console.error('[notify] email delivery failed', { rowId, err });
     }
@@ -492,11 +521,56 @@ function sendEmailInBackground(
   void p.finally(() => emailsInFlight.delete(p));
 }
 
+export async function auditEmailFailure(
+  rowId: string,
+  input: { to: string; subject: string },
+  error: string,
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: 'email.failed',
+        entity: 'Notification',
+        entityId: rowId,
+        after: { to: input.to, subject: input.subject, error: error.slice(0, 500) },
+      },
+    });
+  } catch {
+    // the row itself already says FAILED
+  }
+}
+
+/**
+ * v1.4.3: an email built the old way (a sentence and a link) still gets the shared layout — subject, the
+ * sentence, a button. Every sender passes `mail` now; this covers anything that doesn't.
+ */
+function plainContent(
+  subject: string,
+  body: string,
+  link: string,
+  settings: EmailSettings,
+): EmailContent {
+  return {
+    subject: subject.replace(/^\[HMP\]\s*/, ''),
+    summary: body,
+    action: { needed: false, text: 'Open HMP for the details.' },
+    button: { label: 'Open in HMP', url: absoluteUrl(link) },
+    footer: {
+      why: 'You get this because you use HMP.',
+      settingsUrl: absoluteUrl('/settings'),
+      help: settings.help,
+      replyTo: settings.replyTo,
+    },
+    logoUrl: siteBase() ? `${siteBase()}/email-logo.png` : null,
+  };
+}
+
 /** Exported for tests. */
 export async function deliver(params: {
   userId: string;
   email: string;
   role: RoleName;
+  /** The bell's subject and line (the email's subject comes from `mail` when given). */
   subject: string;
   body: string;
   link: string;
@@ -505,30 +579,47 @@ export async function deliver(params: {
   extraMeta?: Record<string, unknown>;
   /**
    * v1.4.2 (F6): urgent emails (sent back, overdue, @mentions …) go at once even for people who chose the
-   * daily digest; others wait for the 09:00 digest (lib/digest.ts). In-HMP notices are always immediate.
+   * daily digest; others wait for the 09:00 digest (lib/daily-run.ts). In-HMP notices are always immediate.
    */
   urgent?: boolean;
-  /** v1.4.2: a ready-made HTML body (the weekly summary); otherwise the plain body + an Open link. */
-  html?: string;
+  /** v1.4.3: the full email (lib/email). Without it, the bell's sentence in the shared layout. */
+  mail?: EmailContent | null;
+  /** For the digest's "soonest due first". */
+  dueAt?: Date | null;
 }) {
-  const { userId, email, subject, body, link, channels, metaKind, extraMeta } = params;
+  const { userId, email, body, link, channels, metaKind, extraMeta } = params;
+  const wantsEmail = channels.includes(NotificationChannel.EMAIL);
   const digest =
     !params.urgent &&
-    channels.includes(NotificationChannel.EMAIL) &&
+    wantsEmail &&
     (await prisma.userPreference.findUnique({ where: { userId }, select: { emailMode: true } }))
       ?.emailMode === 'DIGEST';
+  const settings = wantsEmail ? await emailSettings() : null;
+  const content =
+    wantsEmail && settings
+      ? (params.mail ?? plainContent(params.subject, body, link, settings))
+      : null;
+  const rendered = content ? renderEmail(content) : null;
   for (const channel of channels) {
     try {
-      const waits = digest && channel === NotificationChannel.EMAIL;
+      const isEmail = channel === NotificationChannel.EMAIL;
+      const waits = digest && isEmail;
       const row = await prisma.notification.create({
         data: {
           userId,
           channel,
           status: NotificationStatus.PENDING,
-          subject,
+          // The email log shows the email's own subject.
+          subject: isEmail && rendered ? rendered.subject : params.subject,
           body,
           link,
-          meta: { kind: metaKind, ...(extraMeta ?? {}), ...(waits ? { digest: true } : {}) },
+          meta: {
+            kind: metaKind,
+            ...(extraMeta ?? {}),
+            ...(waits && content
+              ? { digest: true, digestItem: digestItemOf(content, params.dueAt) as never }
+              : {}),
+          },
         },
       });
       // Waits (PENDING) for the next daily digest.
@@ -538,13 +629,17 @@ export async function deliver(params: {
           where: { id: row.id },
           data: { status: NotificationStatus.SENT, sentAt: new Date() },
         });
-      } else if (channel === NotificationChannel.EMAIL) {
-        const html =
-          params.html ??
-          `<p>${body}</p><p><a href="${absoluteEmailLink(link)}">Open in HMP</a></p>`;
+      } else if (isEmail && rendered) {
+        const replyTo = settings?.replyTo ?? null;
         sendEmailInBackground(
           row.id,
-          { to: email, subject, html, text: body },
+          {
+            to: email,
+            subject: rendered.subject,
+            html: rendered.html,
+            text: rendered.text,
+            replyTo,
+          },
           { kind: metaKind, ...(extraMeta ?? {}) },
         );
       }
@@ -571,55 +666,171 @@ export async function notifyTransition(input: {
   );
 }
 
+export interface TransitionNote {
+  requestId: string;
+  event: WorkflowEventType;
+  actor: ActorRef;
+}
+
+/**
+ * v1.4.3 (H31): the notices of a bulk action (kick-off, bulk upload, bulk allocate, bulk review). The bell
+ * gets one notice per request as before; each person gets ONE email listing all their requests (or the
+ * full email when only one is theirs). People on the daily digest get them in the digest.
+ */
+export async function notifyTransitions(items: TransitionNote[]): Promise<void> {
+  if (items.length === 0) return;
+  if (items.length === 1) return notifyTransition(items[0]!);
+  return dispatchOrEnqueue({ kind: 'transition_batch', items, occurredAtMs: Date.now() }, () =>
+    dispatchTransitions(items),
+  );
+}
+
+interface PreparedNotice {
+  person: Person;
+  deliver: Parameters<typeof deliver>[0];
+}
+
+/** Who a step tells, and what each of them gets (bell line + full email). */
+async function prepareTransition(input: TransitionNote): Promise<PreparedNotice[]> {
+  const req = await loadRequest(input.requestId);
+  if (!req) return [];
+  const recipients = await computeRecipients(input.event, req, input.actor.id);
+  if (recipients.length === 0) return [];
+
+  const tokens: Record<string, string> = {
+    refNo: req.refNo,
+    course: `${req.offering.course.code} — ${req.offering.course.title}`,
+    programme: req.offering.semester.programme.code,
+    semester: req.offering.semester.name,
+    actor: input.actor.name,
+  };
+  const tpl = await loadTemplate(EVENT_TEMPLATE_KEY[input.event]);
+  const fallback = INLINE_FALLBACK[input.event];
+  const channels: NotificationChannel[] = tpl?.channels ?? [
+    NotificationChannel.IN_PORTAL,
+    NotificationChannel.EMAIL,
+  ];
+  // The bell keeps its one line (the seeded templates); the email is the full one (lib/email).
+  const subject = renderTemplate(tpl?.subject ?? fallback.subject, tokens);
+  const body = renderTemplate(tpl?.body ?? fallback.body, tokens);
+
+  const wantsEmail = channels.includes(NotificationChannel.EMAIL);
+  const [facts, extra, ctx] = wantsEmail
+    ? await Promise.all([
+        loadRequestFacts(req.id),
+        loadEventExtra(input.event, req.id),
+        loadMailContext(input.actor.name),
+      ])
+    : [null, null, null];
+
+  return recipients.map((r) => {
+    const mail =
+      facts && extra && ctx
+        ? transitionEmail(
+            input.event,
+            facts,
+            { id: r.id, name: r.name, email: r.email, role: r.primaryRole, backupFor: r.backupFor },
+            extra,
+            ctx,
+          )
+        : null;
+    return {
+      person: r,
+      deliver: {
+        userId: r.id,
+        email: r.email,
+        role: r.primaryRole,
+        subject,
+        body,
+        link: linkFor(r.primaryRole, req.id),
+        // A step that has no email for this reader (e.g. a dormant event) still rings the bell.
+        channels: mail ? channels : channels.filter((c) => c !== NotificationChannel.EMAIL),
+        metaKind: 'workflow.transition',
+        extraMeta: { event: input.event, requestId: req.id, refNo: req.refNo },
+        urgent: URGENT_EVENTS.has(input.event),
+        mail,
+        dueAt: mail?.action.needed ? (facts?.current?.dueAt ?? null) : null,
+      },
+    };
+  });
+}
+
 export async function dispatchTransition(input: {
   requestId: string;
   event: WorkflowEventType;
   actor: ActorRef;
 }): Promise<void> {
   try {
-    const req = await loadRequest(input.requestId);
-    if (!req) return;
-    const recipients = await computeRecipients(input.event, req, input.actor.id);
-    if (recipients.length === 0) return;
-
-    const tokens: Record<string, string> = {
-      refNo: req.refNo,
-      course: `${req.offering.course.code} — ${req.offering.course.title}`,
-      programme: req.offering.semester.programme.code,
-      semester: req.offering.semester.name,
-      actor: input.actor.name,
-    };
-
-    const tpl = await loadTemplate(EVENT_TEMPLATE_KEY[input.event]);
-    const fallback = INLINE_FALLBACK[input.event];
-    const subjectTpl = tpl?.subject ?? fallback.subject;
-    const bodyTpl = tpl?.body ?? fallback.body;
-    const channels: NotificationChannel[] = tpl?.channels ?? [
-      NotificationChannel.IN_PORTAL,
-      NotificationChannel.EMAIL,
-    ];
-
-    const subject = renderTemplate(subjectTpl, tokens);
-    const body = renderTemplate(bodyTpl, tokens);
-
-    await Promise.allSettled(
-      recipients.map((r) =>
-        deliver({
-          userId: r.id,
-          email: r.email,
-          role: r.primaryRole,
-          subject,
-          body,
-          link: linkFor(r.primaryRole, req.id),
-          channels,
-          metaKind: 'workflow.transition',
-          extraMeta: { event: input.event, requestId: req.id, refNo: req.refNo },
-          urgent: URGENT_EVENTS.has(input.event),
-        }),
-      ),
-    );
+    const notices = await prepareTransition(input);
+    await Promise.allSettled(notices.map((n) => deliver(n.deliver)));
   } catch (err) {
     console.error('[notifyTransition] failed', err);
+  }
+}
+
+export async function dispatchTransitions(items: TransitionNote[]): Promise<void> {
+  try {
+    const byPerson = new Map<string, PreparedNotice[]>();
+    for (const item of items) {
+      try {
+        for (const n of await prepareTransition(item))
+          byPerson.set(n.person.id, [...(byPerson.get(n.person.id) ?? []), n]);
+      } catch (err) {
+        console.error('[notifyTransitions] one item failed', item.requestId, err);
+      }
+    }
+    if (byPerson.size === 0) return;
+    const prefs = await prisma.userPreference.findMany({
+      where: { userId: { in: [...byPerson.keys()] }, emailMode: 'DIGEST' },
+      select: { userId: true },
+    });
+    const digestUsers = new Set(prefs.map((p) => p.userId));
+    const ctx = await loadMailContext(items[0]!.actor.name);
+    for (const [userId, notices] of byPerson) {
+      const emails = notices.filter((n) => n.deliver.mail);
+      // One request, or the daily digest: as usual.
+      if (emails.length <= 1 || digestUsers.has(userId)) {
+        await Promise.allSettled(notices.map((n) => deliver(n.deliver)));
+        continue;
+      }
+      // The bell: one notice per request. The email: one for all of them.
+      await Promise.allSettled(
+        notices.map((n) =>
+          deliver({
+            ...n.deliver,
+            channels: n.deliver.channels.filter((c) => c !== NotificationChannel.EMAIL),
+          }),
+        ),
+      );
+      const person = notices[0]!.person;
+      const mail = bulkEmail(
+        { name: person.name },
+        {
+          actor: items[0]!.actor.name,
+          items: emails.map((n) => digestItemOf(n.deliver.mail!, n.deliver.dueAt)),
+        },
+        ctx,
+      );
+      await deliver({
+        userId,
+        email: person.email,
+        role: person.primaryRole,
+        subject: mail.subject,
+        body: mail.summary,
+        link: '/',
+        channels: [NotificationChannel.EMAIL],
+        metaKind: 'workflow.bulk',
+        extraMeta: {
+          requestIds: emails.map((n) => n.deliver.extraMeta?.requestId).filter(Boolean),
+          events: [...new Set(emails.map((n) => n.deliver.extraMeta?.event))],
+        },
+        // Already one email for everything; urgent ones among them shouldn't wait either.
+        urgent: true,
+        mail,
+      });
+    }
+  } catch (err) {
+    console.error('[notifyTransitions] failed', err);
   }
 }
 
@@ -643,8 +854,8 @@ export async function dispatchComment(input: {
     const req = await loadRequest(input.requestId);
     if (!req) return;
     // Notify everyone currently involved: IC + the request's HOG + PC + assigned faculty (minus actor).
-    const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
-    const add = (us: { id: string; email: string; primaryRole: RoleName }[]) => {
+    const out = new Map<string, Person>();
+    const add = (us: Person[]) => {
       for (const u of us) if (u.id !== input.actor.id) out.set(u.id, u);
     };
     add(await usersWithRole(RoleName.INSTRUCTION_CELL));
@@ -662,29 +873,59 @@ export async function dispatchComment(input: {
 
     const comment = await prisma.comment.findUnique({
       where: { id: input.commentId },
-      select: { body: true, parentId: true },
+      select: { body: true, parentId: true, createdAt: true },
     });
-    // v1.4.2 (F10): a reply tells everyone in that thread (the first comment's author and the repliers).
-    if (comment?.parentId) {
+    if (!comment) return;
+    const parent = comment.parentId
+      ? await prisma.comment.findUnique({
+          where: { id: comment.parentId },
+          select: { body: true, createdAt: true, author: { select: { name: true } } },
+        })
+      : null;
+    // v1.4.2 (F10): a reply tells everyone in that thread (the first comment's author and the repliers);
+    // v1.4.3 (H30): by email as well.
+    const threadIds = new Set<string>();
+    if (comment.parentId) {
       const thread = await prisma.comment.findMany({
         where: { OR: [{ id: comment.parentId }, { parentId: comment.parentId }] },
         select: { authorId: true },
       });
-      add(await usersById([...new Set(thread.map((t) => t.authorId))]));
+      for (const t of thread) if (t.authorId !== input.actor.id) threadIds.add(t.authorId);
+      add(await usersById([...threadIds]));
     }
     // v1.4.2 (F10, H22): @mentions — only people on the request; they get an email at once as well.
-    const mentioned = comment
-      ? mentionedIn(comment.body, await peopleOnRequest(req.id)).filter(
-          (p) => p.id !== input.actor.id,
-        )
-      : [];
+    const mentioned = mentionedIn(comment.body, await peopleOnRequest(req.id)).filter(
+      (p) => p.id !== input.actor.id,
+    );
     const mentionIds = new Set(mentioned.map((m) => m.id));
     const recipients = (await withBackups([...out.values()])).filter(
       (u) => u.id !== input.actor.id && !mentionIds.has(u.id),
     );
-    const excerpt = (comment?.body ?? '').slice(0, 500);
     const meta = { commentId: input.commentId, requestId: req.id, refNo: req.refNo };
     const course = `${req.offering.course.code} ${req.offering.course.title}`;
+    const excerpt = comment.body.slice(0, 500);
+    const emailed = mentioned.length > 0 || recipients.some((r) => threadIds.has(r.id));
+    const [facts, ctx] = emailed
+      ? await Promise.all([loadRequestFacts(req.id), loadMailContext(input.actor.name)])
+      : [null, null];
+    const mailFor = (u: Person, mention: boolean) =>
+      facts && ctx
+        ? commentEmail(
+            facts,
+            { id: u.id, name: u.name, email: u.email, role: u.primaryRole, backupFor: u.backupFor },
+            {
+              mention,
+              author: input.actor.name,
+              at: comment.createdAt,
+              text: comment.body,
+              parent: parent
+                ? { author: parent.author.name, at: parent.createdAt, text: parent.body }
+                : null,
+            },
+            ctx,
+          )
+        : null;
+
     for (const m of mentioned) {
       const [u] = await usersById([m.id]);
       if (!u) continue;
@@ -699,27 +940,32 @@ export async function dispatchComment(input: {
         metaKind: 'comment.mention',
         extraMeta: meta,
         urgent: true,
+        mail: mailFor(u, true),
       });
     }
     if (recipients.length === 0) return;
 
-    const subject = comment?.parentId ? `New reply on ${req.refNo}` : `New comment on ${req.refNo}`;
-    const body = `${input.actor.name} ${comment?.parentId ? 'replied' : 'commented'} on ${req.refNo} (${req.offering.course.code}).`;
+    const subject = comment.parentId ? `New reply on ${req.refNo}` : `New comment on ${req.refNo}`;
+    const body = `${input.actor.name} ${comment.parentId ? 'replied' : 'commented'} on ${req.refNo} (${req.offering.course.code}).`;
 
     await Promise.allSettled(
-      recipients.map((r) =>
-        deliver({
+      recipients.map((r) => {
+        const inThread = threadIds.has(r.id);
+        return deliver({
           userId: r.id,
           email: r.email,
           role: r.primaryRole,
           subject,
           body,
           link: linkFor(r.primaryRole, req.id),
-          channels: [NotificationChannel.IN_PORTAL],
+          channels: inThread
+            ? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL]
+            : [NotificationChannel.IN_PORTAL],
           metaKind: 'comment.added',
           extraMeta: meta,
-        }),
-      ),
+          mail: inThread ? mailFor(r, false) : null,
+        });
+      }),
     );
   } catch (err) {
     console.error('[notifyComment] failed', err);
@@ -750,7 +996,7 @@ export async function notifySlaReminder(input: {
   const role = HOLDER_ROLE_MAP[input.request.status];
   if (!role) return 0;
 
-  let recipients: { id: string; email: string; primaryRole: RoleName }[] = [];
+  let recipients: Person[] = [];
   if (role === RoleName.FACULTY) {
     const assignments = await prisma.facultyAssignment.findMany({
       where: { requestId: input.request.id, active: true },
@@ -857,7 +1103,7 @@ export async function dispatchPublishExportReady(input: {
     // An export-ready is a pending-task reminder — the IC who triggered it
     // needs the "download → upload → confirm" to-do in their bell/inbox, not
     // just other IC users. (Also why this isn't a notifyTransition reuse.)
-    const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
+    const out = new Map<string, Person>();
     for (const u of await usersWithRole(RoleName.INSTRUCTION_CELL)) {
       out.set(u.id, u);
     }
@@ -879,6 +1125,10 @@ export async function dispatchPublishExportReady(input: {
     const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
     const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
     const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
+    const [facts, ctx] = await Promise.all([
+      loadRequestFacts(req.id),
+      loadMailContext(input.actor.name),
+    ]);
 
     await Promise.allSettled(
       recipients.map((r) =>
@@ -890,6 +1140,7 @@ export async function dispatchPublishExportReady(input: {
           body,
           link: linkFor(r.primaryRole, req.id),
           channels,
+          mail: facts ? requestEmail('export-ready:IC', facts, recipientOf(r), ctx) : null,
           metaKind: 'handout.publish_export_ready',
           extraMeta: { requestId: req.id, refNo: req.refNo, templateMissing: !tpl },
         }),
@@ -929,8 +1180,8 @@ export async function dispatchManuallyPublished(input: {
     ]);
     if (!req) return;
 
-    const out = new Map<string, { id: string; email: string; primaryRole: RoleName }>();
-    const add = (us: { id: string; email: string; primaryRole: RoleName }[]) => {
+    const out = new Map<string, Person>();
+    const add = (us: Person[]) => {
       for (const u of us) if (u.id !== input.actor.id) out.set(u.id, u);
     };
     // v1.4.1: the request's HOG and PC (their department's, if none recorded yet).
@@ -955,6 +1206,10 @@ export async function dispatchManuallyPublished(input: {
     const subject = tpl ? renderTemplate(tpl.subject, tokens) : fallbackSubject;
     const body = tpl ? renderTemplate(tpl.body, tokens) : fallbackBody;
     const channels = tpl?.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL];
+    const [facts, ctx] = await Promise.all([
+      loadRequestFacts(req.id),
+      loadMailContext(input.actor.name),
+    ]);
 
     await Promise.allSettled(
       recipients.map((r) =>
@@ -966,6 +1221,7 @@ export async function dispatchManuallyPublished(input: {
           body,
           link: linkFor(r.primaryRole, req.id),
           channels,
+          mail: facts ? requestEmail('manually-published:INFO', facts, recipientOf(r), ctx) : null,
           metaKind: 'handout.manually_published',
           extraMeta: { requestId: req.id, refNo: req.refNo, templateMissing: !tpl },
         }),
@@ -992,6 +1248,9 @@ export async function deliverToUsers(
     urgent?: boolean;
     channels?: NotificationChannel[];
     link?: (role: RoleName) => string;
+    /** v1.4.3: the full email for each reader (lib/email); null = the sentence in the shared layout. */
+    mail?: (to: MailRecipient) => EmailContent | null;
+    dueAt?: Date | null;
   },
 ): Promise<number> {
   const people = await withBackups(await usersById([...new Set(ids)], as ?? undefined));
@@ -1008,10 +1267,17 @@ export async function deliverToUsers(
         metaKind: n.metaKind,
         extraMeta: { requestId: n.requestId, ...(n.extraMeta ?? {}) },
         urgent: n.urgent,
+        mail: n.mail ? n.mail(recipientOf(r)) : null,
+        dueAt: n.dueAt,
       }),
     ),
   );
   return people.length;
+}
+
+/** v1.4.3: a notice recipient as the email builders see them. */
+export function recipientOf(r: Person): MailRecipient {
+  return { id: r.id, name: r.name, email: r.email, role: r.primaryRole, backupFor: r.backupFor };
 }
 
 /** v1.4.2: active Instruction Cell user ids (escalation level 3, auto-publish problems). */

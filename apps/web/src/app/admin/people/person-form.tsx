@@ -51,6 +51,8 @@ export function PersonForm({
   const [replacements, setReplacements] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // v1.4.3 (H33): a new person gets the welcome email unless this is unticked.
+  const [welcome, setWelcome] = useState(true);
   const field = 'bg-background h-9 w-full rounded-md border px-2 text-sm';
 
   const save = (withReplacements: boolean) => {
@@ -59,6 +61,7 @@ export function PersonForm({
       const r = await savePersonAction({
         ...p,
         replacements: withReplacements ? replacements : undefined,
+        sendWelcome: !person.id && welcome,
       });
       if (r.ok) router.push(`${base}/people`);
       else if ('needsReplacements' in r) setImpact(r);
@@ -278,6 +281,21 @@ export function PersonForm({
         <p className="text-destructive text-sm" role="alert">
           {error}
         </p>
+      )}
+      {!impact && !person.id && (
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={welcome}
+            onChange={(e) => setWelcome(e.target.checked)}
+            className="mt-1"
+            data-testid="person-welcome"
+          />
+          <span>
+            <strong>Send a welcome email</strong> — how to sign in, their roles and what their menu
+            has. No password is ever in it.
+          </span>
+        </label>
       )}
       {!impact && (
         <div className="flex gap-2">

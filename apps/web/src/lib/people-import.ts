@@ -320,7 +320,7 @@ export async function applyPeople(
   acceptLines: number[] = [],
   opts: { actorIsAdmin?: boolean } = {},
 ): Promise<
-  | { ok: true; created: number; changed: number; accepted: number }
+  | { ok: true; created: number; changed: number; accepted: number; createdIds: string[] }
   | { ok: false; error: string; preview?: Preview }
 > {
   const preview = await previewPeople(csv, opts);
@@ -343,6 +343,7 @@ export async function applyPeople(
   const roleId = new Map(roleRows.map((r) => [r.name, r.id]));
   let created = 0;
   let changed = 0;
+  const createdIds: string[] = [];
   await prisma.$transaction(
     async (tx) => {
       for (const r of preview.rows) {
@@ -384,12 +385,15 @@ export async function applyPeople(
           },
         });
         if (r.userId) changed++;
-        else created++;
+        else {
+          created++;
+          createdIds.push(user.id);
+        }
       }
     },
     { timeout: 60_000 },
   );
-  return { ok: true, created, changed, accepted };
+  return { ok: true, created, changed, accepted, createdIds };
 }
 
 /**
