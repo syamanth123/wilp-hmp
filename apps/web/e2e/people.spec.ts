@@ -68,6 +68,12 @@ async function cleanup(requestIds: string[]) {
   await prisma.requestAssignee.deleteMany({
     where: { OR: [{ userId: { in: ids } }, { assignedById: { in: ids } }] },
   });
+  // v1.4.3: an email that could not be sent is in the audit log under its own row id.
+  const rows = await prisma.notification.findMany({
+    where: { userId: { in: ids } },
+    select: { id: true },
+  });
+  await prisma.auditLog.deleteMany({ where: { entityId: { in: rows.map((r) => r.id) } } });
   await prisma.notification.deleteMany({ where: { userId: { in: ids } } });
   await prisma.auditLog.deleteMany({
     where: { OR: [{ actorId: { in: ids } }, { entityId: { in: ids } }] },
@@ -118,6 +124,16 @@ test('Admin adds a person with roles and a department, then edits them', async (
     await expect(row).toContainText('CSIS');
     await expect(row).toContainText('Faculty');
     await expect(row).toContainText('Subject expert');
+    // v1.4.3 (H33): ticked by default — the new person got the welcome email (never a password).
+    const added = await prisma.user.findUniqueOrThrow({ where: { email: mail('added') } });
+    const welcome = await prisma.notification.findFirst({
+      where: {
+        userId: added.id,
+        channel: 'EMAIL',
+        meta: { path: ['kind'], equals: 'user.welcome' },
+      },
+    });
+    expect(welcome?.subject).toBe('[HMP] Your HMP account is ready');
 
     await row.getByTestId('person-edit').click();
     await page.getByTestId('person-name').fill(`E2E renamed ${TAG}`);
@@ -195,11 +211,27 @@ test('upload: preview suggests a department from past courses; only accepted one
     await expect(suggestion).toHaveCount(1);
     await expect(suggestion).toContainText(`Suggested: ${dept.name} (from 1 past course)`);
 
+    // v1.4.3 (H33): the welcome emails are off by default for an upload; ticking shows how many.
+    const welcome = page.getByTestId('people-welcome-tick');
+    await expect(welcome).not.toBeChecked();
+    await welcome.check();
+    await expect(page.getByTestId('people-welcome-count')).toHaveText(
+      'Sends a welcome email to 1 person.',
+    );
+    await welcome.uncheck();
+    await expect(page.getByTestId('people-welcome-count')).toHaveCount(0);
+
     await page.getByTestId('people-accept-all').click();
     await page.getByTestId('people-apply').click();
     await expect(page.getByTestId('people-message')).toContainText(
       'Saved: 1 added, 1 changed (1 suggested department accepted).',
     );
+    // Unticked: no welcome email was sent.
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'user.welcome', after: { path: ['email'], equals: mail('uploaded') } },
+      }),
+    ).toBe(0);
 
     const [uploaded, accepted] = await Promise.all([
       prisma.user.findUniqueOrThrow({
