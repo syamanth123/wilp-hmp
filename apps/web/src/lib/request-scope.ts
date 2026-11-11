@@ -1,5 +1,6 @@
 import { prisma } from '@hmp/db';
 import { departmentScope, type DeptScopeUser } from './department-scope';
+import { coveringFor } from './backup-access';
 
 /**
  * v1.4.1: is this request inside the user's department scope (lib/department-scope.ts)? HOG / PC
@@ -14,7 +15,9 @@ export async function requestVisibleTo(
   const scope = departmentScope(user);
   if (!scope) return true;
   const n = await prisma.handoutRequest.count({ where: { AND: [{ id: requestId }, scope] } });
-  return n > 0;
+  if (n > 0) return true;
+  // v1.4.2 (H18): the back-up of an away colleague reaches that colleague's requests too.
+  return (await coveringFor(user, requestId)) !== null;
 }
 
 export const OUT_OF_SCOPE_MESSAGE = 'That request belongs to another department.';

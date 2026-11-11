@@ -11,6 +11,8 @@ import { formError } from '@/lib/form-error';
 const schema = z.object({
   requestId: z.string().cuid(),
   body: z.string().min(1, 'Comment cannot be empty').max(4000),
+  // v1.4.2 (F10): a reply to another comment on the same handout (one level: a reply to a reply joins its thread).
+  parentId: z.string().cuid().optional(),
 });
 
 const ALLOWED_ROLES: ReadonlySet<RoleName> = new Set([
@@ -34,6 +36,7 @@ export async function addCommentAction(formData: FormData) {
   const parsed = schema.safeParse({
     requestId: formData.get('requestId'),
     body: formData.get('body'),
+    parentId: formData.get('parentId') || undefined,
   });
   if (!parsed.success) return { error: formError(parsed.error) };
 
@@ -83,11 +86,23 @@ export async function addCommentAction(formData: FormData) {
     if (assignment?.smeUserId !== me.id) return { error: "You don't have permission to do this." };
   }
 
+  let parentId: string | null = null;
+  if (parsed.data.parentId) {
+    const parent = await prisma.comment.findUnique({
+      where: { id: parsed.data.parentId },
+      select: { id: true, handoutId: true, parentId: true },
+    });
+    if (!parent || parent.handoutId !== request.handout.id)
+      return { error: 'That comment is no longer there. Refresh the page.' };
+    parentId = parent.parentId ?? parent.id;
+  }
+
   const comment = await prisma.comment.create({
     data: {
       handoutId: request.handout.id,
       authorId: me.id,
       body: parsed.data.body.trim(),
+      parentId,
     },
   });
 
@@ -96,7 +111,7 @@ export async function addCommentAction(formData: FormData) {
     action: 'comment.added',
     entity: 'Comment',
     entityId: comment.id,
-    after: { handoutId: request.handout.id, length: parsed.data.body.length },
+    after: { handoutId: request.handout.id, length: parsed.data.body.length, parentId },
     requestId: request.id,
   });
 

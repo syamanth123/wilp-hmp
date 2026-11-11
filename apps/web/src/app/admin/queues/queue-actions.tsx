@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@hmp/ui';
 import { retryFailedJobAction, deleteFailedJobAction, clearCompletedAction } from './actions';
 
-type QueueName = 'notifications' | 'ai';
+type QueueName = 'notifications' | 'ai' | 'schedule';
 
 function useRun() {
   const [pending, start] = useTransition();

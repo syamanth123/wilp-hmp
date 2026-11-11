@@ -11,7 +11,8 @@ describe('dueText', () => {
       tone: 'overdue',
     });
     expect(dueText(at('2026-11-02T06:00:00Z'), NOW).text).toBe('Overdue by 1 day');
-    expect(dueText(at('2026-11-03T05:00:00Z'), NOW).text).toBe('Overdue');
+    // v1.4.2: due "on 3 Nov" means by the end of 3 Nov — not overdue later that day.
+    expect(dueText(at('2026-11-03T05:00:00Z'), NOW).text).toBe('Due today');
   });
   it('today, tomorrow, in N days', () => {
     expect(dueText(at('2026-11-03T12:00:00Z'), NOW)).toEqual({ text: 'Due today', tone: 'soon' });

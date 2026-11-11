@@ -5,6 +5,8 @@ import { prisma, HandoutStatus, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
+import { ReviewShortcutsFor } from '@/components/review-shortcuts-for';
+import { StageDeadlines } from '@/components/stage-deadlines';
 import { ApprovalsList } from '@/components/approvals-list';
 import { FacultyAssignmentsList } from '@/components/faculty-assignments-list';
 import { HandoutViewer } from '@/components/handout-viewer';
@@ -81,6 +83,7 @@ export default async function PCRequestDetail({ params }: { params: { id: string
           </CardHeader>
           <CardContent>
             <ReviewPanel requestId={request.id} />
+            <ReviewShortcutsFor role="PC" requestId={request.id} />
           </CardContent>
         </Card>
       )}
@@ -155,6 +158,16 @@ export default async function PCRequestDetail({ params }: { params: { id: string
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Due dates</CardTitle>
+          <CardDescription>Each step&apos;s due date. The highlighted one is now.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StageDeadlines requestId={request.id} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

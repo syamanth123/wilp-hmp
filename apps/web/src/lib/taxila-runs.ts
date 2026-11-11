@@ -92,7 +92,7 @@ export async function createTaxilaRun(input: {
   return { ok: true, runId: run.id };
 }
 
-const outcomeStatus = (o: PublishOutcome): ItemStatus =>
+export const outcomeStatus = (o: PublishOutcome): ItemStatus =>
   ({
     published: 'PUBLISHED',
     'not-found': 'NOT_FOUND',

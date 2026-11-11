@@ -1,5 +1,6 @@
-import { ApprovalStage, ApprovalDecision, type Prisma, type RoleName } from '@hmp/db';
+import { prisma, ApprovalStage, ApprovalDecision, type Prisma, type RoleName } from '@hmp/db';
 import { transition, WorkflowError } from '@hmp/workflow';
+import { isBackupOf } from '@/lib/backup-access';
 
 /**
  * SME approval-workflow business logic (Prompt 12-a). Separated from the
@@ -41,6 +42,19 @@ export interface SmeActor {
  * through the passed client so it sees the same snapshot as the surrounding
  * transaction when called inside effects.
  */
+/** v1.4.2: "for <name>" when the SME reviews as an away SME's back-up. */
+async function smeOnBehalf(
+  requestId: string,
+  actorId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const a = await prisma.smeAssignment.findUnique({
+    where: { requestId },
+    select: { smeUserId: true, smeUser: { select: { name: true } } },
+  });
+  if (!a || a.smeUserId === actorId || !(await isBackupOf(actorId, a.smeUserId))) return undefined;
+  return { onBehalfOf: a.smeUserId, onBehalfOfName: a.smeUser.name };
+}
+
 async function assertAssignedSme(
   client: Prisma.TransactionClient,
   requestId: string,
@@ -53,7 +67,8 @@ async function assertAssignedSme(
   if (!assignment) {
     throw new SmeReviewError('No SME is assigned to this handout');
   }
-  if (assignment.smeUserId !== smeUserId) {
+  // v1.4.2 (H18): the away SME's back-up may review for them.
+  if (assignment.smeUserId !== smeUserId && !(await isBackupOf(smeUserId, assignment.smeUserId))) {
     throw new SmeReviewError('This handout is not assigned to you for SME review');
   }
 }
@@ -68,6 +83,7 @@ export async function smeApprove(requestId: string, actor: SmeActor): Promise<vo
     requestId,
     event: 'SME_APPROVED',
     actor,
+    meta: await smeOnBehalf(requestId, actor.id),
     effects: async (tx) => {
       await assertAssignedSme(tx, requestId, actor.id);
       await tx.approval.create({
@@ -103,7 +119,7 @@ export async function smeRevert(
     requestId,
     event: 'SME_REVERTED',
     actor,
-    meta: { comments: trimmed },
+    meta: { comments: trimmed, ...(await smeOnBehalf(requestId, actor.id)) },
     effects: async (tx, ctx) => {
       await assertAssignedSme(tx, requestId, actor.id);
       await tx.approval.create({

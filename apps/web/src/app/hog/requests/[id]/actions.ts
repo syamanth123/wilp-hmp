@@ -12,9 +12,11 @@ import {
 } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { assertRequestInScope } from '@/lib/request-scope';
+import { onBehalfMeta } from '@/lib/backup-access';
 import { changeHogOrPc } from '@/lib/request-handover';
 import { transition, WorkflowError, assertOffCampusCap, movedOnMessage } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
+import { queueAutoPublish } from '@/lib/auto-publish';
 import { audit } from '@/lib/audit';
 import { clearTodayRecommendations, recommendFaculty } from '@hmp/ai';
 import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
@@ -131,7 +133,12 @@ export async function allocateFacultyAction(formData: FormData) {
       requestId: request.id,
       event: 'FACULTY_ALLOCATED',
       actor: { id: actor.id, roles: actor.roles },
-      meta: { facultyIds: parsed.data.facultyIds, smeUserId: parsed.data.smeUserId },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: {
+        facultyIds: parsed.data.facultyIds,
+        smeUserId: parsed.data.smeUserId,
+        ...(await onBehalfMeta(actor, request.id)),
+      },
       effects: async (tx) => {
         // Per-faculty off-campus / adjunct cap check, inside the txn so
         // concurrent allocations cannot both squeak past the limit.
@@ -238,6 +245,8 @@ export async function finalApproveAction(formData: FormData) {
       requestId: parsed.data.requestId,
       event: 'FINAL_APPROVED',
       actor: { id: actor.id, roles: actor.roles },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: await onBehalfMeta(actor, parsed.data.requestId),
       effects: async (tx) => {
         await tx.approval.create({
           data: {
@@ -261,6 +270,8 @@ export async function finalApproveAction(formData: FormData) {
     event: 'FINAL_APPROVED',
     actor: { id: actor.id, name: actor.name },
   });
+  // v1.4.2 (F11): auto-publish, when switched on (lib/auto-publish.ts).
+  await queueAutoPublish(parsed.data.requestId);
 
   revalidate(parsed.data.requestId);
   return { ok: true };
@@ -281,6 +292,8 @@ export async function finalRejectAction(formData: FormData) {
       requestId: parsed.data.requestId,
       event: 'FINAL_REJECTED',
       actor: { id: actor.id, roles: actor.roles },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: await onBehalfMeta(actor, parsed.data.requestId),
       effects: async (tx) => {
         await tx.approval.create({
           data: {
@@ -351,6 +364,8 @@ export async function hogRequestReworkAction(formData: FormData) {
       requestId: parsed.data.requestId,
       event: 'REVIEW_REWORK',
       actor: { id: actor.id, roles: actor.roles },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: await onBehalfMeta(actor, parsed.data.requestId),
       effects: async (tx) => {
         await tx.approval.create({
           data: {

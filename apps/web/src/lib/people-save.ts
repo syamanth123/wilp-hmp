@@ -1,4 +1,5 @@
-import { prisma, RoleName, type FacultyType, type Prisma } from '@hmp/db';
+import { prisma, NotificationChannel, RoleName, type FacultyType, type Prisma } from '@hmp/db';
+import { deliver } from './notifications';
 import {
   impactOfChange,
   openWork,
@@ -220,7 +221,33 @@ export async function savePerson(actorId: string, p: PersonInput): Promise<SaveR
     });
     return user.id;
   });
+  // v1.4.2 (F13): a person switched off is no longer anyone's back-up; those still away are told to pick another.
+  if (before?.active && !p.active) await dropAsBackup(id, before.name);
   return { ok: true, id };
+}
+
+async function dropAsBackup(userId: string, name: string) {
+  const covering = await prisma.userPreference.findMany({
+    where: { backupUserId: userId },
+    select: { userId: true, user: { select: { email: true } } },
+  });
+  if (covering.length === 0) return;
+  await prisma.userPreference.updateMany({
+    where: { backupUserId: userId },
+    data: { backupUserId: null },
+  });
+  for (const c of covering)
+    await deliver({
+      userId: c.userId,
+      email: c.user.email,
+      role: RoleName.FACULTY,
+      subject: `${name} can no longer be your back-up`,
+      body: `${name}'s account was switched off, so they are no longer your back-up while you are away. Pick another in My settings.`,
+      link: '/settings',
+      channels: [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL],
+      metaKind: 'user.backup-removed',
+      urgent: true,
+    });
 }
 
 /** Moves one open item from one person to another (history kept), audit-logged. */

@@ -16,6 +16,8 @@ export interface OfferingOption {
   /** v1.4: the programme's department (decides the pre-selected HOG). */
   departmentId: string | null;
   departmentName: string | null;
+  /** v1.4.2 (F5): the request this course already has this semester (blocks a second one). */
+  existing?: { refNo: string; href: string } | null;
 }
 
 /** v1.4: a Head of Group the request can go to. */
@@ -54,6 +56,7 @@ export function RequestForm({
     setHogId(deptHogOf(id)?.id ?? '');
     setHogReason('');
   };
+  const duplicate = offerings.find((o) => o.id === offeringId && o.existing) ?? null;
   const chosen = deptOf(offeringId);
   const deptHog = deptHogOf(offeringId);
   // A reason when the HOG isn't the department's — also when the department has no HOG yet (H13).
@@ -184,12 +187,28 @@ export function RequestForm({
           {courses.map((c) => (
             <option key={c.id} value={c.id}>
               {c.courseCode} — {c.courseTitle} {c.slotInfo ? `(${c.slotInfo})` : ''}
+              {c.existing ? ` — already requested (${c.existing.refNo})` : ''}
             </option>
           ))}
         </select>
       </div>
 
-      {offeringId && (
+      {duplicate && (
+        <p
+          className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"
+          role="alert"
+          data-testid="rf-duplicate"
+        >
+          <strong>{duplicate.existing!.refNo}</strong> already exists for {duplicate.courseCode}{' '}
+          {duplicate.courseTitle}, {duplicate.semesterName}.{' '}
+          <a href={duplicate.existing!.href} className="underline">
+            Open it
+          </a>{' '}
+          — a course has one request per semester.
+        </p>
+      )}
+
+      {offeringId && !duplicate && (
         <div className="grid gap-2 rounded-md border p-3" data-testid="rf-hog-section">
           <Label htmlFor="rf-hog">Head of Group</Label>
           <select
@@ -268,7 +287,7 @@ export function RequestForm({
       {error && <p className="text-destructive text-sm">{error}</p>}
 
       <div className="flex gap-2">
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending || !!duplicate}>
           {pending ? 'Creating…' : 'Create request'}
         </Button>
       </div>

@@ -9,7 +9,13 @@ import {
 import type { SessionUser } from '@hmp/auth';
 import { libraryScope, seesAllWork, type LibraryTab } from './handout-access';
 import { VIEWS } from './request-views';
-import { loadWorkflowConfig, slaHoursFor } from './sla';
+import {
+  DEADLINE_SELECT,
+  currentDeadline,
+  daysLeft,
+  deadlineInput,
+  loadDeadlineConfig,
+} from './deadlines';
 import type { ChangeSize } from './handout-compare';
 import { displayCourseTitle } from './course-title';
 import { formatDate } from './format-date';
@@ -157,7 +163,7 @@ export interface LibraryItem {
   allocatedBy: string | null;
   allocatedById: string | null;
   updatedAt: Date;
-  /** When the current step is due (workflow deadlines, lib/sla.ts). */
+  /** When the current step is due (v1.4.2: lib/deadlines.ts). */
   dueAt: Date | null;
   publishedAt: Date | null;
   /** Published-tab items: was it sent to Taxila? */
@@ -466,7 +472,8 @@ function needsActionTest(roles: readonly RoleName[]) {
   };
 }
 
-const isOverdue = (it: LibraryItem, ctx: ViewCtx) => !!it.dueAt && it.dueAt < ctx.now;
+// A due date is a whole day (India time): overdue from the day after.
+const isOverdue = (it: LibraryItem, ctx: ViewCtx) => !!it.dueAt && daysLeft(it.dueAt, ctx.now) < 0;
 
 /** The brief's role table (§A), in role order; the first view is where the role lands. */
 export function quickViews(roles: readonly RoleName[]): QuickView[] {
@@ -900,7 +907,7 @@ async function loadHmpItems(
 ): Promise<LibraryItem[]> {
   const isSme = user.roles.includes(RoleName.SME);
   const [cfg, rows] = await Promise.all([
-    loadWorkflowConfig(),
+    loadDeadlineConfig(),
     prisma.handoutRequest.findMany({
       where: libraryScope(user, tab),
       select: {
@@ -908,12 +915,15 @@ async function loadHmpItems(
         refNo: true,
         status: true,
         updatedAt: true,
+        statusChangedAt: true,
+        deadlines: DEADLINE_SELECT.deadlines,
         offering: {
           select: {
             course: { select: { bitsCourseNumber: true, alternateCodes: true, title: true } },
             semester: {
               select: {
                 name: true,
+                startDate: true,
                 year: true,
                 term: true,
                 programme: { select: { code: true, departmentId: true } },
@@ -955,7 +965,8 @@ async function loadHmpItems(
     const tk = termKey(sem.year, sem.term);
     const logs = r.handout?.publishLogs ?? [];
     const published = r.status === S.PUBLISHED || logs.length > 0;
-    const sla = slaHoursFor(cfg, r.status);
+    // v1.4.2: the current stage's due date (lib/deadlines.ts), not updatedAt + SLA.
+    const due = currentDeadline(deadlineInput(r), cfg);
     const codes = [c.bitsCourseNumber, ...c.alternateCodes];
     return {
       kind: 'hmp',
@@ -980,7 +991,7 @@ async function loadHmpItems(
       allocatedBy: r.smeAssignment?.assignedBy.name ?? null,
       allocatedById: r.smeAssignment?.assignedBy.id ?? null,
       updatedAt: r.updatedAt,
-      dueAt: sla == null ? null : new Date(r.updatedAt.getTime() + sla * 3_600_000),
+      dueAt: due?.dueAt ?? null,
       publishedAt: published ? (logs[0]?.publishedAt ?? r.updatedAt) : null,
       taxila:
         tab !== 'published'

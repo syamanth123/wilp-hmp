@@ -16,6 +16,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { DownloadMenu } from '@/components/download-menu';
 import { PUBLISHED_DOWNLOAD_STATUSES } from '@/lib/export/access';
 import { StatusTimeline } from '@/components/status-timeline';
+import { StageDeadlines } from '@/components/stage-deadlines';
 import { ApprovalsList } from '@/components/approvals-list';
 import { FacultyAssignmentsList } from '@/components/faculty-assignments-list';
 import { HandoutViewer } from '@/components/handout-viewer';
@@ -34,7 +35,15 @@ import { currentAssignee, handoverCandidates } from '@/lib/request-handover';
 import { changePcAction } from './actions';
 import { AllocationPanel, type FacultyChoice, type PersonChoice } from './allocation-panel';
 import { loads, loadText } from '@/lib/people';
+import { awayByUser, awayText } from '@/lib/away';
+import {
+  dibbaInstructorSuggestion,
+  lastSemesterTeam,
+  type DibbaSuggestion,
+  type LastTeam,
+} from '@/lib/allocation-suggestions';
 import { FinalApprovalPanel } from './approval-panel';
+import { ReviewShortcutsFor } from '@/components/review-shortcuts-for';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
 // for the rationale (Next.js production-build RSC caching vs revalidatePath).
@@ -89,6 +98,9 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
   let pcChoices: PersonChoice[] = [];
   const department = request.offering.semester.programme.department;
   let recommendation: RecommendationResult | null = null;
+  // v1.4.2 (F1, F2): the Course Dibba instructor and last semester's team, as suggestions.
+  let dibba: DibbaSuggestion | null = null;
+  let lastTeam: LastTeam | null = null;
   // Prompt 22: if a prior allocation was rejected by PC, surface the reason so
   // HOG re-allocates informed. The reject writes a PC_REVIEW/REWORK Approval.
   let allocationRejectReason: string | null = null;
@@ -134,7 +146,12 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
         })
       ).map((u) => [u.id, u]),
     );
-    const load = await loads([...new Set([...list, ...smeUsers, ...pcUsers].map((u) => u.id))]);
+    const ids = [...new Set([...list, ...smeUsers, ...pcUsers].map((u) => u.id))];
+    const [load, away] = await Promise.all([loads(ids), awayByUser(ids)]);
+    [dibba, lastTeam] = await Promise.all([
+      dibbaInstructorSuggestion(request.id),
+      lastSemesterTeam(request.id),
+    ]);
     const choice = (u: {
       id: string;
       name: string;
@@ -148,6 +165,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
       departmentName: u.department?.name ?? null,
       sameDepartment: !department || u.departmentId === department.id,
       load: loadText(load.get(u.id)),
+      away: awayText(away.get(u.id)),
     });
     facultyChoices = list.map((f) => {
       const d = facultyDept.get(f.id);
@@ -233,6 +251,8 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
               departmentName={department?.name ?? null}
               cap={cap}
               recommendation={recommendation}
+              dibba={dibba}
+              lastTeam={lastTeam}
             />
           </CardContent>
         </Card>
@@ -267,6 +287,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
           </CardHeader>
           <CardContent>
             <FinalApprovalPanel requestId={request.id} />
+            <ReviewShortcutsFor role="HOG" requestId={request.id} />
           </CardContent>
         </Card>
       )}
@@ -341,6 +362,16 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Due dates</CardTitle>
+          <CardDescription>Each step&apos;s due date. The highlighted one is now.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StageDeadlines requestId={request.id} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

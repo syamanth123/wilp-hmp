@@ -3,6 +3,7 @@ import { prisma, RoleName } from '@hmp/db';
 import { buttonVariants } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { SlaWidgets } from '@/components/sla-widgets';
+import { MyWork } from '@/components/my-work';
 import { RecentActivity } from '@/components/recent-activity';
 import { computeFacultySignals } from '@/lib/faculty-signals';
 import { nextEvents } from '@hmp/db/src/dibba-schedule';
@@ -142,6 +143,8 @@ export default async function FacultyOverview() {
           All assignments
         </Link>
       </div>
+
+      <MyWork />
 
       {/* Progress cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">

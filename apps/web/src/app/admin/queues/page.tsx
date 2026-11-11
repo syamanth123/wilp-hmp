@@ -19,6 +19,7 @@ import {
   isRedisConfigured,
   getNotificationsQueue,
   getAiQueue,
+  getScheduleQueue,
   readHeartbeat,
   type Queue,
 } from '@hmp/queue';
@@ -33,14 +34,17 @@ const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 min
 const QUEUE_READ_LIMIT_MS = 2000;
 
 interface QueueView {
-  name: 'notifications' | 'ai';
+  name: 'notifications' | 'ai' | 'schedule';
   counts: { waiting: number; active: number; completed: number; failed: number };
   failed: { id: string; reason: string; attempts: number; failedAt: number | null }[];
   heartbeatMs: number | null;
   error: string | null;
 }
 
-async function loadQueue(name: 'notifications' | 'ai', queue: Queue): Promise<QueueView> {
+async function loadQueue(
+  name: 'notifications' | 'ai' | 'schedule',
+  queue: Queue,
+): Promise<QueueView> {
   try {
     const counts = await queue.getJobCounts('waiting', 'active', 'completed', 'failed');
     const failedJobs = await queue.getJobs(['failed'], 0, 49);
@@ -114,7 +118,13 @@ function QueueCard({ view }: { view: QueueView }) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>{view.name === 'ai' ? 'AI reports' : 'Emails and alerts'}</CardTitle>
+          <CardTitle>
+            {view.name === 'ai'
+              ? 'AI reports'
+              : view.name === 'schedule'
+                ? 'Daily run, weekly summary and auto-publish'
+                : 'Emails and alerts'}
+          </CardTitle>
           <ClearCompletedButton queue={view.name} />
         </div>
         <CardDescription>
@@ -212,6 +222,7 @@ export default async function AdminQueuesPage() {
       Promise.all([
         loadQueue('notifications', getNotificationsQueue()),
         aiEnabled ? loadQueue('ai', getAiQueue()) : Promise.resolve(null),
+        loadQueue('schedule', getScheduleQueue()),
       ]),
     QUEUE_READ_LIMIT_MS,
   );
@@ -232,12 +243,13 @@ export default async function AdminQueuesPage() {
       </Card>
     );
   }
-  const [notifications, ai] = loaded.value;
+  const [notifications, ai, schedule] = loaded.value;
 
   return (
     <div className="space-y-4">
       <QueueCard view={notifications} />
       {ai && <QueueCard view={ai} />}
+      <QueueCard view={schedule} />
     </div>
   );
 }

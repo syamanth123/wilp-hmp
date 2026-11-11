@@ -155,3 +155,23 @@ Every workflow transition also sends an email (Mailhog locally at `http://localh
 
 Find, read, compare and download handouts — published, in progress and past BITS handouts — from
 **Handout Library** in the menu. See [handout-library.md](handout-library.md).
+
+## v1.4.2 — due dates, My work, kick-off, away
+
+- **My work** (top of the overview): approved handouts to publish, soonest due first; an automatic publish that
+  stopped says why.
+- **Kick off a semester** (tab): every Course Dibba course of the semester without a request, grouped by
+  department.
+  - Courses that can't start yet show the reason and a _Fix_ link.
+  - Tick, check the HMP semester, due dates and starting content, then **Create N requests**. Each goes to its
+    department's HOG.
+- **Dashboard** (tab): not started / in progress / overdue / approved / published per department, and the workload
+  per person. Every number opens the Library.
+- **Due dates:** each request page shows every step's due date. **Change** sets one, with a reason.
+- **New request** refuses a course that already has a request this semester, and links to it.
+- **People → a person:**
+  - mark them **away**, with a back-up;
+  - **Undo** a role / department change within 24 hours;
+  - **Deactivate…** hands over their open work first.
+- **Earlier runs:** switch **auto-publish** on or off (off by default). Automatic runs are listed there.
+- **My settings:** your own away / back-up, daily digest, weekly summary, calendar link.

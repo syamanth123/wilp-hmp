@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { isBackupOf } from '@/lib/backup-access';
 import { prisma, HandoutStatus, RoleName, resolveHandoutHtml } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
@@ -10,6 +11,7 @@ import { loadAttachments } from '@/lib/attachments';
 import { AccessDenied } from '@/components/access-denied';
 import { canOpenSmeReview } from '@/lib/sme-access';
 import { SmeReviewPanel } from './sme-review-panel';
+import { ReviewShortcutsFor } from '@/components/review-shortcuts-for';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,11 +40,15 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
 
   // An SME may open only a handout they are the assigned SME for (admins may
   // open any). Checked before anything about the handout is loaded.
+  // v1.4.2 (H18): or as the back-up of the assigned SME while they are away.
+  const assigned = request.smeAssignment?.smeUserId;
+  const asBackup = !!assigned && assigned !== me.id && (await isBackupOf(me.id, assigned));
   if (
+    !asBackup &&
     !canOpenSmeReview({
       roles: me.roles,
       userId: me.id,
-      assignedSmeUserId: request.smeAssignment?.smeUserId,
+      assignedSmeUserId: assigned,
     })
   ) {
     return <AccessDenied reason="This handout is not assigned to you for review." />;
@@ -50,7 +56,7 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
 
   const attachments = await loadAttachments(request.id);
 
-  const isAssignedSme = request.smeAssignment?.smeUserId === me.id;
+  const isAssignedSme = request.smeAssignment?.smeUserId === me.id || asBackup;
   const inReview = request.status === HandoutStatus.SME_REVIEW;
   const currentVersion = request.handout?.currentVersion ?? null;
 
@@ -82,6 +88,7 @@ export default async function SmeReviewDetail({ params }: { params: { id: string
           </CardHeader>
           <CardContent>
             <SmeReviewPanel requestId={request.id} />
+            <ReviewShortcutsFor role="SME" requestId={request.id} />
           </CardContent>
         </Card>
       ) : (

@@ -1,6 +1,7 @@
 import { prisma, type RoleName, type HandoutStatus, type Prisma } from '@hmp/db';
 import { parseCsv, parseQueueActionsCsv } from '@hmp/integrations';
 import { notifyTransition, type WorkflowEventType } from '@/lib/notifications';
+import { queueAutoPublish } from '@/lib/auto-publish';
 import { statusLabel } from '@hmp/workflow';
 import { requestVisibleTo } from './request-scope';
 
@@ -248,6 +249,8 @@ export async function bulkReview(
       event: config.eventMap[r.action]!,
       actor: { id: actor.id, name: actor.name },
     });
+    // v1.4.2 (F11): auto-publish after a final approval, when switched on.
+    if (config.eventMap[r.action] === 'FINAL_APPROVED') await queueAutoPublish(r.requestId);
   }
 
   return failed.length === 0

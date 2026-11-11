@@ -1,5 +1,8 @@
 'use server';
 
+import { existingRequests } from '@/lib/duplicate-guard';
+import { rememberChoice } from '@/lib/preferences';
+
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
@@ -38,6 +41,10 @@ export async function createRequestAction(formData: FormData) {
   });
   if (!offering)
     return { error: 'That course offering no longer exists. Refresh the page and choose again.' };
+  // v1.4.2 (F5): one request per course offering (same rule as bulk upload).
+  const dup = (await existingRequests([offering.id])).get(offering.id);
+  if (dup)
+    return { error: `${dup.refNo} already exists for this course and semester — open it instead.` };
 
   // v1.4 §C: the chosen HOG must be an active HOG; one outside the course's department needs a reason.
   const hog = await prisma.user.findFirst({
@@ -68,6 +75,9 @@ export async function createRequestAction(formData: FormData) {
   const hogReason = parsed.data.hogReason.trim();
   if (outside && hogReason.length < 5)
     return { error: 'Say why it goes to a HOG outside the course’s department.' };
+
+  // v1.4.2 (F12): the next New request starts on this semester.
+  await rememberChoice(actor.id, 'newRequestSemester', offering.semesterId);
 
   let created: { id: string; refNo: string };
   try {

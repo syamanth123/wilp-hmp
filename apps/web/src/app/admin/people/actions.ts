@@ -6,6 +6,8 @@ import { prisma, RoleName, FacultyType } from '@hmp/db';
 import { savePerson, type PersonInput, type SaveResult } from '@/lib/people-save';
 import { applyPeople, previewPeople, type Preview } from '@/lib/people-import';
 import { PEOPLE_PATHS, adminOnlyProblem, requirePeopleManager } from '@/lib/people-access';
+import { undoPersonChange } from '@/lib/people-undo';
+import { endAway, saveAway } from '@/lib/away-save';
 
 const refresh = () => PEOPLE_PATHS.forEach((p) => revalidatePath(p));
 
@@ -87,4 +89,41 @@ export async function applyPeopleAction(fd: FormData) {
   const r = await applyPeople(actor.id, await toCsv(fd), accept, { actorIsAdmin: actor.isAdmin });
   if (r.ok) refresh();
   return r;
+}
+
+/** v1.4.2 — undo a person's latest role / department change within 24 hours (lib/people-undo.ts). */
+export async function undoPersonChangeAction(userId: string, auditId: string) {
+  const actor = await requirePeopleManager();
+  const r = await undoPersonChange(actor, String(userId), String(auditId));
+  if (r.ok) refresh();
+  return r;
+}
+
+/** v1.4.2 (§4): the IC / Admin marks someone away (e.g. sudden leave), with their back-up. */
+export async function setAwayForAction(personId: string, _prev: unknown, fd: FormData) {
+  const actor = await requirePeopleManager();
+  const person = await prisma.user.findUnique({
+    where: { id: String(personId) },
+    select: { id: true, name: true, roles: { select: { role: { select: { name: true } } } } },
+  });
+  if (!person) return { ok: false as const, error: 'That person no longer exists.' };
+  const roles = person.roles.map((r) => r.role.name);
+  const notYours = adminOnlyProblem(actor.isAdmin, roles, roles);
+  if (notYours) return { ok: false as const, error: notYours };
+  const r = await saveAway({
+    person: { id: person.id, name: person.name, roles },
+    actorId: actor.id,
+    from: String(fd.get('from') ?? ''),
+    until: String(fd.get('until') ?? ''),
+    backupId: String(fd.get('backupId') ?? ''),
+  });
+  if (r.ok) refresh();
+  return r;
+}
+
+export async function endAwayForAction(personId: string) {
+  const actor = await requirePeopleManager();
+  await endAway(String(personId), actor.id);
+  refresh();
+  return { ok: true as const, message: 'No longer shown as away.' };
 }

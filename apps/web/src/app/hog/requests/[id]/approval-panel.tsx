@@ -20,10 +20,17 @@ export function FinalApprovalPanel({ requestId }: { requestId: string }) {
     fd.set('comments', comments);
     startTransition(async () => {
       const fn =
-        kind === 'approve' ? finalApproveAction : kind === 'rework' ? hogRequestReworkAction : finalRejectAction;
+        kind === 'approve'
+          ? finalApproveAction
+          : kind === 'rework'
+            ? hogRequestReworkAction
+            : finalRejectAction;
       const r = await fn(fd);
       if (r?.error) setError(r.error);
-      else setSuccess(`Request ${kind === 'approve' ? 'approved' : kind === 'rework' ? 'sent back for rework' : 'rejected'}.`);
+      else
+        setSuccess(
+          `Request ${kind === 'approve' ? 'approved' : kind === 'rework' ? 'sent back for rework' : 'rejected'}.`,
+        );
     });
   };
 
@@ -34,15 +41,16 @@ export function FinalApprovalPanel({ requestId }: { requestId: string }) {
       <div className="grid gap-2">
         <Label htmlFor="comments">Comments (required for rework/reject)</Label>
         <textarea
+          data-shortcut="comment"
           id="comments"
           value={comments}
           onChange={(e) => setComments(e.target.value)}
-          className="min-h-[80px] rounded-md border bg-background p-2 text-sm"
+          className="bg-background min-h-[80px] rounded-md border p-2 text-sm"
         />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-sm">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => run('approve')} disabled={pending}>
+        <Button onClick={() => run('approve')} disabled={pending} data-shortcut="approve">
           Approve (final)
         </Button>
         <Button variant="outline" onClick={() => run('rework')} disabled={pending}>

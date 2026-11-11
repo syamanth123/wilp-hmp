@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
+import { pickFreshCourse } from './fixtures/fresh-offering';
 import { PrismaClient, RoleName } from '@hmp/db';
 
 // v1.4.1 — department-based pickers, scoping, who is told, change HOG, the H4 preview and the H9
@@ -69,13 +70,8 @@ test('IC → New request: the CSIS HOG is pre-selected, only they are told; the 
   try {
     const ic = await signIn(browser, 'ic@hmp.local');
     await ic.goto('/ic/requests/new');
-    await ic.getByLabel('Programme').selectOption('MTECH-DS');
-    await ic.getByLabel('Semester').selectOption({ index: 1 });
-    const offering = await prisma.courseOffering.findFirstOrThrow({
-      where: { course: { code: 'CC ZG501' }, semester: { programme: { code: 'MTECH-DS' } } },
-      select: { id: true },
-    });
-    await ic.getByLabel('Course').selectOption(offering.id);
+    // v1.4.2: a CSIS (MTECH-DS) course of its own — New request refuses one that already has a request.
+    await pickFreshCourse(ic, prisma, 'MTECH-DS');
     const hogPicker = ic.getByTestId('rf-hog');
     await expect(hogPicker).toHaveValue(await userId('hog@hmp.local'));
     await expect(hogPicker.locator('option:checked')).toContainText('open handout');

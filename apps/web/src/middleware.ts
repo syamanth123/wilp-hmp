@@ -45,7 +45,9 @@ export default auth((req) => {
   let response: NextResponse;
   if (!isAuthed && !isLogin) {
     const url = new URL('/login', nextUrl);
-    url.searchParams.set('next', nextUrl.pathname);
+    // v1.4.2 (F8): keep the whole address (query included), so an email link lands on the exact page after
+    // sign-in. Sign-in only follows same-site paths (lib/saml/relay.ts safeNextPath).
+    url.searchParams.set('next', nextUrl.pathname + nextUrl.search);
     response = NextResponse.redirect(url);
   } else if (isAuthed && isLogin) {
     response = NextResponse.redirect(new URL('/', nextUrl));

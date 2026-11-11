@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { pickFreshCourse } from './fixtures/fresh-offering';
 import { prisma } from '@hmp/db';
 
 // Creates a real request, so it removes everything it made afterwards — the request (its handout,
@@ -36,13 +37,8 @@ test('IC creates a handout request end-to-end', async ({ page }) => {
   const programmeSelect = page.getByLabel('Programme');
   const programmeOptions = await programmeSelect.locator('option').allTextContents();
   expect(programmeOptions.length).toBeGreaterThan(1);
-  await programmeSelect.selectOption({ index: 1 });
-
-  const semesterSelect = page.getByLabel('Semester');
-  await semesterSelect.selectOption({ index: 1 });
-
-  const courseSelect = page.getByLabel('Course');
-  await courseSelect.selectOption({ index: 1 });
+  // v1.4.2: a course of its own (New request refuses one that already has a request).
+  await pickFreshCourse(page, prisma);
 
   await page.getByRole('button', { name: /create request/i }).click();
 

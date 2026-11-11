@@ -1,4 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
+import { pickFreshCourse } from './fixtures/fresh-offering';
+import { prisma } from '@hmp/db';
 
 // Prompt 11d — Structured editor end-to-end (extended in 11d-b, 11e).
 //
@@ -44,9 +46,8 @@ test('Structured editor — full flow on the document page (auto-fetch banner �
   // -------- Setup: IC → HOG → PC → Faculty start editing → Convert --------
   await signIn(page, 'ic@hmp.local');
   await page.goto('/ic/requests/new');
-  await page.getByLabel('Programme').selectOption({ index: 1 });
-  await page.getByLabel('Semester').selectOption({ index: 1 });
-  await page.getByLabel('Course').selectOption({ index: 1 });
+  // v1.4.2: a course of its own (New request refuses one that already has a request).
+  await pickFreshCourse(page, prisma);
   await page.getByRole('button', { name: /create request/i }).click();
   await page.waitForURL(/\/ic\/requests\/c[a-z0-9]{20,}/i);
   const requestId = page.url().split('/').pop()!;

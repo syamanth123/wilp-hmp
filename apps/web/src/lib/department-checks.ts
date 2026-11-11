@@ -20,6 +20,13 @@ export interface DepartmentChecks {
   hogPcWithoutDepartment: number;
   /** v1.4.1 (H10): open requests whose programme has no department — visible to all HOGs / PCs. */
   requestsWithoutDepartment: number;
+  /** v1.4.2 (F14): courses behind the Dibba codes with no department. */
+  coursesWithoutDepartment: number;
+  /** v1.4.2 (F14): Dibba codes (with courses) not linked to an HMP programme — the kick-off can't start them. */
+  dibbaCodesNotLinked: number;
+  coursesNotLinked: number;
+  /** v1.4.2 (F14): HOG / PC / SME / IC people away today with nobody looking after their work. */
+  awayWithoutBackup: { id: string; name: string }[];
 }
 
 export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
@@ -75,12 +82,45 @@ export async function loadDepartmentChecks(): Promise<DepartmentChecks> {
     }),
   ]);
   const withHog = new Set(hogs.map((h) => h.departmentId));
+  const noDeptCodes = dibbaRows.filter((r) => !departmentOfDibbaCode(r.code, links));
+  const unlinked = dibbaRows.filter((r) => r.courses > 0 && !r.resolved.programme);
+  const today = new Date(
+    `${new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+05:30`,
+  );
+  const awayNoBackup = await prisma.userPreference.findMany({
+    where: {
+      awayUntil: { gte: today },
+      OR: [{ awayFrom: null }, { awayFrom: { lte: new Date() } }],
+      backupUserId: null,
+      user: {
+        active: true,
+        roles: {
+          some: {
+            role: {
+              name: {
+                in: [
+                  RoleName.HOG,
+                  RoleName.PROGRAMME_COMMITTEE,
+                  RoleName.SME,
+                  RoleName.INSTRUCTION_CELL,
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    select: { user: { select: { id: true, name: true } } },
+  });
   const suggestions = noDept.length ? await suggestDepartments(noDept.map((u) => u.id)) : new Map();
   return {
     departmentsWithoutHog: departments.filter((d) => !withHog.has(d.id)),
     programmesWithoutDepartment: programmes,
-    dibbaCodesWithoutDepartment: dibbaRows.filter((r) => !departmentOfDibbaCode(r.code, links))
-      .length,
+    dibbaCodesWithoutDepartment: noDeptCodes.length,
+    coursesWithoutDepartment: noDeptCodes.reduce((n, r) => n + r.courses, 0),
+    dibbaCodesNotLinked: unlinked.length,
+    coursesNotLinked: unlinked.reduce((n, r) => n + r.courses, 0),
+    awayWithoutBackup: awayNoBackup.map((a) => a.user),
     dibbaCodes: dibbaRows.length,
     peopleWithoutDepartment: noDept.length,
     peopleWithSuggestion: [...suggestions.values()].filter((s) => s.kind === 'one').length,

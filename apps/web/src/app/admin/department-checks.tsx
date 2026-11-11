@@ -20,9 +20,23 @@ export async function DepartmentChecksPanel({ base = '/admin' }: { base?: People
   if (c.dibbaCodesWithoutDepartment)
     items.push({
       key: 'dibba',
-      text: `${c.dibbaCodesWithoutDepartment} of ${c.dibbaCodes} Course Dibba programmes have no department — people's suggestions come from these`,
+      text: `${c.dibbaCodesWithoutDepartment} of ${c.dibbaCodes} Course Dibba programmes (${c.coursesWithoutDepartment} courses) have no department — people's suggestions and the kick-off's HOG come from these`,
       href: `${base}/departments`,
       action: 'Departments',
+    });
+  if (c.dibbaCodesNotLinked)
+    items.push({
+      key: 'dibba-unlinked',
+      text: `${c.dibbaCodesNotLinked} Course Dibba programme code${c.dibbaCodesNotLinked === 1 ? ' is' : 's are'} not linked to an HMP programme (${c.coursesNotLinked} courses) — the semester kick-off can't start ${c.dibbaCodesNotLinked === 1 ? 'its' : 'their'} courses${base === '/admin' ? '' : ' (the Admin links them in Admin → Dibba codes)'}`,
+      href: base === '/admin' ? '/admin/dibba-codes' : '/ic/kick-off',
+      action: base === '/admin' ? 'Dibba codes' : 'Kick-off',
+    });
+  if (c.awayWithoutBackup.length)
+    items.push({
+      key: 'away',
+      text: `Away with nobody looking after their requests: ${c.awayWithoutBackup.map((p) => p.name).join(', ')}`,
+      href: `${base}/people/${c.awayWithoutBackup[0]!.id}`,
+      action: 'Set a back-up',
     });
   if (c.programmesWithoutDepartment)
     items.push({

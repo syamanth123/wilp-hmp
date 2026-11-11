@@ -2,14 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The page that triggers a notification must not wait for the mail server: the in-portal /
 // email rows are written at once, the email is sent in the background and its row updated later.
-const { create, update, sendMail } = vi.hoisted(() => ({
+const { create, update, sendMail, prefFind } = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   sendMail: vi.fn(),
+  // v1.4.2: deliver() reads the person's email mode (at once / daily digest).
+  prefFind: vi.fn(),
 }));
 vi.mock('@hmp/db', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
-  return { ...actual, prisma: { notification: { create, update } } };
+  return {
+    ...actual,
+    prisma: { notification: { create, update }, userPreference: { findUnique: prefFind } },
+  };
 });
 vi.mock('@hmp/integrations', () => ({ sendMail }));
 vi.mock('@hmp/queue', () => ({ enqueueNotification: vi.fn() }));
@@ -34,6 +39,7 @@ describe('email is sent after the page has answered', () => {
     create.mockReset().mockImplementation(async () => ({ id: `row-${++n}` }));
     update.mockReset().mockResolvedValue({});
     sendMail.mockReset();
+    prefFind.mockReset().mockResolvedValue(null);
   });
 
   it('a slow mail server does not hold up deliver(); the row ends SENT', async () => {
@@ -67,5 +73,29 @@ describe('email is sent after the page has answered', () => {
         meta: { kind: 'transition', error: 'Greeting never received' },
       },
     });
+  });
+
+  it('v1.4.2: daily digest — the email waits (PENDING, digest) and is not sent; the in-HMP notice is immediate', async () => {
+    prefFind.mockResolvedValue({ emailMode: 'DIGEST' });
+    await deliver(params);
+    await emailsSettled();
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({
+        channel: NotificationChannel.EMAIL,
+        status: NotificationStatus.PENDING,
+        meta: { kind: 'transition', digest: true },
+      }),
+    });
+    expect(update).toHaveBeenCalledTimes(1); // the in-portal row only
+  });
+
+  it('v1.4.2: urgent notices go at once even in digest mode', async () => {
+    prefFind.mockResolvedValue({ emailMode: 'DIGEST' });
+    sendMail.mockResolvedValue({ ok: true, id: 'm2' });
+    await deliver({ ...params, urgent: true });
+    await emailsSettled();
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(prefFind).not.toHaveBeenCalled();
   });
 });

@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusTimeline } from '@/components/status-timeline';
+import { StageDeadlines } from '@/components/stage-deadlines';
 import { ApprovalsList } from '@/components/approvals-list';
 import { HandoutViewer } from '@/components/handout-viewer';
 import { VersionList } from '@/components/version-list';
@@ -342,6 +343,16 @@ export default async function FacultyAssignmentDetail({
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Due dates</CardTitle>
+          <CardDescription>Each step&apos;s due date. The highlighted one is now.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StageDeadlines requestId={request.id} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

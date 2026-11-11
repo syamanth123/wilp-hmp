@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { RoleName } from '@hmp/db';
+import { prisma, RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { taxilaClient, taxilaSettings } from '@/lib/taxila-publish';
 import { createTaxilaRun, loadRun, processNextItem, retryProblemItems } from '@/lib/taxila-runs';
@@ -57,4 +57,26 @@ export async function retryProblemsAction(runId: string) {
   const n = await retryProblemItems(runId);
   const run = await loadRun(runId);
   return { ok: true, reset: n, rows: run?.rows ?? [] } as const;
+}
+
+/** v1.4.2 (F11, H23): the IC or Admin switches auto-publish on or off (off by default). */
+export async function setAutoPublishAction(on: boolean): Promise<{ ok: true } | { error: string }> {
+  const actor = requireRole(await getSessionUser(), [RoleName.INSTRUCTION_CELL, RoleName.ADMIN]);
+  const before = await prisma.workflowConfig.findUniqueOrThrow({ where: { key: 'default' } });
+  if (on && !taxilaSettings())
+    return { error: 'Publishing to Taxila isn’t set up on this server.' };
+  await prisma.workflowConfig.update({ where: { key: 'default' }, data: { autoPublish: !!on } });
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.id,
+      action: 'workflow.update',
+      entity: 'WorkflowConfig',
+      entityId: before.id,
+      before: { autoPublish: before.autoPublish },
+      after: { autoPublish: !!on },
+    },
+  });
+  revalidatePath('/ic/taxila-runs');
+  revalidatePath('/admin/workflow');
+  return { ok: true };
 }

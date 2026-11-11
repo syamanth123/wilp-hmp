@@ -1,4 +1,11 @@
 import { prisma, HandoutStatus, type Prisma, type WorkflowConfig } from '@hmp/db';
+import {
+  DEADLINE_SELECT,
+  currentDeadline,
+  daysLeft,
+  deadlineInput,
+  loadDeadlineConfig,
+} from './deadlines';
 
 export type SlaClassification = 'on_track' | 'due_soon' | 'overdue' | 'n_a';
 
@@ -65,6 +72,7 @@ const NON_TERMINAL: HandoutStatus[] = [
   HandoutStatus.ASSIGNED,
   HandoutStatus.IN_PROGRESS,
   HandoutStatus.REWORK_REQUESTED,
+  HandoutStatus.SME_REVIEW,
   HandoutStatus.SUBMITTED,
   HandoutStatus.UNDER_REVIEW,
   HandoutStatus.APPROVED,
@@ -82,6 +90,16 @@ export async function loadWorkflowConfig(): Promise<WorkflowConfig> {
       facultySubmitSla: 168,
       hogFinalSla: 48,
       offCampusMaxCourses: 3,
+      smeReviewSla: 72,
+      dueAllocationDays: 35,
+      dueDraftDays: 21,
+      dueSmeDays: 17,
+      duePcDays: 14,
+      dueHogFinalDays: 10,
+      duePublishDays: 7,
+      escalationOn: false,
+      escalationDays: 3,
+      autoPublish: false,
       matrixJson: {} as never,
       updatedAt: new Date(),
     } as WorkflowConfig;
@@ -90,34 +108,39 @@ export async function loadWorkflowConfig(): Promise<WorkflowConfig> {
 }
 
 /**
- * `scope` narrows the scan to one person's requests (e.g. the faculty
- * dashboard counts only that faculty member's own assignments).
+ * `scope` narrows the scan to one person's requests (e.g. the faculty dashboard counts only that faculty
+ * member's own assignments). v1.4.2: due soon / overdue come from the request's due dates
+ * (lib/deadlines.ts) — due within 2 days, or past the due day — not from updatedAt + SLA hours.
  */
 export async function scanActiveRequestsWithSla(
   filterStatuses?: HandoutStatus[],
   scope?: Prisma.HandoutRequestWhereInput,
+  now: Date = new Date(),
 ) {
-  const cfg = await loadWorkflowConfig();
+  const cfg = await loadDeadlineConfig();
   const statuses = filterStatuses && filterStatuses.length > 0 ? filterStatuses : NON_TERMINAL;
   const rows = await prisma.handoutRequest.findMany({
     where: scope ? { AND: [{ status: { in: statuses } }, scope] } : { status: { in: statuses } },
     select: {
-      id: true,
+      ...DEADLINE_SELECT,
       refNo: true,
-      status: true,
-      updatedAt: true,
       offering: {
         select: {
           course: { select: { code: true, title: true } },
-          semester: { select: { name: true, programme: { select: { code: true } } } },
+          semester: {
+            select: { name: true, startDate: true, programme: { select: { code: true } } },
+          },
         },
       },
     },
   });
-  return rows.map((r) => ({
-    ...r,
-    sla: classify(r.status, r.updatedAt, cfg),
-  }));
+  return rows.map((r) => {
+    const due = currentDeadline(deadlineInput(r), cfg);
+    const left = due ? daysLeft(due.dueAt, now) : null;
+    const classification: SlaClassification =
+      left == null ? 'n_a' : left < 0 ? 'overdue' : left <= 2 ? 'due_soon' : 'on_track';
+    return { ...r, dueAt: due?.dueAt ?? null, sla: { classification } };
+  });
 }
 
 export async function countSlaBucketsForStatuses(

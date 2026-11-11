@@ -7,18 +7,26 @@ export { getRedisConnection, closeConnection, isRedisConfigured } from './connec
 export {
   NOTIFICATIONS_QUEUE,
   AI_QUEUE,
+  SCHEDULE_QUEUE,
   notifyJobId,
   type NotifyJob,
   type NotifyKind,
   type AiJob,
+  type ScheduleJob,
   type ActorRef,
 } from './job-types';
-export { getNotificationsQueue, getAiQueue, closeQueues } from './queues';
+export { getNotificationsQueue, getAiQueue, getScheduleQueue, closeQueues } from './queues';
 export { startHeartbeat, readHeartbeat, heartbeatKey } from './heartbeat';
-export { enqueueNotification, enqueueAiJob } from './enqueue';
+export {
+  enqueueNotification,
+  enqueueAiJob,
+  enqueueScheduleJob,
+  registerSchedules,
+} from './enqueue';
 export {
   runNotificationsWorker,
   runAiWorker,
+  runScheduleWorker,
   wrapProcessor,
   PermanentJobError,
 } from './worker-factory';

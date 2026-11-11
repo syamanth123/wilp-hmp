@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { MyWork } from '@/components/my-work';
 import { prisma, RoleName, HandoutStatus, ApprovalStage, ApprovalDecision } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, buttonVariants } from '@hmp/ui';
 import { getSessionUser, requireRole } from '@hmp/auth';
@@ -72,6 +73,8 @@ export default async function SmeOverview() {
           Bulk review
         </Link>
       </div>
+
+      <MyWork />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card data-testid="stat-card">
