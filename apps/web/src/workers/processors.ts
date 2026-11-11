@@ -1,4 +1,10 @@
-import { PermanentJobError, type Job, type NotifyJob, type AiJob } from '@hmp/queue';
+import {
+  PermanentJobError,
+  type Job,
+  type NotifyJob,
+  type AiJob,
+  type ScheduleJob,
+} from '@hmp/queue';
 import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
 // Relative imports (not the `@/` alias) on purpose: this module is loaded by
 // the worker entrypoint via `tsx`, which doesn't resolve Next's tsconfig path
@@ -7,6 +13,8 @@ import { runQualityReport, AiUnconfiguredError } from '@hmp/ai';
 import * as notify from '../lib/notifications';
 import type { WorkflowEventType } from '../lib/notifications';
 import { aiFeaturesEnabled } from '../lib/features';
+import { runScheduled } from '../lib/daily-run';
+import { autoPublish } from '../lib/auto-publish';
 
 /**
  * Notification job processor. Dispatches by kind to the matching dispatch*
@@ -65,4 +73,26 @@ export async function processAiJob(job: Job<AiJob>): Promise<void> {
     }
     throw err;
   }
+}
+
+/**
+ * v1.4.2 — the schedule queue: the daily 09:00 run, the Monday summary, auto-publish after a final approval.
+ * Daily / weekly are recorded once per period (lib/daily-run.ts), so a repeated job does nothing.
+ */
+export async function processScheduleJob(job: Job<ScheduleJob>): Promise<void> {
+  const d = job.data;
+  switch (d.kind) {
+    case 'daily':
+    case 'weekly': {
+      const summary = await runScheduled(d.kind);
+      console.log(`[worker:schedule] ${d.kind}`, JSON.stringify(summary));
+      break;
+    }
+    case 'auto_publish': {
+      const r = await autoPublish(d.requestId);
+      console.log('[worker:schedule] auto_publish', d.requestId, r.status);
+      break;
+    }
+  }
+  await notify.emailsSettled();
 }

@@ -49,6 +49,11 @@ export function levelReached(
   return 1;
 }
 
+interface Person {
+  id: string;
+  name: string;
+}
+
 export interface PlannedStep {
   requestId: string;
   refNo: string;
@@ -62,6 +67,11 @@ export interface PlannedStep {
   holder: string;
   /** Who is told at this level (names, or "Instruction Cell"). */
   told: string[];
+  /** For sending: the people holding it (and their role), the HOG copy, the IC copy. */
+  holderRole: 'HOG' | 'PC' | 'FACULTY' | 'SME' | 'IC';
+  holderIds: string[];
+  hogIds: string[];
+  toIc: boolean;
 }
 
 const OPEN: HandoutStatus[] = [
@@ -79,13 +89,15 @@ const OPEN: HandoutStatus[] = [
 /** The run of India-time day `day` happens at 09:00 that day. */
 export const runTimeOf = (day: number) => new Date(istDayStart(day).getTime() + 9 * 3_600_000);
 
+const PERSON = { select: { id: true, name: true } } as const;
+
 /**
  * What the daily run on `runAt` would send — nothing is sent or recorded. Used by Admin → Workflow
- * ("What tomorrow's run would send") and, in the run itself, as the list to send.
+ * ("What tomorrow's run would send") and, in the run itself (lib/daily-run.ts), as the list to send.
  */
 export async function planRun(
   runAt: Date,
-  override?: { escalationOn?: boolean; escalationDays?: number },
+  override?: { escalationOn?: boolean; escalationDays?: number; only?: string[] },
 ): Promise<PlannedStep[]> {
   const base = await loadDeadlineConfig();
   const wf = await prisma.workflowConfig.findUnique({ where: { key: 'default' } });
@@ -93,96 +105,95 @@ export async function planRun(
     escalationOn: override?.escalationOn ?? wf?.escalationOn ?? false,
     escalationDays: override?.escalationDays ?? wf?.escalationDays ?? 3,
   };
-  const rows = await prisma.handoutRequest.findMany({
-    where: { status: { in: OPEN } },
-    select: {
-      ...DEADLINE_SELECT,
-      refNo: true,
-      offering: {
-        select: {
-          course: { select: { code: true, title: true } },
-          semester: {
-            select: {
-              startDate: true,
-              programme: {
-                select: {
-                  department: {
-                    select: {
-                      name: true,
-                      users: {
-                        where: {
-                          active: true,
-                          roles: {
-                            some: {
-                              role: { name: { in: [RoleName.HOG, RoleName.PROGRAMME_COMMITTEE] } },
-                            },
-                          },
-                        },
-                        select: {
-                          name: true,
-                          roles: { select: { role: { select: { name: true } } } },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
+  const [rows, everyone] = await Promise.all([
+    prisma.handoutRequest.findMany({
+      where: { status: { in: OPEN }, ...(override?.only ? { id: { in: override.only } } : {}) },
+      select: {
+        ...DEADLINE_SELECT,
+        refNo: true,
+        offering: {
+          select: {
+            course: { select: { code: true, title: true } },
+            semester: {
+              select: { startDate: true, programme: { select: { departmentId: true } } },
             },
           },
         },
+        assignees: { where: { endedAt: null }, select: { role: true, user: PERSON } },
+        assignments: { where: { active: true }, select: { faculty: PERSON } },
+        smeAssignment: { select: { smeUser: PERSON } },
+        escalationSteps: { select: { stage: true, dueAt: true, level: true } },
       },
-      assignees: {
-        where: { endedAt: null },
-        select: { role: true, user: { select: { name: true } } },
+    }),
+    // HOGs and PCs (with their department), for requests with nobody named yet.
+    prisma.user.findMany({
+      where: {
+        active: true,
+        roles: { some: { role: { name: { in: [RoleName.HOG, RoleName.PROGRAMME_COMMITTEE] } } } },
       },
-      assignments: { where: { active: true }, select: { faculty: { select: { name: true } } } },
-      smeAssignment: { select: { smeUser: { select: { name: true } } } },
-      escalationSteps: { select: { stage: true, dueAt: true, level: true } },
-    },
-  });
+      select: {
+        id: true,
+        name: true,
+        departmentId: true,
+        roles: { select: { role: { select: { name: true } } } },
+      },
+    }),
+  ]);
+  const inRole = (role: RoleName, deptId: string | null): Person[] => {
+    const all = everyone.filter((u) => u.roles.some((x) => x.role.name === role));
+    const dept = deptId ? all.filter((u) => u.departmentId === deptId) : [];
+    return (dept.length ? dept : all).map((u) => ({ id: u.id, name: u.name }));
+  };
 
   const out: PlannedStep[] = [];
   for (const r of rows) {
     const due = currentDeadline(deadlineInput(r), base);
     if (!due) continue;
     const left = daysLeft(due.dueAt, runAt);
-    const dept = r.offering.semester.programme.department;
-    const deptPeople = (role: RoleName) =>
-      (dept?.users ?? [])
-        .filter((u) => u.roles.some((x) => x.role.name === role))
-        .map((u) => u.name);
-    const named = (role: RoleName) =>
-      r.assignees.filter((a) => a.role === role).map((a) => a.user.name);
-    const hog = named(RoleName.HOG).length ? named(RoleName.HOG) : deptPeople(RoleName.HOG);
+    const deptId = r.offering.semester.programme.departmentId;
+    const named = (role: RoleName) => r.assignees.filter((a) => a.role === role).map((a) => a.user);
+    const hog = named(RoleName.HOG).length ? named(RoleName.HOG) : inRole(RoleName.HOG, deptId);
     const pc = named(RoleName.PROGRAMME_COMMITTEE).length
       ? named(RoleName.PROGRAMME_COMMITTEE)
-      : deptPeople(RoleName.PROGRAMME_COMMITTEE);
-    const holderIsHog =
-      r.status === HandoutStatus.REQUESTED || r.status === HandoutStatus.UNDER_REVIEW;
-    const holder: string[] =
-      r.status === HandoutStatus.REQUESTED || r.status === HandoutStatus.UNDER_REVIEW
-        ? hog.length
-          ? hog
-          : ['all HOGs']
-        : r.status === HandoutStatus.ALLOCATED || r.status === HandoutStatus.SUBMITTED
-          ? pc.length
-            ? pc
-            : ['all PCs']
-          : r.status === HandoutStatus.SME_REVIEW
-            ? [r.smeAssignment?.smeUser.name ?? 'the SME']
-            : r.status === HandoutStatus.APPROVED
-              ? ['Instruction Cell']
-              : r.assignments.map((a) => a.faculty.name);
+      : inRole(RoleName.PROGRAMME_COMMITTEE, deptId);
+    const s = r.status;
+    const holderRole: PlannedStep['holderRole'] =
+      s === HandoutStatus.REQUESTED || s === HandoutStatus.UNDER_REVIEW
+        ? 'HOG'
+        : s === HandoutStatus.ALLOCATED || s === HandoutStatus.SUBMITTED
+          ? 'PC'
+          : s === HandoutStatus.SME_REVIEW
+            ? 'SME'
+            : s === HandoutStatus.APPROVED
+              ? 'IC'
+              : 'FACULTY';
+    const holders: Person[] =
+      holderRole === 'HOG'
+        ? hog
+        : holderRole === 'PC'
+          ? pc
+          : holderRole === 'SME'
+            ? r.smeAssignment
+              ? [r.smeAssignment.smeUser]
+              : []
+            : holderRole === 'FACULTY'
+              ? r.assignments.map((a) => a.faculty)
+              : [];
+    const holderIsHog = holderRole === 'HOG';
     const level = levelReached({ left, holderIsHog }, cfg);
     if (level == null) continue;
-    const sent = r.escalationSteps.filter(
-      (s) => s.stage === due.stage && s.dueAt.getTime() === due.dueAt.getTime() && s.level >= level,
+    const sent = r.escalationSteps.some(
+      (x) => x.stage === due.stage && x.dueAt.getTime() === due.dueAt.getTime() && x.level >= level,
     );
-    if (sent.length) continue;
-    const told = [...holder];
-    if (level >= 2)
-      told.push(...(holderIsHog ? ['Instruction Cell'] : hog.length ? hog : ['all HOGs']));
-    if (level === 3) told.push('Instruction Cell');
+    if (sent) continue;
+    const holderText = holderRole === 'IC' ? ['Instruction Cell'] : holders.map((h) => h.name);
+    const hogCopy = level >= 2 && !holderIsHog ? hog : [];
+    const toIc = level === 3 || (level >= 2 && holderIsHog) || holderRole === 'IC';
+    const told = [
+      ...holderText,
+      ...hogCopy.map((h) => h.name),
+      ...(toIc ? ['Instruction Cell'] : []),
+    ];
     out.push({
       requestId: r.id,
       refNo: r.refNo,
@@ -193,8 +204,12 @@ export async function planRun(
       dueText: formatDueDay(due.dueAt),
       daysOverdue: Math.max(0, -left),
       level,
-      holder: holder.join(', '),
+      holder: holderText.join(', '),
       told: [...new Set(told)],
+      holderRole,
+      holderIds: holders.map((h) => h.id),
+      hogIds: hogCopy.map((h) => h.id),
+      toIc,
     });
   }
   return out.sort((a, b) => b.level - a.level || b.daysOverdue - a.daysOverdue);

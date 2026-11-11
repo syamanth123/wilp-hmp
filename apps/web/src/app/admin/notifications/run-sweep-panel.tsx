@@ -5,10 +5,10 @@ import { Button } from '@hmp/ui';
 import { runSweepAction } from './actions';
 
 interface Summary {
-  scanned: number;
-  dueSoon: number;
-  overdue: number;
-  notified: number;
+  reminders?: number;
+  notified?: number;
+  digests?: number;
+  failed?: number;
 }
 
 export function RunSweepPanel() {
@@ -30,13 +30,15 @@ export function RunSweepPanel() {
           })
         }
       >
-        {pending ? 'Sending…' : 'Send reminders now'}
+        {pending ? 'Running…' : 'Run the daily run now'}
       </Button>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {summary && (
         <p className="text-muted-foreground text-sm">
-          Scanned {summary.scanned} active requests · {summary.dueSoon} due soon · {summary.overdue}{' '}
-          overdue · {summary.notified} reminder(s) sent.
+          {summary.reminders ?? 0} reminder(s) or escalation step(s) · {summary.notified ?? 0}{' '}
+          people told · {summary.digests ?? 0} daily digest(s) sent
+          {summary.failed ? ` · ${summary.failed} digest(s) failed` : ''}. Each step is sent once,
+          so running it again only sends what is new.
         </p>
       )}
     </div>

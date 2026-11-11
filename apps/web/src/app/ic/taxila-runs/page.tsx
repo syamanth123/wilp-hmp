@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { prisma } from '@hmp/db';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@hmp/ui';
 import { formatDateTime } from '@/lib/format-date';
+import { taxilaSettings } from '@/lib/taxila-publish';
+import { AutoPublishSwitch } from './auto-publish-switch';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,14 +17,27 @@ export default async function TaxilaRunsPage() {
       items: { select: { status: true } },
     },
   });
+  const autoPublish =
+    (
+      await prisma.workflowConfig.findUnique({
+        where: { key: 'default' },
+        select: { autoPublish: true },
+      })
+    )?.autoPublish ?? false;
   return (
     <Card>
       <CardHeader>
         <CardTitle>Bulk publish runs</CardTitle>
         <CardDescription>
           Start one from the Handout Library → Published → “Approved, not yet published”: tick the
-          handouts, then “Bulk publish to Taxila”.
+          handouts, then “Bulk publish to Taxila”. Runs marked <em>automatic</em> were started by
+          auto-publish after a final approval.
         </CardDescription>
+        {taxilaSettings() ? (
+          <div className="pt-2">
+            <AutoPublishSwitch on={autoPublish} />
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent className="p-0">
         {runs.length === 0 ? (
@@ -45,7 +60,9 @@ export default async function TaxilaRunsPage() {
                     <Link href={`/ic/taxila-runs/${r.id}`} className="underline">
                       {formatDateTime(r.createdAt)}
                     </Link>
-                    <div className="text-muted-foreground text-xs">{r.createdBy.name}</div>
+                    <div className="text-muted-foreground text-xs">
+                      {r.auto ? `automatic, for ${r.createdBy.name}` : r.createdBy.name}
+                    </div>
                   </td>
                   <td className="px-4 py-2 font-mono">{r.semesterCode}</td>
                   <td className="px-4 py-2 tabular-nums">{r.items.length}</td>

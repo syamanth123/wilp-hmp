@@ -43,6 +43,7 @@ import {
   type LastTeam,
 } from '@/lib/allocation-suggestions';
 import { FinalApprovalPanel } from './approval-panel';
+import { ReviewShortcutsFor } from '@/components/review-shortcuts-for';
 
 // Workflow detail pages MUST be force-dynamic. See ic/requests/[id]/page.tsx
 // for the rationale (Next.js production-build RSC caching vs revalidatePath).
@@ -286,6 +287,7 @@ export default async function HOGRequestDetail({ params }: { params: { id: strin
           </CardHeader>
           <CardContent>
             <FinalApprovalPanel requestId={request.id} />
+            <ReviewShortcutsFor role="HOG" requestId={request.id} />
           </CardContent>
         </Card>
       )}

@@ -1,7 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
-import { scanActiveRequestsWithSla } from '@/lib/sla';
-import { notifySlaReminder } from '@/lib/notifications';
+import { runScheduled } from '@/lib/daily-run';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,24 +14,12 @@ function authorized(req: NextRequest): boolean {
   return timingSafeEqual(Buffer.from(header), Buffer.from(expected));
 }
 
+/**
+ * v1.4.2: the daily run (reminders, escalation, digests — lib/daily-run.ts). The worker runs it at 09:00 on
+ * its own; this address stays for a server timer set up before v1.4.2. Either way it runs once a day.
+ */
 async function runSweep() {
-  const rows = await scanActiveRequestsWithSla();
-  let dueSoon = 0;
-  let overdue = 0;
-  let notified = 0;
-  for (const r of rows) {
-    if (r.sla.classification !== 'due_soon' && r.sla.classification !== 'overdue') continue;
-    if (r.sla.classification === 'due_soon') dueSoon += 1;
-    else overdue += 1;
-    if (r.sla.slaHours == null) continue;
-    notified += await notifySlaReminder({
-      request: { id: r.id, refNo: r.refNo, status: r.status },
-      classification: r.sla.classification,
-      ageHours: r.sla.ageHours,
-      slaHours: r.sla.slaHours,
-    });
-  }
-  return { scanned: rows.length, dueSoon, overdue, notified };
+  return runScheduled('daily');
 }
 
 export async function POST(req: NextRequest) {

@@ -7,95 +7,31 @@ import { getSessionUser } from '@hmp/auth';
 import { audit } from '@/lib/audit';
 import { absoluteEmailLink } from '@/lib/notifications';
 import { newCalendarToken, stopCalendarLink } from '@/lib/preferences';
-import { BACKUP_ROLES } from '@/lib/away';
+import { endAway, saveAway } from '@/lib/away-save';
 
 /** v1.4.2 — My settings (docs/plans/v1.4.2-workload.md §4, §7). Each person changes only their own. */
 
 type Result = { ok: true; message?: string; link?: string } | { ok: false; error: string };
 const ENDED: Result = { ok: false, error: 'Your session has ended. Sign in again.' };
 
-const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a date.');
-/** "2026-11-20" → midnight India time on that day. */
-const istMidnight = (iso: string) => new Date(`${iso}T00:00:00+05:30`);
-
-const awaySchema = z.object({
-  from: isoDay.or(z.literal('')),
-  until: isoDay,
-  backupId: z.string().cuid().or(z.literal('')),
-});
-
 export async function saveAwayAction(_: unknown, formData: FormData): Promise<Result> {
   const me = await getSessionUser();
   if (!me) return ENDED;
-  const parsed = awaySchema.safeParse({
-    from: formData.get('from') ?? '',
-    until: formData.get('until') ?? '',
-    backupId: formData.get('backupId') ?? '',
-  });
-  if (!parsed.success)
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check the dates.' };
-  const from = parsed.data.from ? istMidnight(parsed.data.from) : null;
-  const until = istMidnight(parsed.data.until);
-  const today = istMidnight(new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10));
-  if (until < today) return { ok: false, error: 'The last day away is in the past.' };
-  if (from && from > until) return { ok: false, error: 'The first day is after the last day.' };
-
-  const myBackupRoles = me.roles.filter((r) => BACKUP_ROLES.includes(r));
-  let backupId: string | null = null;
-  if (parsed.data.backupId) {
-    if (myBackupRoles.length === 0)
-      return { ok: false, error: 'A back-up is for HOG, PC, SME and IC work.' };
-    if (parsed.data.backupId === me.id)
-      return { ok: false, error: "You can't be your own back-up." };
-    const b = await prisma.user.findFirst({
-      where: {
-        id: parsed.data.backupId,
-        active: true,
-        roles: { some: { role: { name: { in: myBackupRoles } } } },
-      },
-      select: { id: true },
-    });
-    if (!b) return { ok: false, error: 'Pick an active colleague with the same role.' };
-    backupId = b.id;
-  } else if (myBackupRoles.length > 0) {
-    return {
-      ok: false,
-      error: 'Pick a back-up: they look after your requests while you are away.',
-    };
-  }
-
-  const before = await prisma.userPreference.findUnique({
-    where: { userId: me.id },
-    select: { awayFrom: true, awayUntil: true, backupUserId: true },
-  });
-  await prisma.userPreference.upsert({
-    where: { userId: me.id },
-    create: { userId: me.id, awayFrom: from, awayUntil: until, backupUserId: backupId },
-    update: { awayFrom: from, awayUntil: until, backupUserId: backupId },
-  });
-  await audit({
+  const r = await saveAway({
+    person: { id: me.id, name: me.name, roles: me.roles },
     actorId: me.id,
-    action: 'user.away',
-    entity: 'User',
-    entityId: me.id,
-    before,
-    after: { awayFrom: from, awayUntil: until, backupUserId: backupId },
+    from: String(formData.get('from') ?? ''),
+    until: String(formData.get('until') ?? ''),
+    backupId: String(formData.get('backupId') ?? ''),
   });
-  revalidatePath('/settings');
-  return {
-    ok: true,
-    message: 'Saved. Your back-up is told and sees your requests while you are away.',
-  };
+  if (r.ok) revalidatePath('/settings');
+  return r;
 }
 
 export async function endAwayAction(): Promise<Result> {
   const me = await getSessionUser();
   if (!me) return ENDED;
-  await prisma.userPreference.updateMany({
-    where: { userId: me.id },
-    data: { awayFrom: null, awayUntil: null, backupUserId: null },
-  });
-  await audit({ actorId: me.id, action: 'user.back', entity: 'User', entityId: me.id });
+  await endAway(me.id, me.id);
   revalidatePath('/settings');
   return { ok: true, message: 'Welcome back — you are no longer shown as away.' };
 }
@@ -145,7 +81,7 @@ export async function makeCalendarLinkAction(): Promise<Result> {
   revalidatePath('/settings');
   return {
     ok: true,
-    link: absoluteEmailLink(`/api/calendar/${token}`),
+    link: absoluteEmailLink(`/api/calendar/${token}.ics`),
     message: 'Copy it now — HMP shows it only once. Anyone with the link sees your HMP due dates.',
   };
 }

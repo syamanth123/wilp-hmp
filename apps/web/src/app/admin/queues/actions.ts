@@ -4,18 +4,19 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { RoleName } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
-import { getNotificationsQueue, getAiQueue, type Queue } from '@hmp/queue';
+import { getNotificationsQueue, getAiQueue, getScheduleQueue, type Queue } from '@hmp/queue';
 import { AI_OFF_MESSAGE, aiFeaturesEnabled } from '@/lib/features';
 import { GENERIC_ERROR } from '@/lib/form-error';
 
 const schema = z.object({
-  queue: z.enum(['notifications', 'ai']),
+  queue: z.enum(['notifications', 'ai', 'schedule']),
   jobId: z.string().min(1),
 });
 
-const clearSchema = z.object({ queue: z.enum(['notifications', 'ai']) });
+const clearSchema = z.object({ queue: z.enum(['notifications', 'ai', 'schedule']) });
 
-function queueByName(name: 'notifications' | 'ai'): Queue {
+function queueByName(name: 'notifications' | 'ai' | 'schedule'): Queue {
+  if (name === 'schedule') return getScheduleQueue();
   return name === 'notifications' ? getNotificationsQueue() : getAiQueue();
 }
 

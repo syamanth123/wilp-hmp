@@ -328,10 +328,17 @@ test.describe('SME approval gate — multi-role loop', () => {
         )
         .toBe(HandoutStatus.SME_REVIEW);
 
-      // SME_REVIEW_REQUESTED notifies the assigned SME + IC.
-      const recip = await inPortalRecipients(ip.requestId, 'SME_REVIEW_REQUESTED');
-      expect(recip.has('sme@hmp.local')).toBe(true);
-      expect(recip.has('ic@hmp.local')).toBe(true);
+      // SME_REVIEW_REQUESTED notifies the assigned SME + IC. The notices are written just after the status
+      // changes, so wait for them rather than read once (flaky in ci-local on 11 Nov 2026).
+      await expect
+        .poll(
+          async () => {
+            const recip = await inPortalRecipients(ip.requestId, 'SME_REVIEW_REQUESTED');
+            return recip.has('sme@hmp.local') && recip.has('ic@hmp.local');
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
     } finally {
       await prisma.handoutRequest.delete({ where: { id: ip.requestId } }).catch(() => undefined);
     }

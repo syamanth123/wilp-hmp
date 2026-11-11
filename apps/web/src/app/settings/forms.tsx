@@ -40,19 +40,22 @@ export function AwayForm({
   backupId,
   options,
   needsBackup,
+  save,
 }: {
   from: string;
   until: string;
   backupId: string;
   options: BackupOption[];
   needsBackup: boolean;
+  /** v1.4.2: the IC / Admin set it for someone on Edit person (default: your own, My settings). */
+  save?: (prev: unknown, fd: FormData) => Promise<Result>;
 }) {
   const [state, setState] = useState<Result>(null);
   const [pending, start] = useTransition();
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    start(async () => setState(await saveAwayAction(null, fd)));
+    start(async () => setState(await (save ?? saveAwayAction)(null, fd)));
   };
   const own = options.filter((o) => o.sameDepartment);
   const others = options.filter((o) => !o.sameDepartment);
@@ -124,7 +127,13 @@ export function AwayForm({
   );
 }
 
-export function EndAwayButton() {
+export function EndAwayButton({
+  end,
+  label,
+}: {
+  end?: () => Promise<Result>;
+  label?: string;
+} = {}) {
   const [r, setR] = useState<Result>(null);
   const [pending, start] = useTransition();
   return (
@@ -133,10 +142,10 @@ export function EndAwayButton() {
         size="sm"
         variant="outline"
         disabled={pending}
-        onClick={() => start(async () => setR(await endAwayAction()))}
+        onClick={() => start(async () => setR(await (end ?? endAwayAction)()))}
         data-testid="away-end"
       >
-        I&apos;m back
+        {label ?? 'I’m back'}
       </Button>
       <Feedback r={r} />
     </span>
@@ -222,8 +231,10 @@ export function CalendarLink({ madeOn }: { madeOn: string | null }) {
   return (
     <div className="space-y-3" data-testid="calendar-card">
       {madeOn && !link ? (
-        <p className="text-sm">
-          Your calendar link was made on <strong>{madeOn}</strong> and is working.
+        <p className="text-sm" data-testid="calendar-exists">
+          Your calendar link was made on <strong>{madeOn}</strong> and is working. HMP keeps only a
+          fingerprint of it, so it can&apos;t show it again: <strong>Replace link</strong> gives you
+          a new one (the old one stops).
         </p>
       ) : null}
       {link ? (
@@ -248,8 +259,15 @@ export function CalendarLink({ madeOn }: { madeOn: string | null }) {
           onClick={() => start(async () => setR(await makeCalendarLinkAction()))}
           data-testid="calendar-make"
         >
-          {madeOn || link ? 'Make a new link (the old one stops)' : 'Make my calendar link'}
+          {madeOn || link ? 'Replace link' : 'Make my calendar link'}
         </Button>
+        <a
+          href="/api/calendar/download"
+          className="inline-flex h-8 items-center rounded-md border px-3 text-sm"
+          data-testid="calendar-download"
+        >
+          Download .ics
+        </a>
         {madeOn || link ? (
           <Button
             size="sm"

@@ -81,3 +81,11 @@ Bell + email + SLA reminders. `/notifications` for the full list.
 
 Find, read, compare and download handouts — published, in progress and past BITS handouts — from
 **Handout Library** in the menu. See [handout-library.md](handout-library.md).
+
+## v1.4.2 — due dates and My work
+
+- **My work** (top of your home page): what to accept, write or revise, with the due date.
+- **Due dates** for every step are on the handout page.
+- **My settings:** _Add my HMP deadlines to my calendar_ (or Download .ics), daily digest, and "away" (your HOG
+  sees it when allocating).
+- **Comments:** type **@** to mention someone on the handout; **Reply** under a comment.

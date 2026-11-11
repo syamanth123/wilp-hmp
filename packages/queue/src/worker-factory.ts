@@ -6,7 +6,14 @@ import {
   type ConnectionOptions,
 } from 'bullmq';
 import { getRedisConnection } from './connection';
-import { NOTIFICATIONS_QUEUE, AI_QUEUE, type NotifyJob, type AiJob } from './job-types';
+import {
+  NOTIFICATIONS_QUEUE,
+  AI_QUEUE,
+  SCHEDULE_QUEUE,
+  type NotifyJob,
+  type AiJob,
+  type ScheduleJob,
+} from './job-types';
 
 /**
  * Thrown by a processor when the failure is PERMANENT — a malformed payload, a
@@ -58,5 +65,16 @@ export function runAiWorker(
   return new Worker<AiJob>(AI_QUEUE, wrapProcessor(processor), {
     connection,
     concurrency: 2, // LLM-rate-limited
+  });
+}
+
+/** v1.4.2: one job at a time — the daily run, the weekly summary, auto-publish. */
+export function runScheduleWorker(
+  processor: (job: Job<ScheduleJob>) => Promise<void>,
+  connection: ConnectionOptions = getRedisConnection(),
+): Worker<ScheduleJob> {
+  return new Worker<ScheduleJob>(SCHEDULE_QUEUE, wrapProcessor(processor), {
+    connection,
+    concurrency: 1,
   });
 }

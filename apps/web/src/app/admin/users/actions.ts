@@ -63,6 +63,8 @@ export async function createUserAction(formData: FormData) {
 export async function toggleUserActiveAction(userId: string) {
   const actor = requireRole(await getSessionUser(), RoleName.ADMIN);
   const u = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  // v1.4.2 (F13): deactivating goes through Edit person (open-work check and hand-over), never from here.
+  if (u.active) return;
   const updated = await prisma.user.update({
     where: { id: userId },
     data: { active: !u.active },

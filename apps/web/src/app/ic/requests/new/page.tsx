@@ -7,6 +7,8 @@ import { SetUpOffering } from './set-up-offering';
 import { loadPlanInput, planMessage, planOffering } from '@/lib/dibba-offering';
 import { loads, loadText } from '@/lib/people';
 import { existingRequests } from '@/lib/duplicate-guard';
+import { awayByUser, awayText } from '@/lib/away';
+import { rememberedChoice } from '@/lib/preferences';
 
 /** "?courses=ET ZC232,ENGG ZC232&term=2025-FIRST" — the Handout Library's "Create request". */
 function parsePrefill(sp: Record<string, string | undefined>) {
@@ -65,13 +67,17 @@ export default async function NewRequestPage({
     select: { id: true, name: true, departmentId: true, department: { select: { name: true } } },
     orderBy: { name: 'asc' },
   });
-  const hogLoads = await loads(hogUsers.map((h) => h.id));
+  const [hogLoads, hogAway] = await Promise.all([
+    loads(hogUsers.map((h) => h.id)),
+    awayByUser(hogUsers.map((h) => h.id)),
+  ]);
   const hogs: HogOption[] = hogUsers.map((h) => ({
     id: h.id,
     name: h.name,
     departmentId: h.departmentId,
     departmentName: h.department?.name ?? null,
-    load: loadText(hogLoads.get(h.id)),
+    // v1.4.2: "away until 20 Nov · back-up Dr Y" next to the load.
+    load: [loadText(hogLoads.get(h.id)), awayText(hogAway.get(h.id))].filter(Boolean).join(' · '),
   }));
 
   // Filled in from a not-started course: its offering in that semester, when one is loaded.
@@ -88,13 +94,23 @@ export default async function NewRequestPage({
     : [];
   // An explicit offering (just added from the Dibba) wins; otherwise the first match.
   const match = matches.find((o) => o.id === searchParams.offering) ?? matches[0];
+  // v1.4.2 (F12): without a pre-fill, start on the semester this person used last.
+  const me = await getSessionUser();
+  const lastSem = !prefill && me ? await rememberedChoice(me.id, 'newRequestSemester') : undefined;
+  const last = lastSem ? offerings.find((o) => o.semesterId === lastSem) : undefined;
   const initial = match
     ? {
         programmeCode: match.semester.programme.code,
         semesterName: match.semester.name,
         offeringId: match.id,
       }
-    : undefined;
+    : last
+      ? {
+          programmeCode: last.semester.programme.code,
+          semesterName: last.semester.name,
+          offeringId: '',
+        }
+      : undefined;
   // No offering yet: what adding one from the Course Dibba would do (shown for confirmation).
   const plan =
     prefill && !initial

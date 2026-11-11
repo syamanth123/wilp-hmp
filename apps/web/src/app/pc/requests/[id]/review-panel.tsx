@@ -27,7 +27,12 @@ export function ReviewPanel({ requestId }: { requestId: string }) {
       const fn = kind === 'approve' ? pcReviewApproveAction : pcReviewReworkAction;
       const r = await fn(fd);
       if (r?.error) setError(r.error);
-      else setSuccess(kind === 'approve' ? 'Forwarded to HOG for final approval.' : 'Sent back to faculty for rework.');
+      else
+        setSuccess(
+          kind === 'approve'
+            ? 'Forwarded to HOG for final approval.'
+            : 'Sent back to faculty for rework.',
+        );
     });
   };
 
@@ -38,12 +43,13 @@ export function ReviewPanel({ requestId }: { requestId: string }) {
       <div className="grid gap-2">
         <Label htmlFor="comments">Comments (required for rework)</Label>
         <textarea
+          data-shortcut="comment"
           id="comments"
           value={comments}
           onChange={(e) => setComments(e.target.value)}
           onBlur={() => setTouched(true)}
           aria-describedby={showReworkHint ? 'comments-hint' : undefined}
-          className="min-h-[80px] rounded-md border bg-background p-2 text-sm"
+          className="bg-background min-h-[80px] rounded-md border p-2 text-sm"
         />
         {showReworkHint && (
           <p id="comments-hint" className="text-xs" style={{ color: 'var(--warn)' }}>
@@ -51,9 +57,9 @@ export function ReviewPanel({ requestId }: { requestId: string }) {
           </p>
         )}
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-sm">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => run('approve')} disabled={pending}>
+        <Button onClick={() => run('approve')} disabled={pending} data-shortcut="approve">
           Approve & forward
         </Button>
         <Button

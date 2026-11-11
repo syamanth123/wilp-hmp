@@ -17,7 +17,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : null);
 
 /** v1.4.2: user ids an entry mentions (assignments, hand-overs, back-ups). */
 function idsIn(before: J, after: J): string[] {
-  return [before?.userId, after?.userId, after?.hogId, after?.onBehalfOf].filter(
+  return [before?.userId, after?.userId, after?.hogId].filter(
     (x): x is string => typeof x === 'string',
   );
 }
@@ -55,8 +55,10 @@ function detail(
       );
     if (str(after?.reason)) parts.push(`“${str(after?.reason)}”`);
   }
-  if (who(after?.onBehalfOf))
-    parts.push(`for ${people.get(after!.onBehalfOf as string)!.name} (away)`);
+  // v1.4.2 (H18): a back-up acted for an away colleague (in the transition's meta, or on the entry itself).
+  const meta = (after?.meta ?? null) as J;
+  const forName = str(after?.onBehalfOfName) ?? str(meta?.onBehalfOfName);
+  if (forName) parts.push(`for ${forName} (away)`);
   return parts.length ? parts.join(' · ') : null;
 }
 

@@ -192,6 +192,29 @@ export async function loadMyWork(user: DeptScopeUser, now: Date = new Date()): P
       }
     }
   }
+  // v1.4.2 (F11): an automatic publish that stopped says why (the IC finishes it by hand).
+  const icIds = items.filter((i) => i.role === 'IC').map((i) => i.requestId);
+  if (icIds.length) {
+    const stopped = await prisma.taxilaPublishItem.findMany({
+      where: { requestId: { in: icIds }, run: { auto: true }, status: { not: 'PUBLISHED' } },
+      orderBy: { updatedAt: 'desc' },
+      select: { requestId: true, message: true },
+    });
+    for (const i of items) {
+      const s = i.role === 'IC' ? stopped.find((x) => x.requestId === i.requestId) : undefined;
+      if (s) i.todo = `Auto-publish stopped — ${(s.message ?? 'check in Taxila').slice(0, 90)}`;
+    }
+  }
   items.sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity));
   return items;
+}
+
+/** v1.4.2 (F15, "N"): the next item in the person's own list for the same role, after `currentId`. */
+export async function nextWorkHref(
+  user: DeptScopeUser,
+  role: WorkRole,
+  currentId: string,
+): Promise<string | null> {
+  const items = (await loadMyWork(user)).filter((i) => i.role === role);
+  return items.find((i) => i.requestId !== currentId)?.href ?? null;
 }

@@ -67,3 +67,17 @@ The bell in the top bar shows real-time updates. Full list at `/notifications`. 
 
 Find, read, compare and download handouts — published, in progress and past BITS handouts — from
 **Handout Library** in the menu. See [handout-library.md](handout-library.md).
+
+## v1.4.2 — due dates, My work, away
+
+- **My work** (top of the overview): allocations and final approvals waiting for you, soonest due first.
+- **My department** (tab): your department's progress and each person's workload.
+- **Allocate:** _Suggested: Dr X — Course Dibba instructor_ (**Use**) and _Same team as last semester_ (**Use this
+  team**). People away are marked.
+- **Due dates:** change one on your request with a reason (**Change** on the request page).
+- **Escalation copies:** when a step on your department's request is overdue by the set number of days (once the
+  Admin switches escalation on).
+- **Keyboard shortcuts** on the final-approval page: **A** (then Enter) approve, **R** comment to send back, **N**
+  next, **?** help.
+- **My settings:** away + back-up (another HOG looks after your requests meanwhile), daily digest, weekly
+  summary, calendar link.

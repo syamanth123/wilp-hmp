@@ -10,6 +10,7 @@ import { sendMail } from '@hmp/integrations';
 import { enqueueNotification, type NotifyJob } from '@hmp/queue';
 // Package subpath (not '@/'): this file is also loaded by the worker under tsx.
 import { statusLabel } from '@hmp/workflow/src/labels';
+import { mentionedIn, peopleOnRequest } from './comment-people';
 
 /**
  * The single boundary that decides queue-vs-synchronous for notifications.
@@ -56,6 +57,14 @@ export type WorkflowEventType =
   | 'FINAL_REJECTED'
   | 'PUBLISHED'
   | 'ARCHIVED';
+
+/** v1.4.2 (F6): sent at once even to people who chose the daily digest — the work came back to them. */
+const URGENT_EVENTS: ReadonlySet<WorkflowEventType> = new Set<WorkflowEventType>([
+  'ALLOCATION_REJECTED',
+  'SME_REVERTED',
+  'REVIEW_REWORK',
+  'FINAL_REJECTED',
+]);
 
 interface ActorRef {
   id: string;
@@ -150,10 +159,8 @@ const LINK_PREFIX_BY_ROLE: Partial<Record<RoleName, (id: string) => string>> = {
   [RoleName.PROGRAMME_COMMITTEE]: (id) => `/pc/requests/${id}`,
   [RoleName.FACULTY]: (id) => `/faculty/assignments/${id}`,
   [RoleName.ADMIN]: (id) => `/ic/requests/${id}`,
-  // Prompt 12-b: SMEs land on /sme/review (approval queue) and navigate to
-  // the detail page from there. (Was /sme/nominations in the advisory model,
-  // removed in 12-b.)
-  [RoleName.SME]: (_id) => '/sme/review',
+  // v1.4.2 (F8): straight to the handout (was the SME list since Prompt 12-b).
+  [RoleName.SME]: (id) => `/sme/review/${id}`,
 };
 
 interface RequestForNotify {
@@ -225,19 +232,60 @@ async function usersWithRole(
   return users.map((u) => ({ ...u, primaryRole: role }));
 }
 
+/**
+ * `as`: the role the notice is about (v1.4.2, F8) — a person with two roles gets that role's page, not
+ * whichever role happens to come first.
+ */
 async function usersById(
   ids: string[],
+  as?: RoleName,
 ): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
   if (ids.length === 0) return [];
   const users = await prisma.user.findMany({
     where: { id: { in: ids }, ...ACTIVE_USER_FILTER },
     select: { id: true, email: true, roles: { select: { role: { select: { name: true } } } } },
   });
-  return users.map((u) => ({
-    id: u.id,
-    email: u.email,
-    primaryRole: (u.roles[0]?.role.name as RoleName) ?? RoleName.FACULTY,
-  }));
+  return users.map((u) => {
+    const roles = u.roles.map((r) => r.role.name as RoleName);
+    return {
+      id: u.id,
+      email: u.email,
+      primaryRole: as && roles.includes(as) ? as : (roles[0] ?? RoleName.FACULTY),
+    };
+  });
+}
+
+/**
+ * v1.4.2 (§4, H18): the back-ups of anyone in `list` who is away today, with the same role — they get a copy
+ * of the notice while the person is away.
+ */
+async function withBackups(
+  list: { id: string; email: string; primaryRole: RoleName }[],
+): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
+  if (list.length === 0) return list;
+  const today = new Date();
+  const prefs = await prisma.userPreference.findMany({
+    where: {
+      userId: { in: list.map((u) => u.id) },
+      backupUserId: { not: null },
+      awayUntil: { not: null },
+    },
+    select: { userId: true, awayFrom: true, awayUntil: true, backupUserId: true },
+  });
+  const ist = (d: Date) => Math.floor((d.getTime() + 5.5 * 3_600_000) / 86_400_000);
+  const away = prefs.filter(
+    (p) =>
+      p.awayUntil &&
+      ist(p.awayUntil) >= ist(today) &&
+      (!p.awayFrom || ist(p.awayFrom) <= ist(today)),
+  );
+  if (away.length === 0) return list;
+  const out = new Map(list.map((u) => [u.id, u]));
+  for (const p of away) {
+    const role = list.find((u) => u.id === p.userId)!.primaryRole;
+    for (const b of await usersById([p.backupUserId!], role)) if (!out.has(b.id)) out.set(b.id, b);
+  }
+  return [...out.values()];
 }
 
 /**
@@ -251,7 +299,7 @@ async function responsible(
 ): Promise<{ id: string; email: string; primaryRole: RoleName }[]> {
   const assigned = role === RoleName.HOG ? req.hogUserId : req.pcUserId;
   if (assigned) {
-    const u = await usersById([assigned]);
+    const u = await usersById([assigned], role);
     if (u.length) return u.map((x) => ({ ...x, primaryRole: role }));
   }
   if (req.departmentId) {
@@ -278,10 +326,10 @@ async function computeRecipients(
       break;
     case 'FACULTY_ALLOCATED':
       add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
-      add(await usersById(facultyIds));
+      add(await usersById(facultyIds, RoleName.FACULTY));
       break;
     case 'ASSIGNED':
-      add(await usersById(facultyIds));
+      add(await usersById(facultyIds, RoleName.FACULTY));
       break;
     // Prompt 22: PC rejected the allocation → back to HOG to re-allocate.
     // Matched-pair principle (audit §1): faculty WAS notified at
@@ -299,7 +347,12 @@ async function computeRecipients(
         where: { requestId: req.id },
         select: { facultyId: true },
       });
-      add(await usersById(wasAssigned.map((a) => a.facultyId)));
+      add(
+        await usersById(
+          wasAssigned.map((a) => a.facultyId),
+          RoleName.FACULTY,
+        ),
+      );
       break;
     }
     case 'SUBMITTED':
@@ -313,7 +366,7 @@ async function computeRecipients(
     // Prompt 12-b: SME approval-gate events.
     case 'SME_REVIEW_REQUESTED':
       // The assigned SME (the whole point of the gate) + IC for visibility.
-      if (req.smeUserId) add(await usersById([req.smeUserId]));
+      if (req.smeUserId) add(await usersById([req.smeUserId], RoleName.SME));
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
       break;
     case 'SME_APPROVED':
@@ -321,31 +374,31 @@ async function computeRecipients(
       // ping that the now-dormant handout.submitted used to carry. Async
       // workflows can't rely on dashboard polling; email-on-arrival is the
       // standard pattern. Do NOT drop PC here without reviewing that contract.
-      add(await usersById(facultyIds));
+      add(await usersById(facultyIds, RoleName.FACULTY));
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
       add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
       break;
     case 'SME_REVERTED':
-      add(await usersById(facultyIds));
+      add(await usersById(facultyIds, RoleName.FACULTY));
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
       break;
     case 'REVIEW_APPROVED':
       add(await responsible(RoleName.HOG, req));
       break;
     case 'REVIEW_REWORK':
-      add(await usersById(facultyIds));
+      add(await usersById(facultyIds, RoleName.FACULTY));
       break;
     case 'FINAL_APPROVED':
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
-      add(await usersById(facultyIds));
+      add(await usersById(facultyIds, RoleName.FACULTY));
       break;
     case 'FINAL_REJECTED':
-      add(await usersById(facultyIds));
+      add(await usersById(facultyIds, RoleName.FACULTY));
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
       break;
     case 'PUBLISHED':
-      add(await usersById(facultyIds));
-      add(await usersById([req.initiatedById]));
+      add(await usersById(facultyIds, RoleName.FACULTY));
+      add(await usersById([req.initiatedById], RoleName.INSTRUCTION_CELL));
       break;
     case 'ARCHIVED':
       add(await usersWithRole(RoleName.INSTRUCTION_CELL));
@@ -353,7 +406,8 @@ async function computeRecipients(
     case 'EDIT_STARTED':
       break;
   }
-  return [...out.values()];
+  // v1.4.2: an away person's back-up gets a copy (not the actor themselves).
+  return (await withBackups([...out.values()])).filter((u) => u.id !== actorId);
 }
 
 export function renderTemplate(tpl: string, tokens: Record<string, string>): string {
@@ -449,10 +503,23 @@ export async function deliver(params: {
   channels: NotificationChannel[];
   metaKind: string;
   extraMeta?: Record<string, unknown>;
+  /**
+   * v1.4.2 (F6): urgent emails (sent back, overdue, @mentions …) go at once even for people who chose the
+   * daily digest; others wait for the 09:00 digest (lib/digest.ts). In-HMP notices are always immediate.
+   */
+  urgent?: boolean;
+  /** v1.4.2: a ready-made HTML body (the weekly summary); otherwise the plain body + an Open link. */
+  html?: string;
 }) {
   const { userId, email, subject, body, link, channels, metaKind, extraMeta } = params;
+  const digest =
+    !params.urgent &&
+    channels.includes(NotificationChannel.EMAIL) &&
+    (await prisma.userPreference.findUnique({ where: { userId }, select: { emailMode: true } }))
+      ?.emailMode === 'DIGEST';
   for (const channel of channels) {
     try {
+      const waits = digest && channel === NotificationChannel.EMAIL;
       const row = await prisma.notification.create({
         data: {
           userId,
@@ -461,16 +528,20 @@ export async function deliver(params: {
           subject,
           body,
           link,
-          meta: { kind: metaKind, ...(extraMeta ?? {}) },
+          meta: { kind: metaKind, ...(extraMeta ?? {}), ...(waits ? { digest: true } : {}) },
         },
       });
+      // Waits (PENDING) for the next daily digest.
+      if (waits) continue;
       if (channel === NotificationChannel.IN_PORTAL) {
         await prisma.notification.update({
           where: { id: row.id },
           data: { status: NotificationStatus.SENT, sentAt: new Date() },
         });
       } else if (channel === NotificationChannel.EMAIL) {
-        const html = `<p>${body}</p><p><a href="${absoluteEmailLink(link)}">Open in HMP</a></p>`;
+        const html =
+          params.html ??
+          `<p>${body}</p><p><a href="${absoluteEmailLink(link)}">Open in HMP</a></p>`;
         sendEmailInBackground(
           row.id,
           { to: email, subject, html, text: body },
@@ -543,6 +614,7 @@ export async function dispatchTransition(input: {
           channels,
           metaKind: 'workflow.transition',
           extraMeta: { event: input.event, requestId: req.id, refNo: req.refNo },
+          urgent: URGENT_EVENTS.has(input.event),
         }),
       ),
     );
@@ -579,12 +651,60 @@ export async function dispatchComment(input: {
     // v1.4.1: the request's HOG and PC (their department's, if none recorded yet).
     add(await responsible(RoleName.HOG, req));
     add(await responsible(RoleName.PROGRAMME_COMMITTEE, req));
-    add(await usersById(req.assignments.map((a) => a.facultyId)));
-    const recipients = [...out.values()];
+    add(
+      await usersById(
+        req.assignments.map((a) => a.facultyId),
+        RoleName.FACULTY,
+      ),
+    );
+    // v1.4.2 (F10): the SME is told too (left out before).
+    if (req.smeUserId) add(await usersById([req.smeUserId], RoleName.SME));
+
+    const comment = await prisma.comment.findUnique({
+      where: { id: input.commentId },
+      select: { body: true, parentId: true },
+    });
+    // v1.4.2 (F10): a reply tells everyone in that thread (the first comment's author and the repliers).
+    if (comment?.parentId) {
+      const thread = await prisma.comment.findMany({
+        where: { OR: [{ id: comment.parentId }, { parentId: comment.parentId }] },
+        select: { authorId: true },
+      });
+      add(await usersById([...new Set(thread.map((t) => t.authorId))]));
+    }
+    // v1.4.2 (F10, H22): @mentions — only people on the request; they get an email at once as well.
+    const mentioned = comment
+      ? mentionedIn(comment.body, await peopleOnRequest(req.id)).filter(
+          (p) => p.id !== input.actor.id,
+        )
+      : [];
+    const mentionIds = new Set(mentioned.map((m) => m.id));
+    const recipients = (await withBackups([...out.values()])).filter(
+      (u) => u.id !== input.actor.id && !mentionIds.has(u.id),
+    );
+    const excerpt = (comment?.body ?? '').slice(0, 500);
+    const meta = { commentId: input.commentId, requestId: req.id, refNo: req.refNo };
+    const course = `${req.offering.course.code} ${req.offering.course.title}`;
+    for (const m of mentioned) {
+      const [u] = await usersById([m.id]);
+      if (!u) continue;
+      await deliver({
+        userId: u.id,
+        email: u.email,
+        role: u.primaryRole,
+        subject: `${input.actor.name} mentioned you on ${req.refNo} (${course})`,
+        body: `${input.actor.name} wrote on ${req.refNo}: “${excerpt}”`,
+        link: `${linkFor(u.primaryRole, req.id)}#comments`,
+        channels: [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL],
+        metaKind: 'comment.mention',
+        extraMeta: meta,
+        urgent: true,
+      });
+    }
     if (recipients.length === 0) return;
 
-    const subject = `New comment on ${req.refNo}`;
-    const body = `${input.actor.name} commented on ${req.refNo} (${req.offering.course.code}).`;
+    const subject = comment?.parentId ? `New reply on ${req.refNo}` : `New comment on ${req.refNo}`;
+    const body = `${input.actor.name} ${comment?.parentId ? 'replied' : 'commented'} on ${req.refNo} (${req.offering.course.code}).`;
 
     await Promise.allSettled(
       recipients.map((r) =>
@@ -597,7 +717,7 @@ export async function dispatchComment(input: {
           link: linkFor(r.primaryRole, req.id),
           channels: [NotificationChannel.IN_PORTAL],
           metaKind: 'comment.added',
-          extraMeta: { commentId: input.commentId, requestId: req.id, refNo: req.refNo },
+          extraMeta: meta,
         }),
       ),
     );
@@ -854,4 +974,47 @@ export async function dispatchManuallyPublished(input: {
   } catch (err) {
     console.error('[notifyManuallyPublished] failed', err);
   }
+}
+
+/**
+ * v1.4.2 — notices from the daily run (reminders, escalation) and other server-side senders. `ids` are user
+ * ids; `as` is the role the notice is about (for the link). Back-ups of away people get a copy.
+ */
+export async function deliverToUsers(
+  ids: string[],
+  as: RoleName | null,
+  n: {
+    requestId: string;
+    subject: string;
+    body: string;
+    metaKind: string;
+    extraMeta?: Record<string, unknown>;
+    urgent?: boolean;
+    channels?: NotificationChannel[];
+    link?: (role: RoleName) => string;
+  },
+): Promise<number> {
+  const people = await withBackups(await usersById([...new Set(ids)], as ?? undefined));
+  await Promise.allSettled(
+    people.map((r) =>
+      deliver({
+        userId: r.id,
+        email: r.email,
+        role: r.primaryRole,
+        subject: n.subject,
+        body: n.body,
+        link: n.link ? n.link(r.primaryRole) : linkFor(r.primaryRole, n.requestId),
+        channels: n.channels ?? [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL],
+        metaKind: n.metaKind,
+        extraMeta: { requestId: n.requestId, ...(n.extraMeta ?? {}) },
+        urgent: n.urgent,
+      }),
+    ),
+  );
+  return people.length;
+}
+
+/** v1.4.2: active Instruction Cell user ids (escalation level 3, auto-publish problems). */
+export async function instructionCellIds(): Promise<string[]> {
+  return (await usersWithRole(RoleName.INSTRUCTION_CELL)).map((u) => u.id);
 }

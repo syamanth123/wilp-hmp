@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma, RoleName, ApprovalStage, ApprovalDecision, HandoutStatus } from '@hmp/db';
 import { getSessionUser, requireRole } from '@hmp/auth';
 import { assertRequestInScope } from '@/lib/request-scope';
+import { isBackupOf, onBehalfMeta } from '@/lib/backup-access';
 import { transition, WorkflowError, movedOnMessage } from '@hmp/workflow';
 import { notifyTransition } from '@/lib/notifications';
 import { rejectAllocationEffect } from '@/lib/pc-allocation-review';
@@ -41,6 +42,8 @@ async function otherPcMessage(requestId: string, actorId: string): Promise<strin
     select: { userId: true, user: { select: { name: true } } },
   });
   if (!pc || pc.userId === actorId) return null;
+  // v1.4.2 (H18): the away PC's back-up may confirm for them.
+  if (await isBackupOf(actorId, pc.userId)) return null;
   return `The HOG asked ${pc.user.name} to confirm this allocation.`;
 }
 
@@ -67,6 +70,8 @@ export async function confirmAssignmentAction(formData: FormData) {
       requestId: parsed.data.requestId,
       event: 'ASSIGNED',
       actor: { id: actor.id, roles: actor.roles },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: await onBehalfMeta(actor, parsed.data.requestId),
       effects: async (tx) => {
         await tx.approval.create({
           data: {
@@ -118,7 +123,8 @@ export async function pcRejectAllocationAction(formData: FormData) {
       requestId: parsed.data.requestId,
       event: 'ALLOCATION_REJECTED',
       actor: { id: actor.id, roles: actor.roles },
-      meta: { reason: parsed.data.comments },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: { reason: parsed.data.comments, ...(await onBehalfMeta(actor, parsed.data.requestId)) },
       // Shared with the bulk path so the destructive multi-step can't drift.
       effects: rejectAllocationEffect(parsed.data.comments, actor.id),
     });
@@ -152,6 +158,8 @@ export async function pcReviewApproveAction(formData: FormData) {
       requestId: parsed.data.requestId,
       event: 'REVIEW_APPROVED',
       actor: { id: actor.id, roles: actor.roles },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: await onBehalfMeta(actor, parsed.data.requestId),
       effects: async (tx) => {
         await tx.approval.create({
           data: {
@@ -195,6 +203,8 @@ export async function pcReviewReworkAction(formData: FormData) {
       requestId: parsed.data.requestId,
       event: 'REVIEW_REWORK',
       actor: { id: actor.id, roles: actor.roles },
+      // v1.4.2 (H18): recorded "for <name>" when acting as an away colleague's back-up.
+      meta: await onBehalfMeta(actor, parsed.data.requestId),
       effects: async (tx) => {
         await tx.approval.create({
           data: {

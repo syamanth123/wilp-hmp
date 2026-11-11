@@ -50,6 +50,7 @@ export function SmeReviewPanel({ requestId }: { requestId: string }) {
       <div className="grid gap-2">
         <Label htmlFor="sme-comment">Comment (required to request changes)</Label>
         <textarea
+          data-shortcut="comment"
           id="sme-comment"
           value={comment}
           onChange={(e) => setComment(e.target.value)}
@@ -70,7 +71,12 @@ export function SmeReviewPanel({ requestId }: { requestId: string }) {
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => run('approve')} disabled={pending} data-testid="sme-approve-button">
+        <Button
+          onClick={() => run('approve')}
+          disabled={pending}
+          data-testid="sme-approve-button"
+          data-shortcut="approve"
+        >
           Approve
         </Button>
         <Button

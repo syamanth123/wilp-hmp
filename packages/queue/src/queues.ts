@@ -1,6 +1,13 @@
 import { Queue } from 'bullmq';
 import { getRedisConnection } from './connection';
-import { NOTIFICATIONS_QUEUE, AI_QUEUE, type NotifyJob, type AiJob } from './job-types';
+import {
+  NOTIFICATIONS_QUEUE,
+  AI_QUEUE,
+  SCHEDULE_QUEUE,
+  type NotifyJob,
+  type AiJob,
+  type ScheduleJob,
+} from './job-types';
 
 /**
  * Lazy queue singletons. Constructed on first access so merely importing this
@@ -10,6 +17,7 @@ import { NOTIFICATIONS_QUEUE, AI_QUEUE, type NotifyJob, type AiJob } from './job
  */
 let notificationsQueue: Queue<NotifyJob> | null = null;
 let aiQueue: Queue<AiJob> | null = null;
+let scheduleQueue: Queue<ScheduleJob> | null = null;
 
 export function getNotificationsQueue(): Queue<NotifyJob> {
   if (!notificationsQueue) {
@@ -41,9 +49,23 @@ export function getAiQueue(): Queue<AiJob> {
   return aiQueue;
 }
 
+/** v1.4.2: daily / weekly runs and auto-publish. No automatic retries: the next run picks up what is due. */
+export function getScheduleQueue(): Queue<ScheduleJob> {
+  if (!scheduleQueue) {
+    scheduleQueue = new Queue<ScheduleJob>(SCHEDULE_QUEUE, {
+      connection: getRedisConnection(),
+      defaultJobOptions: { attempts: 1, removeOnComplete: 100, removeOnFail: 200 },
+    });
+  }
+  return scheduleQueue;
+}
+
 /** Closes queue producers (tests / shutdown). */
 export async function closeQueues(): Promise<void> {
-  await Promise.all([notificationsQueue?.close(), aiQueue?.close()].filter(Boolean));
+  await Promise.all(
+    [notificationsQueue?.close(), aiQueue?.close(), scheduleQueue?.close()].filter(Boolean),
+  );
   notificationsQueue = null;
   aiQueue = null;
+  scheduleQueue = null;
 }

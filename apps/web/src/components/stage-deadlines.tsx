@@ -7,7 +7,10 @@ import {
   dueWords,
   formatDueDay,
   loadDeadlineConfig,
+  STAGES,
+  stageForStatus,
 } from '@/lib/deadlines';
+import type { HandoutStatus } from '@hmp/db';
 import { canChangeDeadlines } from '@/lib/deadline-access';
 import { ChangeDeadline } from './stage-deadlines-form';
 
@@ -27,6 +30,22 @@ export async function StageDeadlines({ requestId }: { requestId: string }) {
   if (!row || !me) return null;
   if (row.status === 'DRAFT' || row.status === 'REJECTED') return null;
   const stages = deadlinesFor(deadlineInput(row), cfg);
+  // A finished step shows when it was actually done: the last move past it in the history.
+  const moves = await prisma.auditLog.findMany({
+    where: { requestId, action: { startsWith: 'handout.transition.' } },
+    orderBy: { createdAt: 'asc' },
+    select: { createdAt: true, after: true },
+  });
+  const rank = (status: string | undefined) => {
+    if (status === 'PUBLISHED' || status === 'ARCHIVED') return STAGES.length;
+    const st = status ? stageForStatus(status as HandoutStatus) : null;
+    return st ? STAGES.indexOf(st) : -1;
+  };
+  const doneAt = (stage: (typeof STAGES)[number]) => {
+    const i = STAGES.indexOf(stage);
+    const past = moves.filter((m) => rank((m.after as { status?: string } | null)?.status) > i);
+    return past.length ? past[past.length - 1]!.createdAt : null;
+  };
   const canEdit = await canChangeDeadlines(me, requestId);
   const finished = row.status === 'PUBLISHED' || row.status === 'ARCHIVED';
 
@@ -58,7 +77,17 @@ export async function StageDeadlines({ requestId }: { requestId: string }) {
                 ) : null}
                 {s.state === 'done' ? <span className="ml-1 text-xs">✓</span> : null}
               </td>
-              <td className="py-1.5 pr-3 tabular-nums">{formatDueDay(s.dueAt)}</td>
+              <td className="py-1.5 pr-3 tabular-nums">
+                {s.state === 'done' ? (
+                  doneAt(s.stage) ? (
+                    <>done {formatDueDay(doneAt(s.stage)!)}</>
+                  ) : (
+                    'done'
+                  )
+                ) : (
+                  formatDueDay(s.dueAt)
+                )}
+              </td>
               <td className="py-1.5 pr-3 text-xs">
                 {words ? (
                   <span

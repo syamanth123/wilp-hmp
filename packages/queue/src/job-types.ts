@@ -33,6 +33,19 @@ export const NOTIFICATIONS_QUEUE = 'notifications';
 export const AI_QUEUE = 'ai';
 
 /**
+ * v1.4.2 — scheduled and follow-up work (docs/plans/v1.4.2-workload.md §10, §11): the daily 09:00 run
+ * (reminders, escalation, digests), the Monday summary, and auto-publish after a final approval. One
+ * at a time (concurrency 1). Each daily / weekly run is also recorded in the database (ScheduledRun),
+ * so a repeated or retried job never sends twice.
+ */
+export const SCHEDULE_QUEUE = 'schedule';
+
+export type ScheduleJob =
+  | { kind: 'daily' }
+  | { kind: 'weekly' }
+  | { kind: 'auto_publish'; requestId: string; actor: ActorRef };
+
+/**
  * Deterministic BullMQ job id for de-duplication. BullMQ rejects a second add
  * with the same id, so this both prevents accidental double-fires AND lets
  * genuinely-distinct events through.

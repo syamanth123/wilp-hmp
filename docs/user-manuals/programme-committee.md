@@ -45,3 +45,9 @@ Bell + email + SLA reminders, same as every other role. Full list at `/notificat
 
 Find, read, compare and download handouts — published, in progress and past BITS handouts — from
 **Handout Library** in the menu. See [handout-library.md](handout-library.md).
+
+## v1.4.2 — due dates, My work, away
+
+- **My work** (top of the overview): allocations to confirm and handouts to review, soonest due first.
+- **Away:** in **My settings**, set the dates and a back-up PC. They confirm and review for you meanwhile.
+- **Keyboard shortcuts** on the review page: **A** (then Enter) approve, **R** comment, **N** next, **?** help.
