@@ -134,6 +134,8 @@ const ACTION_SENTENCE: Record<string, string> = {
   'user.create': 'Added a person',
   'user.update': 'Changed a person’s details, roles or department',
   'request.reassign': 'Handed the work over to someone else',
+  'request.deadline': 'Changed a due date',
+  'request.deadline-cleared': 'Put a due date back to the usual rule',
   'request.assign-hog': "Gave the request its department's HOG",
   'taxila.course-choice': 'Chose the Taxila course for a course',
   'taxila.course-choice-cleared': 'Went back to the automatic Taxila match',

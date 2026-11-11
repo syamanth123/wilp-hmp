@@ -3,6 +3,7 @@ import { prisma } from '@hmp/db';
 import { buttonVariants } from '@hmp/ui';
 import { getSessionUser } from '@hmp/auth';
 import { SlaWidgets } from '@/components/sla-widgets';
+import { MyWork } from '@/components/my-work';
 import { RecentActivity } from '@/components/recent-activity';
 import { viewHref, viewWhere } from '@/lib/request-views';
 
@@ -175,6 +176,8 @@ export default async function HOGOverview() {
           </Link>
         </div>
       </div>
+
+      <MyWork />
 
       {/* Stat cards */}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">

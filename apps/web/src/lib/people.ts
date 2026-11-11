@@ -1,5 +1,13 @@
 import { prisma, HandoutStatus, RoleName, type Prisma } from '@hmp/db';
-import { loadWorkflowConfig, slaHoursFor } from './sla';
+import {
+  DEADLINE_SELECT,
+  STAGE_HOLDER,
+  currentDeadline,
+  daysLeft,
+  deadlineInput,
+  loadDeadlineConfig,
+  type DeadlineRow,
+} from './deadlines';
 
 /**
  * People and their open work (v1.4, docs/plans/departments.md §B, §B2, §C). "Open work" = requests not
@@ -24,12 +32,16 @@ export interface OpenWorkItem {
   course: string;
   status: HandoutStatus;
   role: WorkRole;
+  /** v1.4.2: the request's current stage is this person's and past its due date (lib/deadlines.ts). */
   overdue: boolean;
+  /** v1.4.2: … and due within the next 7 days (not overdue). */
+  dueThisWeek: boolean;
 }
 
 export interface Load {
   open: number;
   overdue: number;
+  dueThisWeek: number;
 }
 
 /** Every open item for these people, by person. */
@@ -37,14 +49,17 @@ export async function openWork(userIds: string[]): Promise<Map<string, OpenWorkI
   const out = new Map<string, OpenWorkItem[]>(userIds.map((id) => [id, []]));
   if (userIds.length === 0) return out;
   const select = {
-    id: true,
+    ...DEADLINE_SELECT,
     refNo: true,
-    status: true,
-    updatedAt: true,
-    offering: { select: { course: { select: { code: true, title: true } } } },
+    offering: {
+      select: {
+        course: { select: { code: true, title: true } },
+        semester: { select: { startDate: true } },
+      },
+    },
   } as const;
   const [cfg, fac, sme, assignees] = await Promise.all([
-    loadWorkflowConfig(),
+    loadDeadlineConfig(),
     prisma.facultyAssignment.findMany({
       where: { facultyId: { in: userIds }, active: true, request: openRequest },
       select: { facultyId: true, request: { select } },
@@ -63,26 +78,22 @@ export async function openWork(userIds: string[]): Promise<Map<string, OpenWorkI
       select: { userId: true, role: true, request: { select } },
     }),
   ]);
-  const now = Date.now();
+  const now = new Date();
   const add = (
     userId: string,
     role: WorkRole,
-    r: {
-      id: string;
-      refNo: string;
-      status: HandoutStatus;
-      updatedAt: Date;
-      offering: { course: { code: string; title: string } };
-    },
+    r: DeadlineRow & { refNo: string; offering: { course: { code: string; title: string } } },
   ) => {
-    const sla = slaHoursFor(cfg, r.status);
+    const due = currentDeadline(deadlineInput(r), cfg);
+    const left = due && STAGE_HOLDER[due.stage] === role ? daysLeft(due.dueAt, now) : null;
     out.get(userId)?.push({
       requestId: r.id,
       refNo: r.refNo,
       course: `${r.offering.course.code} — ${r.offering.course.title}`,
       status: r.status,
       role,
-      overdue: sla != null && now - r.updatedAt.getTime() >= sla * 3_600_000,
+      overdue: left != null && left < 0,
+      dueThisWeek: left != null && left >= 0 && left <= 7,
     });
   };
   for (const f of fac) add(f.facultyId, 'FACULTY', f.request);
@@ -96,7 +107,11 @@ export async function loads(userIds: string[]): Promise<Map<string, Load>> {
   return new Map(
     [...work].map(([id, items]) => [
       id,
-      { open: items.length, overdue: items.filter((i) => i.overdue).length },
+      {
+        open: items.length,
+        overdue: items.filter((i) => i.overdue).length,
+        dueThisWeek: items.filter((i) => i.dueThisWeek).length,
+      },
     ]),
   );
 }
@@ -172,7 +187,7 @@ export async function loadPeople(f: PeopleFilter = {}): Promise<PersonRow[]> {
     departmentName: u.department?.name ?? null,
     facultyType: u.facultyType,
     active: u.active,
-    load: load.get(u.id) ?? { open: 0, overdue: 0 },
+    load: load.get(u.id) ?? { open: 0, overdue: 0, dueThisWeek: 0 },
   }));
 }
 

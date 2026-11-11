@@ -1,4 +1,4 @@
-import type { Prisma, HandoutStatus} from '@hmp/db';
+import type { Prisma, HandoutStatus } from '@hmp/db';
 import { prisma, type RoleName } from '@hmp/db';
 import { nextStatus } from './machine';
 import { assertRoleAllowed, WorkflowError } from './guards';
@@ -74,7 +74,8 @@ export async function transition(input: TransitionInput): Promise<TransitionResu
   const result = await prisma.$transaction(async (tx) => {
     const updatedRequest = await tx.handoutRequest.update({
       where: { id: requestId },
-      data: { status: to },
+      // v1.4.2: due dates and overdue count from here (lib/deadlines.ts), not from updatedAt.
+      data: { status: to, statusChangedAt: new Date() },
     });
 
     let handoutId = request.handout?.id;

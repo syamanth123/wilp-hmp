@@ -8,6 +8,8 @@ import { suggestDepartments, suggestionText } from '@/lib/departments';
 import { roleLabel } from '@/lib/labels';
 import type { PeopleBase } from '@/lib/people-access';
 import { PersonForm } from './person-form';
+import { lastUndoable } from '@/lib/people-undo';
+import { UndoChange } from './undo-change';
 
 /**
  * People → a person: edit details, roles and department (with the impact check). The Instruction
@@ -36,6 +38,8 @@ export async function PersonView({ base, id }: { base: PeopleBase; id: string })
     }),
   ]);
   if (!u) notFound();
+  // v1.4.2: the latest role / department change can be undone for 24 hours (not an Admin account by the IC).
+  const undo = await lastUndoable(u.id);
   const work = (await openWork([u.id])).get(u.id) ?? [];
   // H6: no department yet → what the courses they taught suggest (applied only with "Use it").
   const s = u.departmentId ? undefined : (await suggestDepartments([u.id])).get(u.id);
@@ -47,14 +51,28 @@ export async function PersonView({ base, id }: { base: PeopleBase; id: string })
       <CardHeader>
         <CardTitle>{u.name}</CardTitle>
         <CardDescription>
-          {loadText({ open: work.length, overdue: work.filter((w) => w.overdue).length })}. Changes
-          take effect on their next page — no need to sign out.{' '}
+          {loadText({
+            open: work.length,
+            overdue: work.filter((w) => w.overdue).length,
+            dueThisWeek: work.filter((w) => w.dueThisWeek).length,
+          })}
+          . Changes take effect on their next page — no need to sign out.{' '}
           <Link href={`${base}/people`} className="underline">
             Back to People
           </Link>
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {undo && (viewerIsAdmin || !u.roles.some((r) => r.role.name === RoleName.ADMIN)) ? (
+          <UndoChange
+            userId={u.id}
+            auditId={undo.auditId}
+            text={`Changed by ${undo.actorName} on ${undo.atText}`}
+            changes={undo.changes}
+            handedOver={undo.handedOver}
+            until={undo.untilText}
+          />
+        ) : null}
         {!viewerIsAdmin && u.roles.some((r) => r.role.name === RoleName.ADMIN) ? (
           <div className="space-y-2 text-sm" data-testid="person-admin-readonly">
             <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950">

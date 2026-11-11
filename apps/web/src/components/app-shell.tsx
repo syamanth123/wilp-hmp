@@ -184,7 +184,7 @@ export async function AppShell({
   area,
   children,
 }: {
-  area: '/admin' | '/ic' | '/hog' | '/pc' | '/faculty' | '/sme' | '/handouts';
+  area: '/admin' | '/ic' | '/hog' | '/pc' | '/faculty' | '/sme' | '/handouts' | '/settings';
   children: React.ReactNode;
 }) {
   const user = await getSessionUser();
@@ -193,7 +193,9 @@ export async function AppShell({
     return <ForbiddenView user={user} />;
   }
   const visible = NAV.filter((n) => n.roles.some((r) => user.roles.includes(r)));
-  const currentLabel = NAV.find((n) => n.href === area)?.label ?? area.slice(1);
+  const currentLabel =
+    NAV.find((n) => n.href === area)?.label ??
+    (area === '/settings' ? 'My settings' : area.slice(1));
 
   return (
     <div className="flex min-h-screen">
@@ -295,6 +297,24 @@ export async function AppShell({
           >
             Account
           </div>
+          {/* v1.4.2: away / back-up, email digest, calendar link. */}
+          <Link
+            href="/settings"
+            aria-current={area === '/settings' ? 'page' : undefined}
+            data-testid="nav-settings"
+            style={{
+              display: 'block',
+              padding: '9px 12px',
+              color: area === '/settings' ? '#fff' : 'rgba(255,255,255,0.7)',
+              fontSize: 14,
+              fontWeight: area === '/settings' ? 600 : 500,
+              borderRadius: 6,
+              textDecoration: 'none',
+              background: area === '/settings' ? 'rgba(255,255,255,0.18)' : 'transparent',
+            }}
+          >
+            My settings
+          </Link>
           <SignOutButton sidebarStyle />
         </div>
 

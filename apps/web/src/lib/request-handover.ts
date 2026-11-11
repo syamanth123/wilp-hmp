@@ -82,6 +82,7 @@ export async function changeHogOrPc(input: {
           status: request.status,
           role: input.role,
           overdue: false,
+          dueThisWeek: false,
         },
         fromUserId: from.userId,
         toUserId: to.id,

@@ -73,6 +73,10 @@ model User {
   requestAssignments       RequestAssignee[]    @relation("RequestAssigneeUser")
   requestAssignmentsMade   RequestAssignee[]    @relation("RequestAssigneeAssigner")
   taxilaCourseChoices      TaxilaCourseChoice[]
+  // v1.4.2: settings, away / back-up, and the due dates someone changed.
+  preference               UserPreference?      @relation("UserPreferenceOwner")
+  backupFor                UserPreference[]     @relation("UserPreferenceBackup")
+  deadlinesSet             RequestDeadline[]
 
   @@index([email])
   @@index([departmentId])
@@ -272,6 +276,9 @@ model HandoutRequest {
   status             HandoutStatus @default(REQUESTED)
   notes              String?
   previousHandoutUrl String?
+  // v1.4.2: when the request entered its current status (due dates and overdue start here, not at
+  // updatedAt, which any edit moves). Filled from the history for older requests by the migration.
+  statusChangedAt    DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -287,6 +294,9 @@ model HandoutRequest {
   smeAssignment      SmeAssignment?
   // v1.4: who is responsible now, per role (HOG, PC, FACULTY, SME), with history.
   assignees          RequestAssignee[]
+  // v1.4.2: due dates someone changed by hand, and escalation steps already sent.
+  deadlines          RequestDeadline[]
+  escalationSteps    EscalationStep[]
 
   @@index([status])
   @@index([courseOfferingId])
@@ -481,6 +491,8 @@ model Comment {
   authorId  String
   body      String
   anchor    String? // for inline anchoring in editor
+  // v1.4.2: a reply points at the comment it answers (one level; the thread is the parent + its replies).
+  parentId  String?
   resolved  Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -570,6 +582,18 @@ model WorkflowConfig {
   facultySubmitSla    Int      @default(168)
   hogFinalSla         Int      @default(48)
   offCampusMaxCourses Int      @default(3)
+  // v1.4.2: SME review SLA (hours), due-date offsets (days before the semester starts), escalation
+  // and auto-publish switches.
+  smeReviewSla        Int      @default(72)
+  dueAllocationDays   Int      @default(35)
+  dueDraftDays        Int      @default(21)
+  dueSmeDays          Int      @default(17)
+  duePcDays           Int      @default(14)
+  dueHogFinalDays     Int      @default(10)
+  duePublishDays      Int      @default(7)
+  escalationOn        Boolean  @default(false)
+  escalationDays      Int      @default(3)
+  autoPublish         Boolean  @default(false)
   matrixJson          Json // approval matrix; configurable
   updatedAt           DateTime @updatedAt
 }
@@ -974,6 +998,8 @@ model TaxilaPublishRun {
   semesterCode String
   // "RUNNING" | "DONE"
   status       String              @default("RUNNING")
+  // v1.4.2: started by auto-publish after a final approval, not by the IC.
+  auto         Boolean             @default(false)
   createdAt    DateTime            @default(now())
   finishedAt   DateTime?
   items        TaxilaPublishItem[]
@@ -1021,4 +1047,84 @@ model RequestAssignee {
 
   @@index([requestId, role])
   @@index([userId, endedAt])
+}
+
+// v1.4.2 — one row per person for their own settings: email mode, weekly summary, away / back-up,
+// remembered choices and the calendar link (stored only as a SHA-256 fingerprint).
+enum EmailMode {
+  INSTANT
+  DIGEST
+}
+
+model UserPreference {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  user              User      @relation("UserPreferenceOwner", fields: [userId], references: [id], onDelete: Cascade)
+  emailMode         EmailMode @default(INSTANT)
+  weeklySummary     Boolean   @default(true)
+  awayFrom          DateTime?
+  awayUntil         DateTime?
+  backupUserId      String?
+  backupUser        User?     @relation("UserPreferenceBackup", fields: [backupUserId], references: [id], onDelete: SetNull)
+  // { semesterId?, departmentId?, … } — re-validated on use, never trusted to widen access.
+  lastUsed          Json?
+  calendarTokenHash String?   @unique
+  calendarTokenAt   DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([backupUserId])
+}
+
+// v1.4.2 — the stages a request's due dates are kept for.
+enum DeadlineStage {
+  ALLOCATION
+  DRAFT
+  SME_REVIEW
+  PC_REVIEW
+  HOG_FINAL
+  PUBLISH
+}
+
+// v1.4.2 — a due date someone changed by hand (IC or the request's HOG, with a reason). Dates nobody
+// changed are worked out from the rule (lib/deadlines.ts) and not stored.
+model RequestDeadline {
+  id        String         @id @default(cuid())
+  requestId String
+  request   HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stage     DeadlineStage
+  dueAt     DateTime
+  setById   String?
+  setBy     User?          @relation(fields: [setById], references: [id], onDelete: SetNull)
+  reason    String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([requestId, stage])
+}
+
+// v1.4.2 — a reminder / escalation step already sent (0 = due soon, 1 = overdue, 2 = + HOG, 3 = + IC;
+// lib/escalation.ts), so each is sent once per stage and due date.
+model EscalationStep {
+  id        String         @id @default(cuid())
+  requestId String
+  request   HandoutRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stage     DeadlineStage
+  dueAt     DateTime
+  level     Int
+  sentAt    DateTime       @default(now())
+
+  @@unique([requestId, stage, dueAt, level])
+}
+
+// v1.4.2 — one row per scheduled run ("daily" / "2026-11-12"), so a run never happens twice.
+model ScheduledRun {
+  id         String    @id @default(cuid())
+  job        String
+  periodKey  String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  summary    Json?
+
+  @@unique([job, periodKey])
 }

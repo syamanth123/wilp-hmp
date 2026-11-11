@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { DownloadMenu } from '@/components/download-menu';
 import { PUBLISHED_DOWNLOAD_STATUSES } from '@/lib/export/access';
 import { StatusTimeline } from '@/components/status-timeline';
+import { StageDeadlines } from '@/components/stage-deadlines';
 
 // Workflow detail pages MUST be force-dynamic. Without it, Next.js production
 // builds can serve a stale RSC payload from before revalidatePath propagated,
@@ -309,6 +310,16 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Due dates</CardTitle>
+          <CardDescription>Each step&apos;s due date. The highlighted one is now.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StageDeadlines requestId={request.id} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

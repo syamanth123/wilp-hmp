@@ -13,17 +13,34 @@ const schema = z.object({
   facultySubmitSla: z.coerce.number().int().min(1).max(720),
   hogFinalSla: z.coerce.number().int().min(1).max(720),
   offCampusMaxCourses: z.coerce.number().int().min(1).max(10),
+  // v1.4.2: SME review SLA, and due dates in days before the semester starts.
+  smeReviewSla: z.coerce.number().int().min(1).max(720),
+  dueAllocationDays: z.coerce.number().int().min(0).max(180),
+  dueDraftDays: z.coerce.number().int().min(0).max(180),
+  dueSmeDays: z.coerce.number().int().min(0).max(180),
+  duePcDays: z.coerce.number().int().min(0).max(180),
+  dueHogFinalDays: z.coerce.number().int().min(0).max(180),
+  duePublishDays: z.coerce.number().int().min(-60).max(180),
 });
+
+const FIELDS = [
+  'hogReviewSla',
+  'pcReviewSla',
+  'facultySubmitSla',
+  'hogFinalSla',
+  'offCampusMaxCourses',
+  'smeReviewSla',
+  'dueAllocationDays',
+  'dueDraftDays',
+  'dueSmeDays',
+  'duePcDays',
+  'dueHogFinalDays',
+  'duePublishDays',
+] as const;
 
 export async function updateWorkflowAction(formData: FormData) {
   const actor = requireRole(await getSessionUser(), RoleName.ADMIN);
-  const parsed = schema.safeParse({
-    hogReviewSla: formData.get('hogReviewSla'),
-    pcReviewSla: formData.get('pcReviewSla'),
-    facultySubmitSla: formData.get('facultySubmitSla'),
-    hogFinalSla: formData.get('hogFinalSla'),
-    offCampusMaxCourses: formData.get('offCampusMaxCourses'),
-  });
+  const parsed = schema.safeParse(Object.fromEntries(FIELDS.map((f) => [f, formData.get(f)])));
   if (!parsed.success)
     return {
       error: formError(parsed.error, {
@@ -32,7 +49,28 @@ export async function updateWorkflowAction(formData: FormData) {
         facultySubmitSla: 'Faculty writing — time allowed (hours)',
         hogFinalSla: 'HOG final approval — time allowed (hours)',
         offCampusMaxCourses: 'Courses per off-campus faculty member',
+        smeReviewSla: 'SME review — time allowed (hours)',
+        dueAllocationDays: 'Allocation due (days before the semester starts)',
+        dueDraftDays: 'Faculty draft due (days before)',
+        dueSmeDays: 'SME review due (days before)',
+        duePcDays: 'PC review due (days before)',
+        dueHogFinalDays: 'HOG final approval due (days before)',
+        duePublishDays: 'Publish due (days before)',
       }),
+    };
+  const d = parsed.data;
+  if (
+    !(
+      d.dueAllocationDays >= d.dueDraftDays &&
+      d.dueDraftDays >= d.dueSmeDays &&
+      d.dueSmeDays >= d.duePcDays &&
+      d.duePcDays >= d.dueHogFinalDays &&
+      d.dueHogFinalDays >= d.duePublishDays
+    )
+  )
+    return {
+      error:
+        'The due dates must come in order: allocation first, publish last (each number no larger than the one before).',
     };
   const before = await prisma.workflowConfig.findUniqueOrThrow({ where: { key: 'default' } });
   const updated = await prisma.workflowConfig.update({
@@ -44,12 +82,42 @@ export async function updateWorkflowAction(formData: FormData) {
     action: 'workflow.update',
     entity: 'WorkflowConfig',
     entityId: updated.id,
+    before: Object.fromEntries(FIELDS.map((f) => [f, before[f]])),
+    after: parsed.data,
+  });
+  revalidatePath('/admin/workflow');
+  return { ok: true };
+}
+
+const switchesSchema = z.object({
+  escalationOn: z.boolean(),
+  escalationDays: z.coerce.number().int().min(1).max(30),
+  autoPublish: z.boolean(),
+});
+
+/** v1.4.2 — escalation (H26: starts off) and auto-publish (H23: off by default). Admin only here. */
+export async function updateSwitchesAction(formData: FormData) {
+  const actor = requireRole(await getSessionUser(), RoleName.ADMIN);
+  const parsed = switchesSchema.safeParse({
+    escalationOn: formData.get('escalationOn') === 'on',
+    escalationDays: formData.get('escalationDays'),
+    autoPublish: formData.get('autoPublish') === 'on',
+  });
+  if (!parsed.success) return { error: 'Escalation after: a whole number of days, 1 to 30.' };
+  const before = await prisma.workflowConfig.findUniqueOrThrow({ where: { key: 'default' } });
+  const updated = await prisma.workflowConfig.update({
+    where: { key: 'default' },
+    data: parsed.data,
+  });
+  await audit({
+    actorId: actor.id,
+    action: 'workflow.update',
+    entity: 'WorkflowConfig',
+    entityId: updated.id,
     before: {
-      hogReviewSla: before.hogReviewSla,
-      pcReviewSla: before.pcReviewSla,
-      facultySubmitSla: before.facultySubmitSla,
-      hogFinalSla: before.hogFinalSla,
-      offCampusMaxCourses: before.offCampusMaxCourses,
+      escalationOn: before.escalationOn,
+      escalationDays: before.escalationDays,
+      autoPublish: before.autoPublish,
     },
     after: parsed.data,
   });

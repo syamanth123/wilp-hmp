@@ -6,6 +6,7 @@ import { prisma, RoleName, FacultyType } from '@hmp/db';
 import { savePerson, type PersonInput, type SaveResult } from '@/lib/people-save';
 import { applyPeople, previewPeople, type Preview } from '@/lib/people-import';
 import { PEOPLE_PATHS, adminOnlyProblem, requirePeopleManager } from '@/lib/people-access';
+import { undoPersonChange } from '@/lib/people-undo';
 
 const refresh = () => PEOPLE_PATHS.forEach((p) => revalidatePath(p));
 
@@ -85,6 +86,14 @@ export async function applyPeopleAction(fd: FormData) {
     accept = [];
   }
   const r = await applyPeople(actor.id, await toCsv(fd), accept, { actorIsAdmin: actor.isAdmin });
+  if (r.ok) refresh();
+  return r;
+}
+
+/** v1.4.2 — undo a person's latest role / department change within 24 hours (lib/people-undo.ts). */
+export async function undoPersonChangeAction(userId: string, auditId: string) {
+  const actor = await requirePeopleManager();
+  const r = await undoPersonChange(actor, String(userId), String(auditId));
   if (r.ok) refresh();
   return r;
 }

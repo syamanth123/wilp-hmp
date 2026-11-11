@@ -1,5 +1,7 @@
 'use server';
 
+import { existingRequests } from '@/lib/duplicate-guard';
+
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
@@ -38,6 +40,10 @@ export async function createRequestAction(formData: FormData) {
   });
   if (!offering)
     return { error: 'That course offering no longer exists. Refresh the page and choose again.' };
+  // v1.4.2 (F5): one request per course offering (same rule as bulk upload).
+  const dup = (await existingRequests([offering.id])).get(offering.id);
+  if (dup)
+    return { error: `${dup.refNo} already exists for this course and semester — open it instead.` };
 
   // v1.4 §C: the chosen HOG must be an active HOG; one outside the course's department needs a reason.
   const hog = await prisma.user.findFirst({

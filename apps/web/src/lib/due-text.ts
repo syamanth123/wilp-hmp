@@ -14,12 +14,10 @@ export interface DueText {
 export function dueText(dueAt: Date, now: Date = new Date()): DueText {
   const ist = (d: Date) => Math.floor((d.getTime() + 5.5 * 3_600_000) / DAY);
   const days = ist(dueAt) - ist(now);
-  if (dueAt.getTime() < now.getTime()) {
-    const late = Math.max(0, -days);
-    return {
-      text: late === 0 ? 'Overdue' : `Overdue by ${late} ${late === 1 ? 'day' : 'days'}`,
-      tone: 'overdue',
-    };
+  // v1.4.2: a due date is a whole day (lib/deadlines.ts) — overdue from the day after.
+  if (days < 0) {
+    const late = -days;
+    return { text: `Overdue by ${late} ${late === 1 ? 'day' : 'days'}`, tone: 'overdue' };
   }
   if (days === 0) return { text: 'Due today', tone: 'soon' };
   if (days === 1) return { text: 'Due tomorrow', tone: 'soon' };

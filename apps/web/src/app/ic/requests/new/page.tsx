@@ -6,6 +6,7 @@ import { RequestForm, type HogOption, type OfferingOption } from './request-form
 import { SetUpOffering } from './set-up-offering';
 import { loadPlanInput, planMessage, planOffering } from '@/lib/dibba-offering';
 import { loads, loadText } from '@/lib/people';
+import { existingRequests } from '@/lib/duplicate-guard';
 
 /** "?courses=ET ZC232,ENGG ZC232&term=2025-FIRST" — the Handout Library's "Create request". */
 function parsePrefill(sp: Record<string, string | undefined>) {
@@ -41,6 +42,8 @@ export default async function NewRequestPage({
     orderBy: [{ semester: { name: 'asc' } }, { course: { code: 'asc' } }],
   });
 
+  // v1.4.2 (F5): a course that already has a request this semester is marked, and can't be requested again.
+  const existing = await existingRequests(offerings.map((o) => o.id));
   const options: OfferingOption[] = offerings.map((o) => ({
     id: o.id,
     courseCode: o.course.code,
@@ -51,6 +54,9 @@ export default async function NewRequestPage({
     slotInfo: o.slotInfo,
     departmentId: o.semester.programme.departmentId,
     departmentName: o.semester.programme.department?.name ?? null,
+    existing: existing.has(o.id)
+      ? { refNo: existing.get(o.id)!.refNo, href: `/ic/requests/${existing.get(o.id)!.id}` }
+      : null,
   }));
 
   // v1.4: every active HOG with their department and current load (the form pre-selects the course's).

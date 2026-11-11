@@ -6,6 +6,7 @@ import type { RecommendationResult } from '@hmp/ai';
 import { RecommendationList } from '@/components/recommendation-list';
 import { allocateFacultyAction } from './actions';
 import { facultyTypeLabel } from '@/lib/labels';
+import type { DibbaSuggestion, LastTeam } from '@/lib/allocation-suggestions';
 
 /** v1.4 §C: a person the HOG can pick, with their department and open-work load. */
 export interface PersonChoice {
@@ -17,6 +18,8 @@ export interface PersonChoice {
   sameDepartment: boolean;
   /** "3 open handouts · 1 overdue" */
   load: string;
+  /** v1.4.2: "away until 20 Nov · back-up Dr Y" */
+  away?: string | null;
 }
 
 export interface FacultyChoice extends PersonChoice {
@@ -58,6 +61,8 @@ export function AllocationPanel({
   departmentName,
   cap,
   recommendation,
+  dibba,
+  lastTeam,
 }: {
   requestId: string;
   faculties: FacultyChoice[];
@@ -68,6 +73,8 @@ export function AllocationPanel({
   departmentName: string | null;
   cap: number;
   recommendation?: RecommendationResult | null;
+  dibba?: DibbaSuggestion | null;
+  lastTeam?: LastTeam | null;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [smeUserId, setSmeUserId] = useState('');
@@ -147,8 +154,77 @@ export function AllocationPanel({
     });
   };
 
+  // v1.4.2 (F2): fill the pickers with last semester's team (people still here; the HOG can change any).
+  const known = (id: string, list: PersonChoice[]) => list.some((p) => p.id === id);
+  const useTeam = (t: LastTeam) => {
+    const fac = t.faculty.filter((f) => f.active && known(f.id, faculties)).map((f) => f.id);
+    setSelected(new Set(fac));
+    if (t.sme?.active && known(t.sme.id, smes)) setSmeUserId(t.sme.id);
+    if (t.pc?.active && known(t.pc.id, pcs)) setPcUserId(t.pc.id);
+    if ([...fac, t.sme?.id, t.pc?.id].some((id) => id && !visibleId(id))) setShowAll(true);
+  };
+  const visibleId = (id: string) =>
+    [...faculties, ...smes, ...pcs].find((p) => p.id === id)?.sameDepartment ?? false;
+  const personText = (p: { name: string; active: boolean; away: string | null }) =>
+    `${p.name}${!p.active ? ' (no longer active)' : p.away ? ` (${p.away})` : ''}`;
+
   return (
     <div className="space-y-3">
+      {(dibba || lastTeam) && (
+        <div
+          className="space-y-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm"
+          data-testid="alloc-suggestions"
+        >
+          {dibba ? (
+            <div className="flex flex-wrap items-center gap-2" data-testid="suggest-dibba">
+              <span>
+                Suggested:{' '}
+                {dibba.instructors.map((i, n) => (
+                  <span key={i.id}>
+                    {n > 0 ? ', ' : ''}
+                    <strong>{personText(i)}</strong>
+                    {i.lead && dibba.instructors.length > 1 ? ' (lead)' : ''}
+                  </span>
+                ))}{' '}
+                — Course Dibba instructor{dibba.instructors.length > 1 ? 's' : ''}, {dibba.termName}
+              </span>
+              {dibba.instructors.some((i) => i.active && known(i.id, faculties)) ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    for (const i of dibba.instructors)
+                      if (i.active && known(i.id, faculties)) addToSelection(i.id);
+                    if (dibba.instructors.some((i) => known(i.id, faculties) && !visibleId(i.id)))
+                      setShowAll(true);
+                  }}
+                  data-testid="suggest-dibba-use"
+                >
+                  Use
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {lastTeam ? (
+            <div className="flex flex-wrap items-center gap-2" data-testid="suggest-last-team">
+              <span>
+                Same team as <strong>{lastTeam.semesterName}</strong> ({lastTeam.refNo}):{' '}
+                {lastTeam.faculty.map((f) => personText(f)).join(', ') || 'no faculty'} (faculty)
+                {lastTeam.sme ? `, ${personText(lastTeam.sme)} (SME)` : ''}
+                {lastTeam.pc ? `, ${personText(lastTeam.pc)} (PC)` : ''}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => useTeam(lastTeam)}
+                data-testid="suggest-last-team-use"
+              >
+                Use this team
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      )}
       {recommendation && (
         <RecommendationList requestId={requestId} result={recommendation} onPick={addToSelection} />
       )}
@@ -208,6 +284,14 @@ export function AllocationPanel({
                 <div className="font-medium">
                   {f.name}
                   <OtherDept p={f} />
+                  {f.away ? (
+                    <span
+                      className="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-900"
+                      data-testid="person-away"
+                    >
+                      {f.away}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="text-muted-foreground text-xs">{f.email}</div>
               </span>
@@ -247,6 +331,7 @@ export function AllocationPanel({
             .map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} · {s.load}
+                {s.away ? ` · ${s.away}` : ''}
                 {otherDeptText(s)}
               </option>
             ))}
@@ -274,6 +359,7 @@ export function AllocationPanel({
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name} · {p.load}
+                {p.away ? ` · ${p.away}` : ''}
                 {otherDeptText(p)}
               </option>
             ))}
