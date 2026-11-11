@@ -4,6 +4,7 @@ import { cookies, headers } from 'next/headers';
 import { signIn } from '@hmp/auth';
 import { prisma, type RoleName } from '@hmp/db';
 import { defaultRouteForUser } from '@/lib/routing';
+import { safeNextPath } from '@/lib/saml/relay';
 import { clientIpFromHeaders } from '@/lib/client-ip';
 import { loginRateLimit, clearLoginUsername, recordLoginFailure } from '@/lib/rate-limit';
 
@@ -122,16 +123,18 @@ export async function signInAction(input: { email: string; password: string; nex
   const roles = memberships.map((m) => m.role.name) as RoleName[];
   if (roles.length === 0) return { error: INVALID_CREDENTIALS };
 
+  // v1.4.1.1: only a path on this site is followed after sign-in — the same check the BITS sign-in
+  // uses (lib/saml/relay.ts). Anything else (another site, '//host', '/\host', '/login', '/api/…')
+  // opens the person's home page instead, so a crafted sign-in link can't send them elsewhere.
   const redirectTo =
-    input.next && input.next !== '/login'
-      ? input.next
-      : defaultRouteForUser({
-          id: '',
-          email: input.email,
-          name: '',
-          roles,
-          permissions: [],
-        });
+    safeNextPath(input.next) ??
+    defaultRouteForUser({
+      id: '',
+      email: input.email,
+      name: '',
+      roles,
+      permissions: [],
+    });
 
   return { redirectTo };
 }
