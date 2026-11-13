@@ -7,6 +7,11 @@ import {
   RoleName,
 } from '@hmp/db';
 import { sendMail } from '@hmp/integrations';
+import { loadMailContext } from './email/context';
+import type { MailContext, MailRecipient } from './email/events';
+import { renderEmail, type EmailContent } from './email/layout';
+import { digestEmail, reminderEmail, weeklyEmail, type DigestItem } from './email/other';
+import { loadRequestFacts } from './email/request-facts';
 // Relative imports only: the worker (tsx) loads this file and doesn't know Next's '@/' alias.
 import { LEVEL_TEXT, planRun, type PlannedStep } from './escalation';
 import {
@@ -22,6 +27,7 @@ import {
 } from './deadlines';
 import {
   absoluteEmailLink,
+  auditEmailFailure,
   deliver,
   deliverToUsers,
   instructionCellIds,
@@ -137,8 +143,16 @@ export async function sendReminders(
 ): Promise<{ steps: number; notified: number }> {
   const plan = await planRun(now, { only: opts.only });
   const ic = await instructionCellIds();
+  const ctx = plan.length ? await loadMailContext('', now) : null;
   let notified = 0;
   for (const step of plan) {
+    // v1.4.3: the full email (details, people, who has been told, what waits on it).
+    const facts = ctx ? await loadRequestFacts(step.requestId) : null;
+    const holders = step.holder ? [step.holder] : [];
+    const mail =
+      (copy: boolean) =>
+      (to: MailRecipient): EmailContent | null =>
+        facts && ctx ? reminderEmail(facts, to, { copy, holders, told: step.told }, ctx) : null;
     const meta = {
       stage: step.stage,
       level: step.level,
@@ -154,6 +168,8 @@ export async function sendReminders(
       metaKind: 'deadline.reminder',
       extraMeta: meta,
       urgent,
+      mail: mail(false),
+      dueAt: step.dueAt,
     });
     const copy = reminderText(step, 'copy');
     if (step.hogIds.length)
@@ -163,6 +179,7 @@ export async function sendReminders(
         metaKind: 'deadline.escalation',
         extraMeta: meta,
         urgent: true,
+        mail: mail(true),
       });
     if (step.toIc && step.holderRole !== 'IC')
       notified += await deliverToUsers(ic, RoleName.INSTRUCTION_CELL, {
@@ -171,6 +188,7 @@ export async function sendReminders(
         metaKind: 'deadline.escalation',
         extraMeta: meta,
         urgent: true,
+        mail: mail(true),
       });
     // This level and the ones below count as sent for this stage and due date.
     await prisma.escalationStep.createMany({
@@ -187,9 +205,6 @@ export async function sendReminders(
 }
 
 // ---- daily digest (F6) ---------------------------------------------------------------------------
-
-const esc = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** Notices that hand the work to the reader (the rest are "for information"). */
 const ACTION_EVENTS = new Set([
@@ -220,6 +235,7 @@ export async function sendDigests(): Promise<{ sent: number; failed: number }> {
       user: { select: { id: true, email: true, name: true, active: true } },
     },
   });
+  let ctx: MailContext | null = null;
   const byUser = new Map<string, typeof rows>();
   for (const r of rows) byUser.set(r.user.id, [...(byUser.get(r.user.id) ?? []), r]);
   let sent = 0;
@@ -234,28 +250,27 @@ export async function sendDigests(): Promise<{ sent: number; failed: number }> {
       });
       continue;
     }
+    // v1.4.3: each held notice kept its compact block (digestItem); older ones fall back to their line.
     const isAction = (i: (typeof items)[number]) =>
       ACTION_EVENTS.has(String((i.meta as { event?: string } | null)?.event ?? ''));
-    const groups = [
-      { title: 'Action needed', list: items.filter(isAction) },
-      { title: 'For information', list: items.filter((i) => !isAction(i)) },
-    ].filter((g) => g.list.length);
-    const line = (i: (typeof items)[number]) => ({
-      html: `<li><a href="${esc(absoluteEmailLink(i.link ?? '/'))}">${esc(i.subject)}</a><br>${esc(i.body)}</li>`,
-      text: `- ${i.subject}\n  ${i.body}\n  ${absoluteEmailLink(i.link ?? '/')}`,
-    });
-    const subject = `[HMP] Your daily summary: ${items.length} update${items.length === 1 ? '' : 's'}`;
-    const html =
-      `<p>Hello ${esc(u.name)}, here is what happened in HMP since yesterday's summary.</p>` +
-      groups
-        .map((g) => `<h3>${g.title}</h3><ul>${g.list.map((i) => line(i).html).join('')}</ul>`)
-        .join('') +
-      `<p style="color:#666;font-size:12px">You get one email a day because you chose it in My settings. Urgent notices still arrive at once.</p>`;
-    const text =
-      `Hello ${u.name}, here is what happened in HMP since yesterday's summary.\n\n` +
-      groups.map((g) => `${g.title}\n${g.list.map((i) => line(i).text).join('\n')}`).join('\n\n') +
-      `\n\nYou get one email a day because you chose it in My settings.`;
-    const result = await sendMail({ to: u.email, subject, html, text }).catch((e: unknown) => ({
+    const blocks: DigestItem[] = items.map(
+      (i) =>
+        (i.meta as { digestItem?: DigestItem } | null)?.digestItem ?? {
+          action: isAction(i),
+          title: i.subject,
+          url: absoluteEmailLink(i.link ?? '/'),
+          lines: [i.body],
+        },
+    );
+    ctx ??= await loadMailContext();
+    const { subject, html, text } = renderEmail(digestEmail({ name: u.name }, blocks, ctx));
+    const result = await sendMail({
+      to: u.email,
+      subject,
+      html,
+      text,
+      replyTo: ctx.footer.replyTo,
+    }).catch((e: unknown) => ({
       ok: false as const,
       error: String(e),
     }));
@@ -265,6 +280,7 @@ export async function sendDigests(): Promise<{ sent: number; failed: number }> {
         ? { status: NotificationStatus.SENT, sentAt: new Date() }
         : { status: NotificationStatus.FAILED },
     });
+    if (!result.ok) await auditEmailFailure(ids[0]!, { to: u.email, subject }, result.error);
     if (result.ok) sent += 1;
     else failed += 1;
   }
@@ -359,37 +375,35 @@ export async function weeklyNumbers(now: Date): Promise<DeptSummary[]> {
   );
 }
 
-export function summaryEmail(name: string, depts: DeptSummary[], role: RoleName, week: string) {
-  const block = (d: DeptSummary) => {
-    const over = d.overdue.slice(0, 10);
-    return {
-      html:
-        `<h3>${esc(d.name)}</h3><p>${d.inProgress} in progress · <strong>${d.overdue.length} overdue</strong> · ${d.approved} approved, not yet published · ${d.publishedThisWeek} published this week</p>` +
-        (over.length
-          ? `<ul>${over
-              .map(
-                (o) =>
-                  `<li><a href="${esc(absoluteEmailLink(linkFor(role, o.requestId)))}">${esc(o.refNo)}</a> ${esc(o.course)} — ${esc(o.step)}, ${o.days} days overdue</li>`,
-              )
-              .join(
-                '',
-              )}</ul>${d.overdue.length > over.length ? `<p>… and ${d.overdue.length - over.length} more.</p>` : ''}`
-          : ''),
-      text:
-        `${d.name}: ${d.inProgress} in progress, ${d.overdue.length} overdue, ${d.approved} approved, ${d.publishedThisWeek} published this week` +
-        over
-          .map((o) => `\n  - ${o.refNo} ${o.course} — ${o.step}, ${o.days} days overdue`)
-          .join(''),
-    };
-  };
-  const blocks = depts.map(block);
-  return {
-    subject: `[HMP] Weekly summary — week of ${week}`,
-    html:
-      `<p>Hello ${esc(name)}, here is this week in HMP.</p>${blocks.map((b) => b.html).join('')}` +
-      `<p style="color:#666;font-size:12px">Sent every Monday. You can switch it off in My settings.</p>`,
-    text: `Hello ${name}, here is this week in HMP.\n\n${blocks.map((b) => b.text).join('\n\n')}\n\nSent every Monday. You can switch it off in My settings.`,
-  };
+/** v1.4.3: the Monday summary in the shared layout (lib/email/other.ts weeklyEmail). */
+export function summaryEmail(
+  name: string,
+  depts: DeptSummary[],
+  role: RoleName,
+  week: string,
+  ctx: MailContext,
+) {
+  const content = weeklyEmail(
+    { name },
+    {
+      week,
+      dashboardUrl: ctx.url(
+        role === RoleName.INSTRUCTION_CELL ? '/ic/dashboard' : '/hog/department',
+      ),
+      depts: depts.map((d) => ({
+        name: d.name,
+        inProgress: d.inProgress,
+        approved: d.approved,
+        publishedThisWeek: d.publishedThisWeek,
+        overdue: d.overdue.map((o) => ({
+          ...o,
+          url: absoluteEmailLink(linkFor(role, o.requestId)),
+        })),
+      })),
+    },
+    ctx,
+  );
+  return { content, ...renderEmail(content) };
 }
 
 /** Monday: each HOG their department, each IC every department (H20: on unless switched off). */
@@ -410,24 +424,25 @@ export async function sendWeeklySummaries(now: Date): Promise<number> {
     },
   });
   const week = formatDueDay(new Date(`${periodKey('weekly', now)}T00:00:00+05:30`));
+  const ctx = await loadMailContext('', now);
   let n = 0;
   for (const p of people) {
     const isIc = p.roles.some((r) => r.role.name === RoleName.INSTRUCTION_CELL);
     const mine = isIc ? depts : depts.filter((d) => d.id === p.departmentId);
     if (mine.length === 0) continue;
     const role = isIc ? RoleName.INSTRUCTION_CELL : RoleName.HOG;
-    const mail = summaryEmail(p.name, mine, role, week);
+    const mail = summaryEmail(p.name, mine, role, week, ctx);
     await deliver({
       userId: p.id,
       email: p.email,
       role,
       subject: mail.subject,
-      body: mail.text,
+      body: mail.content.summary,
       link: isIc ? '/ic/dashboard' : '/hog/department',
       channels: [NotificationChannel.EMAIL],
       metaKind: 'summary.weekly',
       urgent: true,
-      html: mail.html,
+      mail: mail.content,
     });
     n += 1;
   }

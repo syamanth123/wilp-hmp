@@ -1,4 +1,6 @@
 import { prisma, NotificationChannel, RoleName } from '@hmp/db';
+import { loadMailContext } from './email/context';
+import { backupEmail } from './email/other';
 import { audit } from './audit';
 import { BACKUP_ROLES } from './away';
 import { formatDueDay } from './deadlines';
@@ -81,7 +83,40 @@ export async function saveAway(input: {
       channels: [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL],
       metaKind: 'user.backup',
       urgent: true,
+      mail: backupEmail(
+        { name: backup.name },
+        {
+          named: true,
+          person: person.name,
+          from: from ? formatDueDay(from) : 'today',
+          until: formatDueDay(until),
+        },
+        await loadMailContext(),
+      ),
     });
+  }
+  // v1.4.3: the back-up who was replaced (or dropped) is told.
+  if (before?.backupUserId && before.backupUserId !== (backup?.id ?? null)) {
+    const old = await prisma.user.findUnique({
+      where: { id: before.backupUserId },
+      select: { id: true, name: true, email: true, active: true },
+    });
+    if (old?.active)
+      await deliver({
+        userId: old.id,
+        email: old.email,
+        role: roles[0] ?? RoleName.HOG,
+        subject: `You are no longer ${person.name}'s back-up`,
+        body: `${person.name} chose someone else as back-up (or none), so their work no longer shows in your My work.`,
+        link: '/',
+        channels: [NotificationChannel.IN_PORTAL, NotificationChannel.EMAIL],
+        metaKind: 'user.backup-removed',
+        mail: backupEmail(
+          { name: old.name },
+          { named: false, person: person.name },
+          await loadMailContext(),
+        ),
+      });
   }
   return {
     ok: true,

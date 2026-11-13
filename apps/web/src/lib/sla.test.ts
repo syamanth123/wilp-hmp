@@ -20,6 +20,8 @@ const cfg: WorkflowConfig = {
   escalationOn: false,
   escalationDays: 3,
   autoPublish: false,
+  emailReplyTo: null,
+  emailHelp: null,
   matrixJson: {} as never,
   updatedAt: new Date(),
 } as WorkflowConfig;

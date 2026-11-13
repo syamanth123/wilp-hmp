@@ -218,10 +218,9 @@ test.describe('SME approval gate — multi-role loop', () => {
 
     // ── Email: faculty is told the SME requested changes (gated) ──────────────
     if (mailhogUp) {
-      const email = await waitForEmail(
-        new RegExp(`^SME requested changes: ${refNo}`),
-        'faculty@hmp.local',
-      );
+      // v1.4.3: the detailed email — the course in the subject, the HMP reference in the details box.
+      const email = await waitForEmail(/^\[HMP\] Changes needed: /, 'faculty@hmp.local');
+      expect((email.Content.Body ?? '').replace(/=\r?\n/g, '')).toContain(refNo);
       logCapturedEmail('sme_reverted → faculty', email);
       expect(decodeMimeWords(email.Content.Headers.Subject?.[0] ?? '')).not.toContain('{{');
       expect((email.Content.Body ?? '').replace(/=\r?\n/g, '')).not.toContain('{{');
@@ -280,13 +279,13 @@ test.describe('SME approval gate — multi-role loop', () => {
 
     // ── Email: faculty + PC are told it cleared the SME gate (gated) ──────────
     if (mailhogUp) {
-      const facultyEmail = await waitForEmail(
-        new RegExp(`^SME approved: ${refNo}`),
-        'faculty@hmp.local',
-      );
+      // v1.4.3: faculty are told (for information); the PC is asked to review.
+      const facultyEmail = await waitForEmail(/^\[HMP\] SME approved: /, 'faculty@hmp.local');
+      expect((facultyEmail.Content.Body ?? '').replace(/=\r?\n/g, '')).toContain(refNo);
       logCapturedEmail('sme_approved → faculty', facultyEmail);
       expect(decodeMimeWords(facultyEmail.Content.Headers.Subject?.[0] ?? '')).not.toContain('{{');
-      const pcEmail = await waitForEmail(new RegExp(`^SME approved: ${refNo}`), 'pc@hmp.local');
+      const pcEmail = await waitForEmail(/^\[HMP\] Action needed: review /, 'pc@hmp.local');
+      expect((pcEmail.Content.Body ?? '').replace(/=\r?\n/g, '')).toContain(refNo);
       logCapturedEmail('sme_approved → pc', pcEmail);
     }
 

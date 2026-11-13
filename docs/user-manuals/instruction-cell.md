@@ -175,3 +175,19 @@ Find, read, compare and download handouts — published, in progress and past BI
   - **Deactivate…** hands over their open work first.
 - **Earlier runs:** switch **auto-publish** on or off (off by default). Automatic runs are listed there.
 - **My settings:** your own away / back-up, daily digest, weekly summary, calendar link.
+
+## v1.4.3 — detailed emails
+
+- Every email now explains itself, so you can act without opening HMP first:
+  - what happened and what you need to do, by when;
+  - a button straight to the page;
+  - the course, semester, department, status, version and Course Dibba slot;
+  - who is on the request;
+  - the last few steps.
+- After a **kick-off** or a **bulk upload**, each HOG gets **one email** listing all their new requests,
+  not one per request.
+- **Welcome emails:**
+  - sent when you add someone on **Add person** (ticked by default);
+  - for a **People upload** the box starts **unticked**: tick it once the portal has been announced;
+  - you can also send it later from **Edit person → Send welcome email**.
+- People are told by email when their roles or department change.

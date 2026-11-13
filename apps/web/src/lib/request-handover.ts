@@ -1,5 +1,8 @@
 import { prisma, HandoutStatus, NotificationChannel, RoleName } from '@hmp/db';
 import { deliver, linkFor } from './notifications';
+import { loadMailContext } from './email/context';
+import { handoverEmail } from './email/other';
+import { loadRequestFacts } from './email/request-facts';
 import { reassign } from './people-save';
 import { loads, loadText } from './people';
 
@@ -114,12 +117,32 @@ export async function changeHogOrPc(input: {
   });
 
   const course = `${request.offering.course.code} ${request.offering.course.title}`;
+  // v1.4.3: the full email — by whom, from whom, to whom, the reason, with the request's details.
+  const [facts, ctx] = await Promise.all([
+    loadRequestFacts(request.id),
+    loadMailContext(input.actor.name),
+  ]);
   const tell = (
-    u: { id: string; email: string },
+    u: { id: string; email: string; name: string },
     subject: string,
     body: string,
+    isNew: boolean,
   ): Promise<unknown> =>
     deliver({
+      mail: facts
+        ? handoverEmail(
+            facts,
+            { id: u.id, name: u.name, email: u.email, role: ROLE[input.role] },
+            {
+              isNew,
+              role: WORD[input.role],
+              from: from?.user.name ?? null,
+              toName: to.name,
+              reason,
+            },
+            ctx,
+          )
+        : null,
       userId: u.id,
       email: u.email,
       role: ROLE[input.role],
@@ -135,6 +158,7 @@ export async function changeHogOrPc(input: {
       to,
       `You are now the ${input.role} for ${request.refNo}`,
       `${input.actor.name} made you the ${WORD[input.role]} for ${request.refNo} (${course})${from ? `, taking over from ${from.user.name}` : ''}. Reason: ${reason}`,
+      true,
     ),
     ...(from && from.userId !== input.actor.id
       ? [
@@ -142,6 +166,7 @@ export async function changeHogOrPc(input: {
             from.user,
             `${request.refNo} has moved to ${to.name}`,
             `${input.actor.name} handed ${request.refNo} (${course}) over to ${to.name} as ${WORD[input.role]}. Reason: ${reason}`,
+            false,
           ),
         ]
       : []),

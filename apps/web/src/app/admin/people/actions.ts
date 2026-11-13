@@ -8,6 +8,7 @@ import { applyPeople, previewPeople, type Preview } from '@/lib/people-import';
 import { PEOPLE_PATHS, adminOnlyProblem, requirePeopleManager } from '@/lib/people-access';
 import { undoPersonChange } from '@/lib/people-undo';
 import { endAway, saveAway } from '@/lib/away-save';
+import { accessOf, sendWelcome, tellAccessChanged } from '@/lib/access-emails';
 
 const refresh = () => PEOPLE_PATHS.forEach((p) => revalidatePath(p));
 
@@ -15,10 +16,13 @@ const refresh = () => PEOPLE_PATHS.forEach((p) => revalidatePath(p));
  * Add or edit a person (Admin, or the Instruction Cell — who can't change an Admin account or give
  * the Admin role). Returns the impact list when replacements are needed first.
  */
-export async function savePersonAction(input: PersonInput): Promise<SaveResult> {
+export async function savePersonAction(
+  input: PersonInput & { sendWelcome?: boolean },
+): Promise<SaveResult> {
   const actor = await requirePeopleManager();
+  const { sendWelcome: welcome, ...rest } = input;
   const clean: PersonInput = {
-    ...input,
+    ...rest,
     roles: input.roles.filter((r) => (Object.values(RoleName) as string[]).includes(r)),
     facultyType:
       input.facultyType && (Object.values(FacultyType) as string[]).includes(input.facultyType)
@@ -36,9 +40,33 @@ export async function savePersonAction(input: PersonInput): Promise<SaveResult> 
     : null;
   const notYours = adminOnlyProblem(actor.isAdmin, before, clean.roles);
   if (notYours) return { ok: false, error: notYours };
+  const access = clean.id ? await accessOf(clean.id) : null;
   const r = await savePerson(actor.id, clean);
-  if (r.ok) refresh();
+  if (r.ok) {
+    refresh();
+    // v1.4.3 (H33): a new person gets the welcome email (ticked by default on Add person); a changed
+    // role or department is told to the person.
+    if (!clean.id && welcome) await sendWelcome(r.id, actor);
+    if (clean.id && access)
+      await tellAccessChanged(
+        clean.id,
+        access,
+        { roles: clean.roles, departmentId: clean.departmentId },
+        actor,
+      );
+  }
   return r;
+}
+
+/** v1.4.3 (H33): send (again) the welcome email from Edit person. */
+export async function sendWelcomeAction(
+  userId: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const actor = await requirePeopleManager();
+  const sent = await sendWelcome(String(userId), actor);
+  return sent
+    ? { ok: true, message: 'Welcome email sent.' }
+    : { ok: false, error: 'Not sent: the account is switched off.' };
 }
 
 async function toCsv(fd: FormData): Promise<string> {
@@ -87,15 +115,24 @@ export async function applyPeopleAction(fd: FormData) {
     accept = [];
   }
   const r = await applyPeople(actor.id, await toCsv(fd), accept, { actorIsAdmin: actor.isAdmin });
-  if (r.ok) refresh();
+  if (r.ok) {
+    refresh();
+    // v1.4.3 (H33): only when ticked (off by default for an upload).
+    if (fd.get('welcome') === '1') for (const id of r.createdIds) await sendWelcome(id, actor);
+  }
   return r;
 }
 
 /** v1.4.2 — undo a person's latest role / department change within 24 hours (lib/people-undo.ts). */
 export async function undoPersonChangeAction(userId: string, auditId: string) {
   const actor = await requirePeopleManager();
+  const before = await accessOf(String(userId));
   const r = await undoPersonChange(actor, String(userId), String(auditId));
-  if (r.ok) refresh();
+  if (r.ok) {
+    refresh();
+    const after = await accessOf(String(userId));
+    if (before && after) await tellAccessChanged(String(userId), before, after, actor, true);
+  }
   return r;
 }
 

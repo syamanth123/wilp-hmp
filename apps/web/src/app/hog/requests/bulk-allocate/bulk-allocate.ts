@@ -9,7 +9,7 @@ import {
 } from '@hmp/db';
 import { parseCsv, parseAllocationsCsv } from '@hmp/integrations';
 import { transition, isCappedFacultyType, WorkflowError } from '@hmp/workflow';
-import { notifyTransition } from '@/lib/notifications';
+import { notifyTransitions, type TransitionNote } from '@/lib/notifications';
 import { statusLabel } from '@hmp/workflow';
 import { requestVisibleTo } from '@/lib/request-scope';
 
@@ -357,6 +357,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
   const allocated: string[] = [];
   const failed: { refNo: string; reason: string }[] = [];
 
+  const notes: TransitionNote[] = [];
   for (const r of resolved) {
     try {
       await transition({
@@ -442,7 +443,7 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
           });
         },
       });
-      await notifyTransition({
+      notes.push({
         requestId: r.requestId,
         event: 'FACULTY_ALLOCATED',
         actor: { id: actor.id, name: actor.name },
@@ -456,6 +457,8 @@ export async function bulkAllocate(csv: string, actor: BulkActor): Promise<BulkA
     }
   }
 
+  // v1.4.3 (H31): one email per person for the whole allocation (the bell: one per request).
+  await notifyTransitions(notes);
   return failed.length === 0
     ? { status: 'success', allocated: allocated.length, refNos: allocated }
     : { status: 'partial', allocated: allocated.length, refNos: allocated, failed };

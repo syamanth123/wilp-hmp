@@ -1,4 +1,7 @@
 import { prisma, HandoutStatus, RoleName } from '@hmp/db';
+import { loadMailContext } from './email/context';
+import { autoPublishStoppedEmail } from './email/other';
+import { loadRequestFacts } from './email/request-facts';
 import { enqueueScheduleJob } from '@hmp/queue';
 import { TaxilaError } from '@hmp/integrations';
 // Relative imports only: the worker (tsx) runs this.
@@ -149,7 +152,11 @@ export async function autoPublish(requestId: string): Promise<AutoPublishResult>
       after: { runId: run.id, status, message },
     },
   });
-  if (status !== 'PUBLISHED')
+  if (status !== 'PUBLISHED') {
+    const [facts, ctx] = await Promise.all([
+      loadRequestFacts(requestId),
+      loadMailContext('Auto-publish'),
+    ]);
     await deliverToUsers(await instructionCellIds(), RoleName.INSTRUCTION_CELL, {
       requestId,
       subject: `Auto-publish needs you: ${target.refNo} ${target.codes[0] ?? ''}`,
@@ -157,6 +164,8 @@ export async function autoPublish(requestId: string): Promise<AutoPublishResult>
       metaKind: 'taxila.auto-publish',
       extraMeta: { runId: run.id, status },
       urgent: true,
+      mail: (to) => (facts ? autoPublishStoppedEmail(facts, to, { reason: message }, ctx) : null),
     });
+  }
   return { status, runId: run.id, message };
 }

@@ -48,6 +48,10 @@ async function dispatchNotification(d: NotifyJob): Promise<void> {
       return notify.dispatchPublishExportReady({ requestId: d.requestId, actor: d.actor });
     case 'manually_published':
       return notify.dispatchManuallyPublished({ requestId: d.requestId, actor: d.actor });
+    case 'transition_batch':
+      return notify.dispatchTransitions(
+        d.items.map((i) => ({ ...i, event: i.event as WorkflowEventType })),
+      );
   }
 }
 

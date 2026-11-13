@@ -120,12 +120,13 @@ test.describe('Taxila Mode B — export package + manual confirm', () => {
         const msgs = (await (await fetch(`${MAILHOG_BASE}/api/v2/messages?limit=50`)).json()) as {
           items: { Content: { Headers: { Subject?: string[]; To?: string[] }; Body?: string } }[];
         };
+        // v1.4.3: the detailed email — subject "[HMP] Action needed: upload to Taxila <course> …" (MIME-
+        // encoded by the mail library), the HMP reference in the details box.
         match =
-          msgs.items.find((m) =>
-            (m.Content.Headers.Subject?.[0] ?? '').includes(
-              `Export ready for manual upload: ${refNo}`,
-            ),
-          ) ?? null;
+          msgs.items.find((m) => {
+            const body = (m.Content.Body ?? '').replace(/=\r?\n/g, '');
+            return body.includes('manual upload') && body.includes(refNo);
+          }) ?? null;
         if (!match) await new Promise((r) => setTimeout(r, 500));
       }
       expect(match, 'export-ready email should arrive in Mailhog').not.toBeNull();

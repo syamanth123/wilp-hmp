@@ -14,7 +14,13 @@ export type NotifyJob =
   | { kind: 'transition'; requestId: string; event: string; actor: ActorRef; occurredAtMs: number }
   | { kind: 'comment'; requestId: string; commentId: string; actor: ActorRef }
   | { kind: 'publish_export_ready'; requestId: string; actor: ActorRef; occurredAtMs: number }
-  | { kind: 'manually_published'; requestId: string; actor: ActorRef };
+  | { kind: 'manually_published'; requestId: string; actor: ActorRef }
+  // v1.4.3 (H31): a bulk action's steps, sent as one email per person.
+  | {
+      kind: 'transition_batch';
+      items: { requestId: string; event: string; actor: ActorRef }[];
+      occurredAtMs: number;
+    };
 // NOTE: notifySlaReminder is intentionally NOT queued — it returns a count the
 // callers consume (`notified += await notifySlaReminder(...)` in the cron route
 // and the admin manual-sweep action). Queueing would break that report. Same
@@ -66,5 +72,7 @@ export function notifyJobId(job: NotifyJob): string {
       return `notify:export_ready:${job.requestId}:${job.occurredAtMs}`;
     case 'manually_published':
       return `notify:manually_published:${job.requestId}`;
+    case 'transition_batch':
+      return `notify:batch:${job.items[0]?.requestId ?? 'none'}:${job.items.length}:${job.occurredAtMs}`;
   }
 }

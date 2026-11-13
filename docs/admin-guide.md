@@ -37,6 +37,14 @@ need a department; Instruction Cell and Admin cover all departments. Each depart
   - A HOG's department is always chosen by hand.
 - **Download the list (Excel):** the upload format plus _suggested department_ and _why_ columns
   (information only). The department column offers the codes as a dropdown.
+- **Welcome email (v1.4.3):**
+  - **Add person** sends one by default; untick **Send a welcome email** to skip it.
+  - **Upload people** sends none unless you tick **Send welcome emails to the new people**, which shows
+    how many will go.
+  - **Edit person → Send welcome email** sends it later, or again.
+  - The email says how to sign in (BITS ID, or a password from the Admin) and never contains a password.
+- **Roles or department changed (v1.4.3):** the person gets an email with old → new and what changes in
+  their menu, also after an **Undo**. Changes made by an upload don't send one.
 - **Password sign-in accounts** (`/admin/users`, linked from People): create password logins where
   BITS sign-in isn't used.
 
@@ -91,11 +99,37 @@ Preview → commit. Commit is atomic per file and creates an `ErpSnapshot` row f
 - Edit `offCampusMaxCourses` (default 3 — the cap for off-campus/adjunct/guest faculty per semester).
 - Read-only state diagram of the lifecycle.
 
-## Notifications (`/admin/notifications`)
+## Notifications (`/admin/notifications`, v1.4.3)
 
-- Read-only list of seeded `NotificationTemplate`s (`handout.requested`, `handout.allocated`, `handout.assigned`, `handout.submitted`, `handout.rework`, `handout.approved`, `handout.published`).
-- Current SLAs from Workflow Config.
-- **Run reminder sweep now** — manually triggers `/api/cron/reminders` with the configured `CRON_SECRET` from the server. Returns `{ scanned, dueSoon, overdue, notified }`.
+Every HMP email uses one layout:
+
+- a one-line summary;
+- **what you need to do** (or "for your information"), with the due date;
+- a button to the exact page;
+- **what happened** (for example the reviewer's comments, or what changed);
+- the handout's details, the people and the recent steps;
+- a footer saying why it was sent.
+
+Every email also has a plain-text version.
+
+- **Emails** tab: every email, who gets it and its subject.
+  - **Edit** changes its **subject, summary and "what to do"**, using the placeholders listed beside the
+    fields. An unknown placeholder is refused when you save.
+  - **Back to the original wording** restores the built-in text.
+  - The rest of the email is fixed.
+  - The preview shows the email **as it would be sent, with a real request** (pick one).
+  - **Send a test to me** sends it to your own address, with "TEST" in the subject.
+- **Email log** tab: every email of the last 90 days. Each shows Sent, Failed (with the reason) or
+  Waiting for the daily digest. Filter by Failed, or search by person, subject or HMP reference. Failures
+  and test emails are also in the audit log.
+- **Settings** tab:
+  - **Reply-to address**, for example the Instruction Cell mailbox. When it's empty, emails say "Please
+    do not reply".
+  - **Help contact**, shown in every footer.
+- **Run the daily run now** sends the due-soon / overdue reminders, escalation (when it's on) and the
+  digests.
+- After a **bulk action** (kick-off, bulk upload, bulk allocate, bulk review), each person gets **one email**
+  listing all their requests. The bell still shows one notice per request.
 
 ## AI metrics (`/admin/ai-metrics`)
 
